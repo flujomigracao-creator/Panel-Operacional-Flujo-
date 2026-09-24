@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../../shared/config/supabaseClient';
+import { useAuth } from '../../auth/context/AuthContext';
 
 const NotificationContext = createContext(null);
 
@@ -12,11 +13,16 @@ const toNotificacion = (row) => ({
 });
 
 export const NotificationProvider = ({ children }) => {
+  const { userId } = useAuth();
   const [notificaciones, setNotificaciones] = useState([]);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
 
-  // Fetch initial notifications
+  // Fetch initial notifications (solo con sesión: RLS no deja leerlas antes del login)
   useEffect(() => {
+    if (!userId) {
+      setNotificaciones([]);
+      return;
+    }
     const fetchNotifs = async () => {
       const { data } = await supabase
         .from('notifications')
@@ -41,7 +47,7 @@ export const NotificationProvider = ({ children }) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [userId]);
 
   const markNotifAsRead = useCallback(async (id) => {
     // 1. Remove from UI

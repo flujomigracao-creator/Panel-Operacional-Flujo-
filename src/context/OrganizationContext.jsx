@@ -173,13 +173,19 @@ const fetchOrganization = async () => {
 };
 
 export const OrganizationProvider = ({ children }) => {
-  const { loading: authLoading } = useAuth();
+  const { loading: authLoading, userId } = useAuth();
   const [organization, setOrganization] = useState(readCachedOrganization);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     if (authLoading) {
+      return;
+    }
+    // Sin sesión (pantalla de login) RLS no deja leer la organización:
+    // se usa la copia cacheada y se espera al login.
+    if (!userId) {
+      setLoading(false);
       return;
     }
 
@@ -203,7 +209,7 @@ export const OrganizationProvider = ({ children }) => {
         setError(err);
         setLoading(false);
       });
-  }, [authLoading]);
+  }, [authLoading, userId]);
 
   // useLayoutEffect (no useEffect) para aplicar las CSS custom properties
   // antes de que el navegador pinte el frame — con el valor cacheado ya en
