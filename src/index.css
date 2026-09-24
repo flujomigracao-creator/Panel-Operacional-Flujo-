@@ -1,0 +1,180 @@
+﻿@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+@import "./styles/tokens.css";
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Matches the data-theme attribute ThemeContext.jsx already sets on <html> — not prefers-color-scheme */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+ * Bridges tokens.css custom properties into Tailwind's theme so utilities like
+ * bg-brand-primary, text-status-pendiente, rounded-md, shadow-glow etc. are generated.
+ * "inline" means Tailwind substitutes var(--token) directly into each utility's CSS
+ * instead of re-emitting the variable — required since these tokens change value
+ * at runtime via the [data-theme="light"] override in tokens.css.
+ */
+@theme inline {
+  /* Brand */
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-primary-dark: var(--brand-primary-dark);
+  --color-brand-primary-light: var(--brand-primary-light);
+  --color-brand-primary-glow: var(--brand-primary-glow);
+
+  /* Semantic */
+  --color-success: var(--color-success);
+  --color-success-bg: var(--color-success-bg);
+  --color-success-border: var(--color-success-border);
+  --color-warning: var(--color-warning);
+  --color-warning-bg: var(--color-warning-bg);
+  --color-warning-border: var(--color-warning-border);
+  --color-danger: var(--color-danger);
+  --color-danger-bg: var(--color-danger-bg);
+  --color-danger-border: var(--color-danger-border);
+  --color-info: var(--color-info);
+  --color-info-bg: var(--color-info-bg);
+  --color-info-border: var(--color-info-border);
+
+  /* Status (trámite state) */
+  --color-status-pendiente: var(--status-pendiente);
+  --color-status-pendiente-bg: var(--status-pendiente-bg);
+  --color-status-pendiente-border: var(--status-pendiente-border);
+  --color-status-procesando: var(--status-procesando);
+  --color-status-procesando-bg: var(--status-procesando-bg);
+  --color-status-procesando-border: var(--status-procesando-border);
+  --color-status-esperando: var(--status-esperando);
+  --color-status-esperando-bg: var(--status-esperando-bg);
+  --color-status-esperando-border: var(--status-esperando-border);
+  --color-status-completada: var(--status-completada);
+  --color-status-completada-bg: var(--status-completada-bg);
+  --color-status-completada-border: var(--status-completada-border);
+  --color-status-cancelada: var(--status-cancelada);
+  --color-status-cancelada-bg: var(--status-cancelada-bg);
+  --color-status-cancelada-border: var(--status-cancelada-border);
+
+  /* Surface / border / text aliases (already color-* prefixed in tokens.css) */
+  --color-bg-canvas: var(--color-bg-canvas);
+  --color-bg-base: var(--color-bg-base);
+  --color-bg-surface: var(--color-bg-surface);
+  --color-bg-elevated: var(--color-bg-elevated);
+  --color-bg-secondary: var(--color-bg-secondary);
+  --color-bg-primary: var(--color-bg-primary);
+  --color-border: var(--color-border);
+  --color-border-hover: var(--color-border-hover);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-disabled: var(--color-text-disabled);
+  --color-primary: var(--color-primary);
+  --color-primary-hover: var(--color-primary-hover);
+  --color-surface-overlay: var(--surface-overlay);
+
+  /* Chrome (persistent dark nav surface) */
+  --color-chrome-bg: var(--chrome-bg);
+  --color-chrome-bg-raised: var(--chrome-bg-raised);
+  --color-chrome-bg-active: var(--chrome-bg-active);
+  --color-chrome-border: var(--chrome-border);
+  --color-chrome-text: var(--chrome-text);
+  --color-chrome-text-active: var(--chrome-text-active);
+  --color-chrome-accent: var(--chrome-accent);
+
+  /* Radius — same key names as tokens.css, overrides Tailwind's default scale */
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-full: var(--radius-full);
+
+  /* Spacing scale (gap-*) */
+  --spacing-xs: var(--gap-xs);
+  --spacing-sm: var(--gap-sm);
+  --spacing-md: var(--gap-md);
+  --spacing-lg: var(--gap-lg);
+  --spacing-xl: var(--gap-xl);
+  --spacing-2xl: var(--gap-2xl);
+
+  /* Shadows */
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-glow: var(--shadow-glow);
+}
+
+/* GLOBAL UTILITIES */
+
+/* Figma Make theme base density (2026-07-13) — shrinks all rem-based Tailwind utilities app-wide */
+html {
+  font-size: 13px;
+}
+
+body {
+  background: var(--color-bg-canvas);
+  color: var(--color-text-primary);
+  font-family: 'Inter', sans-serif;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+  background: var(--color-bg-canvas);
+}
+
+/* Redefine glass-panel to match the solid flat ElevenLabs design instead of replacing it everywhere */
+.glass-panel {
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.glass-panel-elevated {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+@media (max-width: 768px) {
+  .app-layout > aside {
+    width: 72px !important;
+    min-width: 72px !important;
+  }
+
+  .app-layout > aside h1,
+  .app-layout > aside nav button > :not(svg),
+  .app-layout > aside > div:last-child > button,
+  .app-layout > aside > div:last-child > div > div:last-child {
+    display: none !important;
+  }
+
+  .app-layout > aside nav {
+    padding: 0 var(--gap-sm, 8px) !important;
+    align-items: center;
+  }
+
+  .app-layout > aside nav button {
+    justify-content: center !important;
+    padding: 0 !important;
+    width: 44px !important;
+    height: 44px !important;
+  }
+
+  .app-layout > div > header {
+    padding: 0 var(--section-gap, 16px) !important;
+    gap: var(--gap-sm, 8px);
+  }
+
+  .responsive-grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+
+  button,
+  input,
+  select,
+  textarea,
+  [role="button"] {
+    min-height: 44px;
+  }
+}
