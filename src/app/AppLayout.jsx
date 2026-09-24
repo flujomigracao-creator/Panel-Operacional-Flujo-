@@ -16,7 +16,7 @@ import TodayView from '@features/today/components/TodayView';
 // Vistas que todavía leen el esquema anterior (clientes, entradas, perfiles…).
 // Se reactivan una por una a medida que se migran al modelo de FLUJO
 // (clients, client_services, documents, messages, tasks).
-export const MIGRATED_VIEWS = new Set(['today', 'clients']);
+export const MIGRATED_VIEWS = new Set(['today', 'clients', 'client']);
 
 // Navigation
 import Sidebar from '../navigation/components/Sidebar';
@@ -41,7 +41,7 @@ import { GlobalDocumentoUnicoListener } from '../components/GlobalDocumentoUnico
 
 // Views
 
-const ClientView = lazy(() => import('../components/ClientView'));
+const ClientDetailView = lazy(() => import('@features/clients/components/ClientDetailView'));
 const ClientsView = lazy(() => import('@features/clients/components/ClientsView'));
 const NewClientWizard = lazy(() => import('../components/newClientWizard/NewClientWizard'));
 const TeamChat = lazy(() => import('../components/TeamChat'));
@@ -148,7 +148,7 @@ export default function AppLayout() {
 
   // --- Main Layout ---
   return (
-    <GlobalAiChatProvider selectedClientId={currentView === 'client' ? selectedClientId : null}>
+    <GlobalAiChatProvider selectedClientId={isReady('ai-chat') && currentView === 'client' ? selectedClientId : null}>
       <div className="app-layout" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
 
         {/* Sidebar */}
@@ -192,8 +192,8 @@ export default function AppLayout() {
                 <TodayView onNavigateToClient={isReady('client') ? navigateToClientTracked : undefined} />
               )}
               {currentView === 'dashboard' && isReady('dashboard') && <DashboardView navigateToClientsList={navigateToClientsList} />}
-              {currentView === 'client' && isReady('client') && <ClientView clientId={selectedClientId} onBack={navigateToHome} onNavigateToClient={navigateToClientTracked} />}
-              {currentView === 'clients' && isReady('clients') && <ClientsView searchQuery={globalSearch} />}
+              {currentView === 'client' && isReady('client') && <ClientDetailView key={selectedClientId} clientId={selectedClientId} onBack={navigateToClientsList} />}
+              {currentView === 'clients' && isReady('clients') && <ClientsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} />}
               {currentView === 'team-chat' && isReady('team-chat') && <TeamChat isFullView={true} />}
               {currentView === 'team-management' && isReady('team-management') && <TeamManagement userProfile={userProfile} />}
               {currentView === 'settings' && isReady('settings') && <SettingsView userProfile={userProfile} />}

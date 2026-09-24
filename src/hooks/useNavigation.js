@@ -25,12 +25,12 @@ export const useNavigation = (isReady = true) => {
 
     const [selectedClientId, setSelectedClientId] = useState(() => {
         const hash = window.location.hash;
+        // Los ids de clients son UUID: se manejan como texto.
         if (hash.startsWith('#client/')) {
             const idStr = hash.replace('#client/', '');
-            return idStr ? Number(idStr) : null;
+            return idStr || null;
         }
-        const saved = localStorage.getItem('app_selectedClientId');
-        return saved ? Number(saved) : null;
+        return localStorage.getItem('app_selectedClientId') || null;
     });
 
     // Sync state → URL hash & localStorage
@@ -72,7 +72,7 @@ export const useNavigation = (isReady = true) => {
             if (hash.startsWith('#client/')) {
                 setCurrentView('client');
                 const idStr = hash.replace('#client/', '');
-                setSelectedClientId(idStr ? Number(idStr) : null);
+                setSelectedClientId(idStr || null);
             } else if (hash === '#hoy') {
                 setCurrentView('today');
                 setSelectedClientId(null);

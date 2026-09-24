@@ -1,34 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  AlertCircle,
-  ChevronDown,
-  ChevronUp,
-  ExternalLink,
-  FileSearch,
-  FolderOpen,
-  MessageSquare,
-  Phone,
-  Mail,
-  Users,
-  X,
-} from 'lucide-react';
-import {
-  getClients,
-  isActiveTramite,
-  CLIENT_STATUS,
-  TRAMITE_STATUS,
-  KOMMO_CONTACT_URL,
-  KOMMO_LEAD_URL,
-} from '../services/clientsService';
-
-const TONES = {
-  sky: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
-  amber: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
-  green: 'bg-green-500/15 text-green-400 border-green-500/30',
-  zinc: 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30',
-  red: 'bg-red-500/15 text-red-400 border-red-500/30',
-};
+import { AlertCircle, ChevronDown, ChevronUp, FileSearch, Users } from 'lucide-react';
+import { getClients, isActiveTramite } from '../services/clientsService';
 
 const TABS = [
   { key: 'todos', label: 'Todos', match: () => true },
@@ -84,10 +57,6 @@ function relative(iso) {
 // El nombre llega como teléfono cuando el contacto todavía no dio su nombre.
 const displayName = (c) => (c.full_name && c.full_name !== c.phone ? c.full_name : 'Sin nombre');
 
-function Pill({ tone = 'zinc', children }) {
-  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TONES[tone]}`}>{children}</span>;
-}
-
 function SortHeader({ field, sort, onSort, children, className = '' }) {
   const active = sort.field === field;
   return (
@@ -115,85 +84,6 @@ function TramiteChip({ tramite }) {
   );
 }
 
-function ClientDrawer({ client, onClose }) {
-  const status = CLIENT_STATUS[client.status] || CLIENT_STATUS.lead;
-  return (
-    <>
-      <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
-      <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-chrome-border bg-chrome-bg shadow-xl">
-        <div className="flex items-start justify-between gap-3 border-b border-chrome-border p-5">
-          <div className="min-w-0">
-            <h2 className="truncate text-lg font-semibold text-chrome-text-active">{displayName(client)}</h2>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <Pill tone={status.tone}>{status.label}</Pill>
-              {client.nationality && <span className="text-xs text-chrome-text-muted">{client.nationality}</span>}
-              <span className="text-xs text-chrome-text-muted">Registrado {formatDate(client.created_at)}</span>
-            </div>
-          </div>
-          <button onClick={onClose} className="rounded-md p-1.5 text-chrome-text hover:bg-chrome-bg-raised hover:text-chrome-text-active" aria-label="Cerrar">
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="flex-1 space-y-6 overflow-y-auto p-5">
-          <section className="space-y-2 text-sm">
-            <div className="flex items-center gap-2 text-chrome-text-active"><Phone size={14} className="text-chrome-text-muted" /> {formatPhone(client.phone)}</div>
-            {client.email && <div className="flex items-center gap-2 text-chrome-text-active"><Mail size={14} className="text-chrome-text-muted" /> {client.email}</div>}
-            <div className="flex items-center gap-2 text-chrome-text-muted"><MessageSquare size={14} /> {client.mensajes} mensajes · última actividad: {relative(client.last_activity_at)}</div>
-            {client.kommo_contact_id && (
-              <a href={KOMMO_CONTACT_URL(client.kommo_contact_id)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-sky-400 hover:underline">
-                Abrir contacto en Kommo <ExternalLink size={12} />
-              </a>
-            )}
-          </section>
-
-          <section>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-chrome-text-muted">Trámites ({client.tramites.length})</h3>
-            {client.tramites.length === 0 ? (
-              <p className="text-sm text-chrome-text-muted">Todavía no tiene trámites. Se crean solos cuando su lead entra al pipeline Operacional en Kommo.</p>
-            ) : (
-              <div className="space-y-3">
-                {client.tramites.map(t => {
-                  const ts = TRAMITE_STATUS[t.status] || TRAMITE_STATUS.pending;
-                  return (
-                    <div key={t.id} className="rounded-lg border border-chrome-border bg-chrome-bg-raised p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="font-medium text-chrome-text-active">{t.servicio}</p>
-                        <Pill tone={ts.tone}>{ts.label}</Pill>
-                      </div>
-                      <p className="mt-1 text-xs text-chrome-text-muted">
-                        {t.etapa_general || 'Sin etapa'}{t.etapa && t.etapa !== t.etapa_general ? ` · ${t.etapa}` : ''} · actualizado {relative(t.updated_at).toLowerCase()}
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-3 text-xs">
-                        {t.kommo_lead_id && (
-                          <a href={KOMMO_LEAD_URL(t.kommo_lead_id)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sky-400 hover:underline">
-                            Lead en Kommo <ExternalLink size={11} />
-                          </a>
-                        )}
-                        {t.drive_link && (
-                          <a href={t.drive_link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sky-400 hover:underline">
-                            <FolderOpen size={12} /> Carpeta en Drive
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
-          {client.documentos_por_revisar > 0 && (
-            <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-400">
-              <FileSearch size={15} /> {client.documentos_por_revisar} documento(s) por revisar — aparecen en Hoy.
-            </div>
-          )}
-        </div>
-      </aside>
-    </>
-  );
-}
-
 function ClientsSkeleton() {
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-chrome-bg-subtle p-6 lg:p-8 animate-pulse">
@@ -209,13 +99,12 @@ function ClientsSkeleton() {
  * Clientes — un registro por persona (teléfono), con todos sus trámites.
  * Los clientes se crean solos cuando un lead entra a Operacional en Kommo.
  */
-export default function ClientsView({ searchQuery = '' }) {
+export default function ClientsView({ searchQuery = '', onNavigateToClient }) {
   const { data: clients = [], isLoading, error } = useQuery({ queryKey: ['painel_clientes'], queryFn: getClients });
   const [tab, setTab] = useState('todos');
   const [servicio, setServicio] = useState('all');
   const [etapa, setEtapa] = useState('all');
   const [sort, setSort] = useState({ field: 'last_activity_at', dir: 'desc' });
-  const [selected, setSelected] = useState(null);
 
   const servicios = useMemo(() => [...new Set(clients.flatMap(c => c.tramites.map(t => t.servicio)))].sort(), [clients]);
   const etapas = useMemo(() => [...new Set(clients.flatMap(c => c.tramites.filter(isActiveTramite).map(t => t.etapa_general).filter(Boolean)))], [clients]);
@@ -300,7 +189,7 @@ export default function ClientsView({ searchQuery = '' }) {
             {visible.map(c => (
               <tr
                 key={c.id}
-                onClick={() => setSelected(c)}
+                onClick={() => onNavigateToClient?.(c.id, displayName(c) === 'Sin nombre' ? formatPhone(c.phone) : displayName(c))}
                 className="cursor-pointer border-b border-chrome-border last:border-0 transition-colors hover:bg-chrome-bg-raised"
               >
                 <td className="px-4 py-3">
@@ -337,8 +226,6 @@ export default function ClientsView({ searchQuery = '' }) {
           <div className="p-12 text-center text-sm text-chrome-text-muted">No hay clientes que coincidan.</div>
         )}
       </div>
-
-      {selected && <ClientDrawer client={selected} onClose={() => setSelected(null)} />}
     </div>
   );
 }
