@@ -183,7 +183,7 @@ export default function ClientViewHeader({
               <button
                 className="btn btn-ghost"
                 onClick={() => {
-                  const msg = `🔑 *Acceso App PCBR*\n\n📱 Número de Cliente: *${portalCredentials.numero_cliente}*\n🔐 Contraseña: *${portalCredentials.clave_acceso}*\n\n👉 Ingresa a la App: [link]\n\n_Tu acceso es personal, no lo compartas._`;
+                  const msg = `🔑 *Acceso App FLUJO Migração*\n\n📱 Número de Cliente: *${portalCredentials.numero_cliente}*\n🔐 Contraseña: *${portalCredentials.clave_acceso}*\n\n👉 Ingresa a la App: [link]\n\n_Tu acceso es personal, no lo compartas._`;
                   handleCopy(msg, 'portal-msg');
                 }}
                 title="Copiar mensaje de credenciales"

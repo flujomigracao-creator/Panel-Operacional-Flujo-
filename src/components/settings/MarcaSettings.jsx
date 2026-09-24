@@ -9,8 +9,8 @@ import { analyzeLogoColors } from '../../services/aiService';
 // Coincide con los literales de tokens.css para cada modo, así "Restaurar" siempre
 // vuelve al valor por defecto real del tema activo (no a un color hardcodeado fijo).
 const DEFAULTS = {
-  dark: { primario: '#7c3aed', fondo: '#000000' },
-  light: { primario: '#8b5cf6', fondo: '#ffffff' },
+  dark: { primario: '#1e3a8a', fondo: '#000000' },
+  light: { primario: '#2f56c9', fondo: '#ffffff' },
 };
 
 // Mismo criterio de contraste que aplica OrganizationContext al guardar: fondo oscuro → texto

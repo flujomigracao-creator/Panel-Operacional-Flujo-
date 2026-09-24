@@ -96,7 +96,7 @@ export default function TeamManagement({ userProfile }) {
         <span style={{ 
           display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.25rem 0.5rem', 
           borderRadius: 'var(--radius-full)', fontSize: '0.75rem', fontWeight: 500,
-          background: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6'
+          background: 'rgba(30, 64, 175, 0.12)', color: '#2f56c9'
         }}>
           <ShieldAlert size={12} /> ADMIN PLUS
         </span>

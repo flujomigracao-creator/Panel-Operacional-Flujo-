@@ -28,7 +28,7 @@ export function BrandLogo({ size = 32, className = '', animated = true }) {
         <linearGradient id="energyStream2" x1="100" y1="100" x2="0" y2="0" gradientUnits="userSpaceOnUse">
           <stop stopColor="#a5b4fc" stopOpacity="0" />
           <stop offset="0.5" stopColor="#e879f9" stopOpacity="1" />
-          <stop offset="1" stopColor="#7c3aed" stopOpacity="0" />
+          <stop offset="1" stopColor="#1e3a8a" stopOpacity="0" />
         </linearGradient>
 
         {/* Heavy Neon Glow Filter */}
@@ -120,17 +120,17 @@ export function BrandLogo({ size = 32, className = '', animated = true }) {
       <path d="M 40 10 L 0 90 L 14 90 L 45 10 Z" fill="#a855f7" />
 
       {/* Left Leg 3D (Side Face, darker) */}
-      <path d="M 45 10 L 14 90 L 25 90 L 50 10 Z" fill="#7c3aed" />
+      <path d="M 45 10 L 14 90 L 25 90 L 50 10 Z" fill="#1e3a8a" />
 
       {/* Database Disks (Stacked inside) */}
       <g stroke="#09090b" strokeWidth="3.5" strokeLinejoin="round">
         {/* Bottom Disk */}
         <path d="M 29 74 v 14 a 21 7 0 0 0 42 0 v -14 Z" fill="#4c1d95" />
-        <ellipse cx="50" cy="74" rx="21" ry="7" fill="#7c3aed" />
+        <ellipse cx="50" cy="74" rx="21" ry="7" fill="#1e3a8a" />
 
         {/* Middle Disk */}
         <path d="M 29 58 v 14 a 21 7 0 0 0 42 0 v -14 Z" fill="#4c1d95" />
-        <ellipse cx="50" cy="58" rx="21" ry="7" fill="#8b5cf6" />
+        <ellipse cx="50" cy="58" rx="21" ry="7" fill="#2f56c9" />
 
         {/* Top Disk */}
         <path d="M 29 42 v 14 a 21 7 0 0 0 42 0 v -14 Z" fill="#4c1d95" />
@@ -143,7 +143,7 @@ export function BrandLogo({ size = 32, className = '', animated = true }) {
 export function BrandLogoText({ size = 24, className = '', showText = true, href, onClick }) {
   const content = (
     <div className={`flex items-center gap-1 font-bold ${className}`} style={{ fontSize: size }}>
-      {showText && <span className="tracking-widest" style={{ color: 'var(--color-text-primary)' }}>OPERACIONAL PCBR</span>}
+      {showText && <span className="tracking-widest" style={{ color: 'var(--color-text-primary)' }}>FLUJO MIGRAÇÃO</span>}
     </div>
   );
 

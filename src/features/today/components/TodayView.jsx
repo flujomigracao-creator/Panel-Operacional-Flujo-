@@ -103,7 +103,7 @@ function InboxItem({ item, busy, onAction, onNavigateToClient }) {
 
   return (
     <div className="flex items-start gap-4 rounded-xl border border-chrome-border bg-chrome-bg p-4 shadow-sm">
-      <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-chrome-bg-raised text-brand-primary">
+      <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-primary text-white">
         <Icon size={18} />
       </div>
 

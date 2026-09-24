@@ -4,11 +4,11 @@
  */
 
 :root {
-  /* Brand - Purple Accent */
-  --brand-primary:       #7c3aed; /* Violet 600 */
-  --brand-primary-dark:  #6d28d9; /* Violet 700 */
-  --brand-primary-light: rgba(124, 58, 237, 0.1);
-  --brand-primary-glow:  rgba(124, 58, 237, 0.2);
+  /* Brand - Azul marino (FLUJO Migração) */
+  --brand-primary:       #1e40af; /* Blue 800 */
+  --brand-primary-dark:  #1e3a8a; /* Blue 900 */
+  --brand-primary-light: rgba(30, 64, 175, 0.1);
+  --brand-primary-glow:  rgba(30, 64, 175, 0.2);
 
   /* Semantic */
   --color-success:       #10b981;
@@ -132,8 +132,8 @@
 }
 
 [data-theme="light"] {
-  --brand-primary:       #8b5cf6;
-  --brand-primary-dark:  #7c3aed;
+  --brand-primary:       #1e3a8a; /* Blue 900 */
+  --brand-primary-dark:  #172554; /* Blue 950 */
 
   /* Light counterpart derived from the Figma Make dark theme (2026-07-13) — same violet-tinted neutrals, inverted */
   --surface-canvas:   #fdfcff;

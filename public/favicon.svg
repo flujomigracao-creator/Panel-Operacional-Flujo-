@@ -6,17 +6,17 @@
   <path d="M 40 10 L 0 90 L 14 90 L 45 10 Z" fill="#a855f7" />
 
   <!-- Left Leg 3D (Side Face, darker) -->
-  <path d="M 45 10 L 14 90 L 25 90 L 50 10 Z" fill="#7c3aed" />
+  <path d="M 45 10 L 14 90 L 25 90 L 50 10 Z" fill="#1e3a8a" />
 
   <!-- Database Disks (Stacked inside) -->
   <g stroke="#09090b" stroke-width="3.5" stroke-linejoin="round">
     <!-- Bottom Disk -->
     <path d="M 29 74 v 14 a 21 7 0 0 0 42 0 v -14 Z" fill="#4c1d95" />
-    <ellipse cx="50" cy="74" rx="21" ry="7" fill="#7c3aed" />
+    <ellipse cx="50" cy="74" rx="21" ry="7" fill="#1e3a8a" />
 
     <!-- Middle Disk -->
     <path d="M 29 58 v 14 a 21 7 0 0 0 42 0 v -14 Z" fill="#4c1d95" />
-    <ellipse cx="50" cy="58" rx="21" ry="7" fill="#8b5cf6" />
+    <ellipse cx="50" cy="58" rx="21" ry="7" fill="#2f56c9" />
 
     <!-- Top Disk -->
     <path d="M 29 42 v 14 a 21 7 0 0 0 42 0 v -14 Z" fill="#4c1d95" />
