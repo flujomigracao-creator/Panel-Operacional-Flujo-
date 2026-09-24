@@ -114,13 +114,13 @@ export async function reviewDocument(documentId, approved, userId, notes = null)
     .eq('id', documentId));
 }
 
-// Adjuntos guardados en Storage (chat-media) necesitan URL firmada; los de
-// Kommo/Drive ya traen su link.
+// Prioriza la copia propia en Storage (chat-media, URL firmada): el link de
+// Kommo puede vencer. Si no hay copia, se usa el link original.
 export async function getAttachmentUrl(attachment) {
-  if (attachment.source_url) return attachment.source_url;
   const path = attachment.storage_path;
-  if (!path) return null;
-  if (/^https?:\/\//.test(path)) return path;
-  const { data } = await supabase.storage.from('chat-media').createSignedUrl(path, 3600);
-  return data?.signedUrl || null;
+  if (path && !/^https?:\/\//.test(path)) {
+    const { data } = await supabase.storage.from('chat-media').createSignedUrl(path, 3600);
+    if (data?.signedUrl) return data.signedUrl;
+  }
+  return attachment.source_url || (/^https?:\/\//.test(path || '') ? path : null);
 }
