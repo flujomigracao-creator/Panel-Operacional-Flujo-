@@ -20,8 +20,11 @@ import {
   Paperclip,
   Pencil,
   User,
+  Users,
   X,
 } from 'lucide-react';
+import ClientRelations from './ClientRelations';
+import TramiteParticipants from './TramiteParticipants';
 import { useAuth } from '@features/auth/context/AuthContext';
 import {
   getClientDetail,
@@ -31,6 +34,7 @@ import {
   reviewDocument,
   getAttachmentUrl,
   DRIVE_PREVIEW_URL,
+  PARTICIPANT_ROLES,
 } from '../services/clientDetailService';
 import { CLIENT_STATUS, TRAMITE_STATUS, KOMMO_CONTACT_URL, KOMMO_LEAD_URL } from '../services/clientsService';
 
@@ -302,7 +306,7 @@ function DetailSkeleton() {
  * Kommo) con sus etapas y campos, documentos, pagos, historial y la
  * conversación completa de Kommo.
  */
-export default function ClientDetailView({ clientId, onBack }) {
+export default function ClientDetailView({ clientId, onBack, onNavigateToClient }) {
   const { userId, userProfile } = useAuth();
   const queryClient = useQueryClient();
   const queryKey = ['client_detail', clientId];
@@ -335,7 +339,7 @@ export default function ClientDetailView({ clientId, onBack }) {
     );
   }
 
-  const { client, tramites, documents, payments, events, messages, messagesTruncated } = data;
+  const { client, relaciones, tramites, documents, payments, events, messages, messagesTruncated } = data;
   const status = CLIENT_STATUS[client.status] || CLIENT_STATUS.lead;
   const saveClient = (field) => async (value) => { await updateClient(client.id, { [field]: value }); refresh(); };
 
@@ -422,6 +426,16 @@ export default function ClientDetailView({ clientId, onBack }) {
             <EditableRow label="Origen" value={client.lead_source} readOnly />
           </Section>
 
+          <Section icon={Users} title="Relaciones" count={relaciones.length}>
+            <ClientRelations
+              client={client}
+              relaciones={relaciones}
+              organizationId={userProfile.organization_id}
+              onChanged={refresh}
+              onNavigateToClient={onNavigateToClient}
+            />
+          </Section>
+
           {consolidated.length > 0 && (
             <Section icon={FileText} title="Datos de los trámites" count={consolidated.length}>
               <p className="mb-2 text-xs text-chrome-text-muted">Datos cargados por el cliente o extraídos de sus documentos. Se editan dentro de cada trámite.</p>
@@ -469,7 +483,14 @@ export default function ClientDetailView({ clientId, onBack }) {
                     <div key={t.id} className="rounded-lg border border-chrome-border bg-chrome-bg-raised p-3">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
-                          <p className="font-medium text-chrome-text-active">{t.servicio}</p>
+                          <p className="font-medium text-chrome-text-active">
+                            {t.servicio}
+                            {!t.esTitular && (
+                              <span className="ml-2 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-400">
+                                {PARTICIPANT_ROLES[t.rol] || 'Participa'} · titular: {t.titular?.full_name}
+                              </span>
+                            )}
+                          </p>
                           <p className="text-xs text-chrome-text-muted">Iniciado {dateOnly(t.started_at || t.created_at)} · actualizado {dateTime(t.updated_at)}</p>
                         </div>
                         <Pill tone={ts.tone}>{ts.label}</Pill>
@@ -526,6 +547,14 @@ export default function ClientDetailView({ clientId, onBack }) {
                           ))}
                         </div>
                       )}
+
+                      <TramiteParticipants
+                        tramite={t}
+                        relaciones={relaciones}
+                        organizationId={userProfile.organization_id}
+                        onChanged={refresh}
+                        onNavigateToClient={onNavigateToClient}
+                      />
 
                       {t.notes && <p className="mt-2 whitespace-pre-wrap rounded-md bg-chrome-bg px-2 py-1.5 text-xs text-chrome-text-muted">{t.notes}</p>}
                     </div>

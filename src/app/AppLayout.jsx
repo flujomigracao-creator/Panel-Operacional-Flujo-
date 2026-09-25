@@ -192,7 +192,7 @@ export default function AppLayout() {
                 <TodayView onNavigateToClient={isReady('client') ? navigateToClientTracked : undefined} />
               )}
               {currentView === 'dashboard' && isReady('dashboard') && <DashboardView navigateToClientsList={navigateToClientsList} />}
-              {currentView === 'client' && isReady('client') && <ClientDetailView key={selectedClientId} clientId={selectedClientId} onBack={navigateToClientsList} />}
+              {currentView === 'client' && isReady('client') && <ClientDetailView key={selectedClientId} clientId={selectedClientId} onBack={navigateToClientsList} onNavigateToClient={navigateToClientTracked} />}
               {currentView === 'clients' && isReady('clients') && <ClientsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} />}
               {currentView === 'team-chat' && isReady('team-chat') && <TeamChat isFullView={true} />}
               {currentView === 'team-management' && isReady('team-management') && <TeamManagement userProfile={userProfile} />}

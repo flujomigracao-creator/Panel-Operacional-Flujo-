@@ -21,13 +21,20 @@ const must = ({ data, error }) => {
  * de cada servicio), documentos, pagos, historial de eventos y la conversación
  * completa de Kommo. RLS limita todo a la organización del usuario.
  */
+const TRAMITE_COLUMNS = 'id, client_id, service_id, stage_id, status, price, currency, started_at, completed_at, notes, kommo_lead_id, drive_folder_link, created_at, updated_at, services(name), service_stages(name, pipeline_stage_code), clients(full_name, phone)';
+
 export async function getClientDetail(clientId) {
-  const [client, tramites, documents, payments, messagesDesc] = await Promise.all([
+  // Trámites donde el cliente es titular + aquellos donde participa (dependiente, cónyuge…)
+  const participaciones = await supabase.from('client_service_participants').select('client_service_id, rol').eq('client_id', clientId).then(must);
+  const idsParticipa = participaciones.map(p => p.client_service_id);
+  const rolPorTramite = Object.fromEntries(participaciones.map(p => [p.client_service_id, p.rol]));
+
+  const [client, tramites, documents, payments, messagesDesc, relaciones] = await Promise.all([
     supabase.from('clients').select('*').eq('id', clientId).maybeSingle().then(must),
     supabase
       .from('client_services')
-      .select('id, service_id, stage_id, status, price, currency, started_at, completed_at, notes, kommo_lead_id, created_at, updated_at, services(name), service_stages(name, pipeline_stage_code)')
-      .eq('client_id', clientId)
+      .select(TRAMITE_COLUMNS)
+      .or(idsParticipa.length ? `client_id.eq.${clientId},id.in.(${idsParticipa.join(',')})` : `client_id.eq.${clientId}`)
       .order('created_at', { ascending: false })
       .then(must),
     supabase
@@ -44,14 +51,20 @@ export async function getClientDetail(clientId) {
       .order('created_at', { ascending: false })
       .limit(MESSAGES_LIMIT)
       .then(must),
+    supabase
+      .from('client_relations_view')
+      .select('id, con_client_id, tipo, notas, created_at')
+      .eq('de_client_id', clientId)
+      .then(must),
   ]);
 
   if (!client) return null;
 
   const tramiteIds = tramites.map(t => t.id);
   const serviceIds = [...new Set(tramites.map(t => t.service_id))];
+  const relacionadosIds = [...new Set(relaciones.map(r => r.con_client_id))];
 
-  const [fieldValues, serviceFields, stages, events] = await Promise.all([
+  const [fieldValues, serviceFields, stages, events, participantes, relacionados] = await Promise.all([
     tramiteIds.length
       ? supabase.from('client_service_field_values').select('client_service_id, service_field_id, value, updated_at').in('client_service_id', tramiteIds).then(must)
       : [],
@@ -64,12 +77,20 @@ export async function getClientDetail(clientId) {
     tramiteIds.length
       ? supabase.from('client_service_events').select('id, client_service_id, event_type, from_stage_id, to_stage_id, metadata, created_at').in('client_service_id', tramiteIds).order('created_at', { ascending: false }).limit(200).then(must)
       : [],
+    tramiteIds.length
+      ? supabase.from('client_service_participants').select('id, client_service_id, client_id, rol, clients(full_name, phone)').in('client_service_id', tramiteIds).then(must)
+      : [],
+    relacionadosIds.length
+      ? supabase.from('clients').select('id, full_name, phone').in('id', relacionadosIds).then(must)
+      : [],
   ]);
 
   const stageName = Object.fromEntries(stages.map(s => [s.id, s.name]));
+  const relacionadoPorId = Object.fromEntries(relacionados.map(c => [c.id, c]));
 
   return {
     client,
+    relaciones: relaciones.map(r => ({ ...r, cliente: relacionadoPorId[r.con_client_id] || null })),
     tramites: tramites.map(t => {
       const values = Object.fromEntries(fieldValues.filter(v => v.client_service_id === t.id).map(v => [v.service_field_id, v.value]));
       const fields = serviceFields.filter(f => f.service_id === t.service_id);
@@ -79,7 +100,11 @@ export async function getClientDetail(clientId) {
         etapa: t.service_stages?.name,
         stages: stages.filter(s => s.service_id === t.service_id),
         fields: fields.filter(f => !HIDDEN_FIELDS.has(f.name)).map(f => ({ ...f, value: values[f.id] ?? '' })),
-        driveLink: values[fields.find(f => f.name === 'Pasta_Drive_Link')?.id] || null,
+        driveLink: t.drive_folder_link || values[fields.find(f => f.name === 'Pasta_Drive_Link')?.id] || null,
+        esTitular: t.client_id === clientId,
+        titular: t.clients,
+        rol: t.client_id === clientId ? 'titular' : rolPorTramite[t.id],
+        participantes: participantes.filter(p => p.client_service_id === t.id),
       };
     }),
     documents,
@@ -88,6 +113,69 @@ export async function getClientDetail(clientId) {
     messages: messagesDesc.slice().reverse(),
     messagesTruncated: messagesDesc.length === MESSAGES_LIMIT,
   };
+}
+
+export const RELATION_TYPES = {
+  conyuge: 'Cónyuge',
+  hijo: 'Hijo/a',
+  padre: 'Padre',
+  madre: 'Madre',
+  padre_o_madre: 'Padre/Madre',
+  hermano: 'Hermano/a',
+  abuelo: 'Abuelo/a',
+  nieto: 'Nieto/a',
+  tio: 'Tío/a',
+  sobrino: 'Sobrino/a',
+  primo: 'Primo/a',
+  otro_familiar: 'Otro familiar',
+  representante: 'Representante',
+  representado: 'Representado/a',
+  otro: 'Otro',
+};
+
+export const PARTICIPANT_ROLES = {
+  titular: 'Titular',
+  dependiente: 'Dependiente',
+  conyuge: 'Cónyuge',
+  hijo: 'Hijo/a',
+  chamante: 'Chamante (familiar que trae)',
+  representante: 'Representante',
+  otro: 'Otro',
+};
+
+// La relación se guarda desde este cliente; la vista la muestra también desde el otro lado.
+export async function addRelation(organizationId, clientId, relatedClientId, tipo, notas = null) {
+  must(await supabase.from('client_relations').insert({ organization_id: organizationId, client_id: clientId, related_client_id: relatedClientId, tipo, notas }));
+}
+
+export async function removeRelation(relationId) {
+  must(await supabase.from('client_relations').delete().eq('id', relationId));
+}
+
+export async function addParticipant(organizationId, clientServiceId, clientId, rol) {
+  must(await supabase.from('client_service_participants').insert({ organization_id: organizationId, client_service_id: clientServiceId, client_id: clientId, rol }));
+}
+
+export async function removeParticipant(participantId) {
+  must(await supabase.from('client_service_participants').delete().eq('id', participantId));
+}
+
+export async function searchClients(text, excludeIds = []) {
+  const t = String(text || '').trim();
+  if (t.length < 2) return [];
+  const digits = t.replace(/\D/g, '');
+  let q = supabase.from('clients').select('id, full_name, phone').limit(8);
+  q = digits.length >= 4 ? q.ilike('phone', `%${digits.slice(-8)}%`) : q.ilike('full_name', `%${t}%`);
+  const rows = must(await q);
+  return rows.filter(r => !excludeIds.includes(r.id));
+}
+
+// Familiares que no escriben por Kommo (ej. hijos menores): se crean solo con nombre.
+export async function createQuickClient(organizationId, fullName, phone = null) {
+  const digits = String(phone || '').replace(/\D/g, '') || null;
+  return must(await supabase.from('clients').insert({
+    organization_id: organizationId, full_name: fullName.trim(), phone: digits, whatsapp: digits, status: 'active', lead_source: 'relacion',
+  }).select('id, full_name, phone').single());
 }
 
 export async function updateClient(clientId, patch) {
