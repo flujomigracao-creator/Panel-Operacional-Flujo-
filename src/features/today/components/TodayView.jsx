@@ -11,6 +11,7 @@ import {
   FileSearch,
   Hourglass,
   Landmark,
+  Banknote,
   Mail,
   MapPin,
   ListTodo,
@@ -46,6 +47,7 @@ const TYPE_META = {
   inscricao_receita: { label: 'Inscripción en la Receita', icon: Landmark },
   enviar_email: { label: 'Correo listo', icon: Mail },
   falta_direccion: { label: 'Falta dirección', icon: MapPin },
+  pago_picpay_recibido: { label: 'Pago recibido (PicPay)', icon: Banknote },
 };
 
 // Inscripción CPF: la extensión FLUJO abre esta página y la llena con el caso del #flujo.
