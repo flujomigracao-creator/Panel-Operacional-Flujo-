@@ -202,6 +202,20 @@ export async function updateTramite(clientServiceId, patch) {
   must(await supabase.from('client_services').update(patch).eq('id', clientServiceId));
 }
 
+// Busca la carpeta del cliente en Drive (por su nombre o el de otros participantes del
+// trámite) y trae automáticamente los documentos nuevos, clasificándolos por el nombre
+// del archivo. Ver n8n "Importar Documentos desde Drive (manual)".
+export async function importarDesdeDrive(clientServiceId) {
+  const res = await fetch('https://yhlqmdlg-n8n.cbr6xz.easypanel.host/webhook/importar-drive-caso', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_service_id: clientServiceId }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data) throw new Error('respuesta_invalida');
+  return data;
+}
+
 export async function getDocumentTypes() {
   return must(await supabase.from('document_types').select('id, name, description').order('name'));
 }

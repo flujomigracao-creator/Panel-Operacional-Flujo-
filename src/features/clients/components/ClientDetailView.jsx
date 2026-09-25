@@ -11,6 +11,7 @@ import {
   Clock,
   Copy,
   CreditCard,
+  Download,
   ExternalLink,
   FileText,
   FolderOpen,
@@ -39,6 +40,7 @@ import {
   getDocumentPreviewUrl,
   getDocumentTypes,
   uploadManualDocument,
+  importarDesdeDrive,
   PARTICIPANT_ROLES,
 } from '../services/clientDetailService';
 import { CLIENT_STATUS, TRAMITE_STATUS, KOMMO_CONTACT_URL, KOMMO_LEAD_URL } from '../services/clientsService';
@@ -379,6 +381,7 @@ export default function ClientDetailView({ clientId, onBack, onNavigateToClient 
   const [viewing, setViewing] = useState(null);
   const [docFilter, setDocFilter] = useState('all');
   const [uploading, setUploading] = useState(false);
+  const [importingId, setImportingId] = useState(null);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey });
@@ -433,6 +436,26 @@ export default function ClientDetailView({ clientId, onBack, onNavigateToClient 
     } catch (err) {
       console.error(err);
       toast.error('No se pudo actualizar el trámite.');
+    }
+  };
+
+  const onImportarDrive = async (tramite) => {
+    setImportingId(tramite.id);
+    try {
+      const res = await importarDesdeDrive(tramite.id);
+      if (res.erro === 'carpeta_no_encontrada') {
+        toast.error(`No encontré la carpeta en Drive para "${res.buscado || tramite.servicio}"`);
+      } else if (res.total === 0) {
+        toast.success('No hay documentos nuevos en Drive.');
+      } else {
+        toast.success(`Importados ${res.importados}, sin clasificar ${res.sin_clasificar}, ya existían ${res.ya_existian}`);
+        refresh();
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('No se pudo importar desde Drive.');
+    } finally {
+      setImportingId(null);
     }
   };
 
@@ -604,6 +627,14 @@ export default function ClientDetailView({ clientId, onBack, onNavigateToClient 
                             <FolderOpen size={12} /> Carpeta en Drive
                           </a>
                         )}
+                        <button
+                          onClick={() => onImportarDrive(t)}
+                          disabled={importingId === t.id}
+                          className="inline-flex items-center gap-1 text-sky-400 hover:underline disabled:opacity-50"
+                          title="Busca la carpeta del cliente en Drive y trae los documentos nuevos"
+                        >
+                          <Download size={12} /> {importingId === t.id ? 'Importando…' : 'Importar desde Drive'}
+                        </button>
                         {t.price != null && <span className="text-chrome-text-muted">Valor: {money(t.price, t.currency)}</span>}
                       </div>
 
