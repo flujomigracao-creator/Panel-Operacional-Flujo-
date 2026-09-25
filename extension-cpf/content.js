@@ -196,12 +196,16 @@
     const { casoActivo } = await chrome.storage.local.get('casoActivo');
     const texto = document.body.innerText || '';
     const cpf = (texto.match(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/) || [])[0] || '';
+    // Número de protocolo de la inscripción (va en el correo a la Receita).
+    const protocolo = (texto.match(/protocolo[^0-9A-Z]{0,40}([0-9A-Z][0-9A-Z.\-/]{5,})/i) || [])[1] || '';
     if (!casoActivo) {
       c.innerHTML = '<h3>FLUJO · Comprovante</h3><p class="muted">No hay un cliente elegido. Vuelve al formulario y elige el caso primero.</p>';
       return;
     }
     c.innerHTML = `<h3>Comprovante · ${esc(casoActivo.cliente)}</h3>
-      <p>${cpf ? `CPF detectado: <b>${esc(cpf)}</b>` : '<span class="warn">No veo un número de CPF en esta página. Si es el comprovante, guárdalo igual.</span>'}</p>`;
+      <p>${cpf ? `CPF detectado: <b>${esc(cpf)}</b>` : '<span class="warn">No veo un número de CPF en esta página.</span>'}</p>
+      <p>${protocolo ? `Protocolo: <b>${esc(protocolo)}</b>` : '<span class="warn">No veo el número de protocolo.</span>'}</p>
+      ${cpf || protocolo ? '' : '<p class="muted">Si esta página es el comprovante, guárdalo igual.</p>'}`;
     const b = document.createElement('button');
     b.className = 'pri';
     b.textContent = 'Guardar comprovante en el caso';
@@ -209,7 +213,7 @@
       b.disabled = true;
       b.textContent = 'Guardando…';
       host.style.display = 'none';
-      const r = await send({ type: 'guardarComprovante', caso: casoActivo, cpf });
+      const r = await send({ type: 'guardarComprovante', caso: casoActivo, cpf, protocolo });
       host.style.display = '';
       if (r?.ok) {
         await chrome.storage.local.remove('casoActivo');

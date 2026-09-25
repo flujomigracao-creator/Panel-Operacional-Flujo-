@@ -81,7 +81,7 @@ async function printTabToPdf(tabId) {
   }
 }
 
-async function guardarComprovante(tabId, caso, cpf) {
+async function guardarComprovante(tabId, caso, cpf, protocolo) {
   const b64 = await printTabToPdf(tabId);
   const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
@@ -101,6 +101,7 @@ async function guardarComprovante(tabId, caso, cpf) {
     p_file_name: fileName,
     p_mime: 'application/pdf',
     p_cpf: cpf || null,
+    p_protocolo: protocolo || null,
   });
   return { fileName };
 }
@@ -176,7 +177,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'viacep':
         return viaCep(msg.cep);
       case 'guardarComprovante':
-        return guardarComprovante(sender.tab.id, msg.caso, msg.cpf);
+        return guardarComprovante(sender.tab.id, msg.caso, msg.cpf, msg.protocolo);
       default:
         throw new Error('Mensaje desconocido');
     }
