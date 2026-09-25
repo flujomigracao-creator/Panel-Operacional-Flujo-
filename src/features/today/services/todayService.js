@@ -51,3 +51,26 @@ export async function reviewDocument(documentId, approved, userId, notes = null)
     .eq('id', documentId);
   if (error) throw error;
 }
+
+// Guarda Endereco_Brasil/Cidade del trámite (campos compartidos, no por persona) directo
+// desde la señal "falta_direccion" de Hoy, sin tener que abrir la ficha del cliente.
+export async function guardarDireccionTramite(organizationId, clientServiceId, endereco, cidade) {
+  const { data: campos, error: errCampos } = await supabase
+    .from('service_fields')
+    .select('id, name')
+    .in('name', ['Endereco_Brasil', 'Cidade'])
+    .eq('service_id', '00000000-0000-0000-0000-000000000002');
+  if (errCampos) throw errCampos;
+  const idPorNombre = Object.fromEntries((campos || []).map(c => [c.name, c.id]));
+  const filas = [
+    endereco?.trim() && idPorNombre.Endereco_Brasil
+      ? { organization_id: organizationId, client_service_id: clientServiceId, service_field_id: idPorNombre.Endereco_Brasil, value: endereco.trim(), updated_at: new Date().toISOString() }
+      : null,
+    cidade?.trim() && idPorNombre.Cidade
+      ? { organization_id: organizationId, client_service_id: clientServiceId, service_field_id: idPorNombre.Cidade, value: cidade.trim(), updated_at: new Date().toISOString() }
+      : null,
+  ].filter(Boolean);
+  if (!filas.length) return;
+  const { error } = await supabase.from('client_service_field_values').upsert(filas, { onConflict: 'client_service_id,service_field_id' });
+  if (error) throw error;
+}

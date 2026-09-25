@@ -12,6 +12,7 @@ import {
   Hourglass,
   Landmark,
   Mail,
+  MapPin,
   ListTodo,
   RefreshCw,
   X,
@@ -23,6 +24,7 @@ import {
   dismissTask,
   snoozeTask,
   reviewDocument,
+  guardarDireccionTramite,
   KOMMO_LEAD_URL,
 } from '../services/todayService';
 
@@ -43,6 +45,7 @@ const TYPE_META = {
   assinatura: { label: 'Firma', icon: ListTodo },
   inscricao_receita: { label: 'Inscripción en la Receita', icon: Landmark },
   enviar_email: { label: 'Correo listo', icon: Mail },
+  falta_direccion: { label: 'Falta dirección', icon: MapPin },
 };
 
 // Inscripción CPF: la extensión FLUJO abre esta página y la llena con el caso del #flujo.
@@ -107,7 +110,51 @@ function ActionButton({ onClick, title, children, variant = 'ghost', disabled })
   );
 }
 
-function InboxItem({ item, busy, onAction, onNavigateToClient }) {
+function DireccionForm({ item, organizationId, onSaved }) {
+  const [endereco, setEndereco] = useState('');
+  const [cidade, setCidade] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const guardar = async () => {
+    if (!endereco.trim() || !cidade.trim()) {
+      toast.error('Completa dirección y ciudad');
+      return;
+    }
+    setSaving(true);
+    try {
+      await guardarDireccionTramite(organizationId, item.client_service_id, endereco, cidade);
+      toast.success('Dirección guardada');
+      onSaved(item);
+    } catch (err) {
+      console.error(err);
+      toast.error('No se pudo guardar la dirección');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <input
+        value={endereco}
+        onChange={(e) => setEndereco(e.target.value)}
+        placeholder="Rua, número, bairro, CEP"
+        className="min-w-[220px] flex-1 rounded-md border border-chrome-border bg-chrome-bg-subtle px-2.5 py-1.5 text-xs text-chrome-text placeholder:text-chrome-text-muted"
+      />
+      <input
+        value={cidade}
+        onChange={(e) => setCidade(e.target.value)}
+        placeholder="Ciudad / estado"
+        className="w-40 rounded-md border border-chrome-border bg-chrome-bg-subtle px-2.5 py-1.5 text-xs text-chrome-text placeholder:text-chrome-text-muted"
+      />
+      <ActionButton variant="primary" disabled={saving} onClick={guardar} title="Guardar dirección del trámite">
+        <Check size={14} /> Guardar
+      </ActionButton>
+    </div>
+  );
+}
+
+function InboxItem({ item, busy, organizationId, onAction, onNavigateToClient, onDireccionGuardada }) {
   const priority = PRIORITY_META[item.prioridade] || PRIORITY_META.normal;
   const type = TYPE_META[item.tipo] || { label: item.origem === 'tarefa' ? 'Tarea' : item.tipo, icon: ListTodo };
   const Icon = type.icon;
@@ -132,6 +179,9 @@ function InboxItem({ item, busy, onAction, onNavigateToClient }) {
         <p className="mt-1 font-medium text-chrome-text">{item.titulo}</p>
         {item.detalhes && <p className="mt-0.5 line-clamp-2 text-sm text-chrome-text-muted">{item.detalhes}</p>}
         <p className="mt-1 text-xs text-chrome-text-muted">{timeAgo(item.desde)}</p>
+        {item.tipo === 'falta_direccion' && item.client_service_id && (
+          <DireccionForm item={item} organizationId={organizationId} onSaved={onDireccionGuardada} />
+        )}
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
@@ -205,7 +255,8 @@ function InboxItem({ item, busy, onAction, onNavigateToClient }) {
  * Lo que no aparece acá lo están resolviendo las automatizaciones.
  */
 export default function TodayView({ onNavigateToClient }) {
-  const { userId } = useAuth();
+  const { userId, userProfile } = useAuth();
+  const organizationId = userProfile?.organization_id;
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -255,6 +306,10 @@ export default function TodayView({ onNavigateToClient }) {
       setBusyId(null);
     }
   }, [userId]);
+
+  const handleDireccionGuardada = useCallback((item) => {
+    setItems(prev => prev.filter(i => !(i.ref_id === item.ref_id && i.tipo === item.tipo)));
+  }, []);
 
   const counts = useMemo(() => ({
     all: items.length,
@@ -322,8 +377,10 @@ export default function TodayView({ onNavigateToClient }) {
               key={`${item.origem}-${item.tipo}-${item.ref_id}`}
               item={item}
               busy={busyId === item.ref_id}
+              organizationId={organizationId}
               onAction={handleAction}
               onNavigateToClient={onNavigateToClient}
+              onDireccionGuardada={handleDireccionGuardada}
             />
           ))}
         </div>
