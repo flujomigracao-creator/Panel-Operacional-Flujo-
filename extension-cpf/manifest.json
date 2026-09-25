@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "FLUJO – Inscripción CPF Receita",
+  "version": "1.1.0",
+  "description": "Llena el formulario de Inscrição CPF Estrangeiro con los datos del caso y guarda el comprovante en el caso de FLUJO Migração.",
+  "permissions": ["storage", "debugger", "alarms"],
+  "host_permissions": [
+    "https://rumpfqevyspdmhaggxtq.supabase.co/*",
+    "https://viacep.com.br/*",
+    "https://servicos.receita.fazenda.gov.br/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "FLUJO – CPF Receita" },
+  "content_scripts": [
+    {
+      "matches": ["https://servicos.receita.fazenda.gov.br/Servicos/CPF/InscricaoCpfEstrangeiro/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

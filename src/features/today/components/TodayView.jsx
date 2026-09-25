@@ -10,6 +10,8 @@ import {
   ExternalLink,
   FileSearch,
   Hourglass,
+  Landmark,
+  Mail,
   ListTodo,
   RefreshCw,
   X,
@@ -39,7 +41,17 @@ const TYPE_META = {
   agendamento: { label: 'Cita', icon: CalendarClock },
   erro_automacao: { label: 'Error de automatización', icon: AlertTriangle },
   assinatura: { label: 'Firma', icon: ListTodo },
+  inscricao_receita: { label: 'Inscripción en la Receita', icon: Landmark },
+  enviar_email: { label: 'Correo listo', icon: Mail },
 };
+
+// Inscripción CPF: la extensión FLUJO abre esta página y la llena con el caso del #flujo.
+const RECEITA_CPF_URL = 'https://servicos.receita.fazenda.gov.br/Servicos/CPF/InscricaoCpfEstrangeiro/default.asp';
+const GMAIL_DRAFTS_URL = 'https://mail.google.com/mail/u/0/#drafts';
+const EXTENSION_ZIP = '/extension-flujo-cpf.zip';
+// Tareas que se cierran solas cuando el sistema detecta que se hicieron: cerrarlas a mano
+// haría que se volvieran a crear.
+const AUTO_CLOSE = new Set(['inscricao_receita']);
 
 const FILTERS = [
   { key: 'all', label: 'Todo' },
@@ -123,7 +135,28 @@ function InboxItem({ item, busy, onAction, onNavigateToClient }) {
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-        {item.origem === 'tarefa' && (
+        {item.tipo === 'inscricao_receita' && item.client_service_id && (
+          <>
+            <a
+              href={`${RECEITA_CPF_URL}#flujo=${item.client_service_id}`}
+              target="_blank"
+              rel="noreferrer"
+              title="Abre la Receita ya llenada: marca el captcha, envía y guarda el comprovante"
+              className="inline-flex items-center gap-1.5 rounded-md bg-chrome-accent px-2.5 py-1.5 text-xs font-medium text-white"
+            >
+              <Landmark size={14} /> Abrir en la Receita
+            </a>
+            <a href={EXTENSION_ZIP} download title="Extensión de Chrome que llena el formulario" className="inline-flex items-center rounded-md px-2.5 py-1.5 text-xs text-chrome-text hover:bg-chrome-bg-raised">
+              Extensión
+            </a>
+          </>
+        )}
+        {item.tipo === 'enviar_email' && (
+          <a href={GMAIL_DRAFTS_URL} target="_blank" rel="noreferrer" title="Revisa y envía el borrador" className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-chrome-text hover:bg-chrome-bg-raised">
+            <Mail size={14} /> Gmail
+          </a>
+        )}
+        {item.origem === 'tarefa' && !AUTO_CLOSE.has(item.tipo) && (
           <>
             <ActionButton variant="primary" disabled={busy} onClick={() => onAction('complete', item)} title="Marcar como hecha">
               <Check size={14} /> Hecho

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>FLUJO – CPF Receita</title>
+  <style>
+    body { width: 300px; margin: 0; padding: 16px; font: 13px/1.4 system-ui, sans-serif; background: #0f1420; color: #e8eaf2; }
+    h1 { font-size: 15px; margin: 0 0 12px; }
+    input[type=email], input[type=password] { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 8px; border-radius: 8px; border: 1px solid #2a3350; background: #171d2e; color: #fff; font: inherit; }
+    button { width: 100%; padding: 8px; border: 0; border-radius: 8px; background: #7c3aed; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+    button.sec { background: #171d2e; color: #e8eaf2; font-weight: 400; margin-top: 8px; text-align: left; }
+    button.sec:hover { background: #232b40; }
+    label { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+    .muted { color: #8b93a7; font-size: 12px; }
+    .err { color: #ef4444; }
+    [hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <h1>FLUJO · Inscripción CPF</h1>
+  <form id="login" hidden>
+    <input id="email" type="email" placeholder="Email del panel" autocomplete="username" required>
+    <input id="password" type="password" placeholder="Contraseña" autocomplete="current-password" required>
+    <button type="submit">Entrar</button>
+    <p id="error" class="err"></p>
+  </form>
+  <div id="sesion" hidden>
+    <p class="muted">Conectado como <b id="quien"></b></p>
+    <label><input id="auto" type="checkbox"> Abrir y llenar la Receita sola cuando haya un CPF listo</label>
+    <div id="lista"><p class="muted">Buscando casos…</p></div>
+    <button id="salir" class="sec">Cerrar sesión</button>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
