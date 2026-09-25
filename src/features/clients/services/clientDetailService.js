@@ -7,9 +7,16 @@ const MESSAGES_LIMIT = 500;
 export const HIDDEN_FIELDS = new Set(['Gmail_Draft_ID', 'Pasta_Drive_ID', 'Pasta_Drive_Link']);
 
 export const DRIVE_PREVIEW_URL = (url) => {
-  const id = String(url || '').match(/\/d\/([\w-]+)/)?.[1];
+  const id = String(url || '').match(/\/d\/([\w-]+)/)?.[1] || String(url || '').match(/^drive:([\w-]+)/)?.[1];
   return id ? `https://drive.google.com/file/d/${id}/preview` : null;
 };
+
+// Para documentos subidos a mano (no vienen de Drive): URL firmada del bucket `documents`.
+export async function getDocumentPreviewUrl(storagePath) {
+  if (!storagePath || DRIVE_PREVIEW_URL(storagePath) || /^https?:\/\//.test(storagePath)) return storagePath;
+  const { data } = await supabase.storage.from('documents').createSignedUrl(storagePath, 3600);
+  return data?.signedUrl || null;
+}
 
 const must = ({ data, error }) => {
   if (error) throw error;
@@ -193,6 +200,31 @@ export async function saveFieldValue(organizationId, clientServiceId, serviceFie
 // encola para reflejarla en Kommo.
 export async function updateTramite(clientServiceId, patch) {
   must(await supabase.from('client_services').update(patch).eq('id', clientServiceId));
+}
+
+export async function getDocumentTypes() {
+  return must(await supabase.from('document_types').select('id, name, description').order('name'));
+}
+
+// Sube un documento a mano desde la ficha del cliente (ej. llegó por otro canal,
+// no por Kommo) — mismo bucket y convención de ruta que usa la extensión del
+// Tramitador: <organization_id>/<client_id>/archivo, exigido por la política RLS.
+export async function uploadManualDocument(organizationId, clientId, clientServiceId, documentTypeId, file) {
+  const ext = file.name.split('.').pop() || 'bin';
+  const path = `${organizationId}/${clientId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from('documents').upload(path, file, { contentType: file.type });
+  if (uploadError) throw uploadError;
+  return must(await supabase.from('documents').insert({
+    organization_id: organizationId,
+    client_id: clientId,
+    client_service_id: clientServiceId,
+    document_type_id: documentTypeId,
+    storage_path: path,
+    file_name: file.name,
+    mime_type: file.type,
+    size_bytes: file.size,
+    status: 'received',
+  }).select().single());
 }
 
 export async function reviewDocument(documentId, approved, userId, notes = null) {

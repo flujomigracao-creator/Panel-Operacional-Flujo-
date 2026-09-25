@@ -1,7 +1,9 @@
-import React, { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, ChevronDown, ChevronUp, FileSearch, Users } from 'lucide-react';
-import { getClients, isActiveTramite } from '../services/clientsService';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
+import { AlertCircle, ChevronDown, ChevronUp, FileSearch, Plus, Users, X } from 'lucide-react';
+import { useAuth } from '@features/auth/context/AuthContext';
+import { getClients, getServices, createClientWithTramite, isActiveTramite } from '../services/clientsService';
 
 const TABS = [
   { key: 'todos', label: 'Todos', match: () => true },
@@ -84,6 +86,73 @@ function TramiteChip({ tramite }) {
   );
 }
 
+// Alta manual: para casos que no entran por Kommo (ej. documentos cargados a
+// mano desde otra fuente). Crea el cliente y, si se elige un trámite, lo deja
+// en la primera etapa de ese servicio.
+function NewClientModal({ organizationId, onClose, onCreated }) {
+  const [services, setServices] = useState([]);
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [nationality, setNationality] = useState('');
+  const [serviceId, setServiceId] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { getServices().then(setServices).catch(() => setServices([])); }, []);
+
+  const guardar = async () => {
+    if (!fullName.trim()) { toast.error('El nombre es obligatorio.'); return; }
+    setSaving(true);
+    try {
+      const client = await createClientWithTramite({ organizationId, fullName, phone, nationality, serviceId: serviceId || null });
+      toast.success('Cliente creado');
+      onCreated(client);
+    } catch (err) {
+      console.error(err);
+      toast.error('No se pudo crear el cliente.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl border border-chrome-border bg-chrome-bg p-5" onClick={e => e.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-chrome-text-active">Nuevo cliente</h2>
+          <button onClick={onClose} className="rounded-md p-1 text-chrome-text-muted hover:bg-chrome-bg-raised"><X size={16} /></button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <label className="text-xs text-chrome-text-muted">
+            Nombre completo *
+            <input value={fullName} onChange={e => setFullName(e.target.value)} autoFocus className="mt-1 w-full rounded-md border border-chrome-border bg-chrome-bg-raised px-2.5 py-1.5 text-sm text-chrome-text-active" />
+          </label>
+          <label className="text-xs text-chrome-text-muted">
+            Teléfono
+            <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+55 11 9…" className="mt-1 w-full rounded-md border border-chrome-border bg-chrome-bg-raised px-2.5 py-1.5 text-sm text-chrome-text-active" />
+          </label>
+          <label className="text-xs text-chrome-text-muted">
+            Nacionalidad
+            <input value={nationality} onChange={e => setNationality(e.target.value)} className="mt-1 w-full rounded-md border border-chrome-border bg-chrome-bg-raised px-2.5 py-1.5 text-sm text-chrome-text-active" />
+          </label>
+          <label className="text-xs text-chrome-text-muted">
+            Trámite (opcional)
+            <select value={serviceId} onChange={e => setServiceId(e.target.value)} className="mt-1 w-full rounded-md border border-chrome-border bg-chrome-bg-raised px-2.5 py-1.5 text-sm text-chrome-text-active">
+              <option value="">Sin trámite por ahora</option>
+              {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-md px-3 py-1.5 text-xs text-chrome-text-muted hover:bg-chrome-bg-raised">Cancelar</button>
+          <button onClick={guardar} disabled={saving} className="inline-flex items-center gap-1.5 rounded-md bg-chrome-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-chrome-accent-hover disabled:opacity-50">
+            <Plus size={13} /> Crear cliente
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ClientsSkeleton() {
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-chrome-bg-subtle p-6 lg:p-8 animate-pulse">
@@ -100,11 +169,14 @@ function ClientsSkeleton() {
  * Los clientes se crean solos cuando un lead entra a Operacional en Kommo.
  */
 export default function ClientsView({ searchQuery = '', onNavigateToClient }) {
+  const { userProfile } = useAuth();
+  const queryClient = useQueryClient();
   const { data: clients = [], isLoading, error } = useQuery({ queryKey: ['painel_clientes'], queryFn: getClients });
   const [tab, setTab] = useState('todos');
   const [servicio, setServicio] = useState('all');
   const [etapa, setEtapa] = useState('all');
   const [sort, setSort] = useState({ field: 'last_activity_at', dir: 'desc' });
+  const [creating, setCreating] = useState(false);
 
   const servicios = useMemo(() => [...new Set(clients.flatMap(c => c.tramites.map(t => t.servicio)))].sort(), [clients]);
   const etapas = useMemo(() => [...new Set(clients.flatMap(c => c.tramites.filter(isActiveTramite).map(t => t.etapa_general).filter(Boolean)))], [clients]);
@@ -133,12 +205,32 @@ export default function ClientsView({ searchQuery = '', onNavigateToClient }) {
 
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-chrome-bg-subtle p-6 lg:p-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold text-chrome-text">Clientes</h1>
-        <p className="mt-1 text-chrome-text-muted">
-          {clients.length} clientes · {byTab.en_curso} con trámites en curso. Se registran solos cuando su lead entra a Operacional en Kommo.
-        </p>
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-chrome-text">Clientes</h1>
+          <p className="mt-1 text-chrome-text-muted">
+            {clients.length} clientes · {byTab.en_curso} con trámites en curso. Se registran solos cuando su lead entra a Operacional en Kommo.
+          </p>
+        </div>
+        <button
+          onClick={() => setCreating(true)}
+          className="inline-flex items-center gap-1.5 rounded-md bg-chrome-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-chrome-accent-hover"
+        >
+          <Plus size={14} /> Nuevo cliente
+        </button>
       </header>
+
+      {creating && (
+        <NewClientModal
+          organizationId={userProfile.organization_id}
+          onClose={() => setCreating(false)}
+          onCreated={(client) => {
+            setCreating(false);
+            queryClient.invalidateQueries({ queryKey: ['painel_clientes'] });
+            onNavigateToClient?.(client.id, client.full_name);
+          }}
+        />
+      )}
 
       {error && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">

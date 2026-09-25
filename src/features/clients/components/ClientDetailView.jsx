@@ -19,6 +19,7 @@ import {
   MessageSquare,
   Paperclip,
   Pencil,
+  Upload,
   User,
   Users,
   X,
@@ -35,6 +36,9 @@ import {
   reviewDocument,
   getAttachmentUrl,
   DRIVE_PREVIEW_URL,
+  getDocumentPreviewUrl,
+  getDocumentTypes,
+  uploadManualDocument,
   PARTICIPANT_ROLES,
 } from '../services/clientDetailService';
 import { CLIENT_STATUS, TRAMITE_STATUS, KOMMO_CONTACT_URL, KOMMO_LEAD_URL } from '../services/clientsService';
@@ -188,7 +192,13 @@ function EditableRow({ label, value, type = 'text', options, onSave, readOnly })
 }
 
 function DocumentViewer({ doc, onClose }) {
-  const preview = DRIVE_PREVIEW_URL(doc.storage_path);
+  const drivePreview = DRIVE_PREVIEW_URL(doc.storage_path);
+  const [fileUrl, setFileUrl] = useState(null);
+  useEffect(() => {
+    if (drivePreview) return;
+    getDocumentPreviewUrl(doc.storage_path).then(setFileUrl).catch(() => setFileUrl(null));
+  }, [doc.storage_path, drivePreview]);
+  const isPdf = /pdf/.test(doc.mime_type || '') || /\.pdf$/i.test(doc.file_name || '');
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
       <div className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-chrome-border bg-chrome-bg" onClick={e => e.stopPropagation()}>
@@ -198,9 +208,14 @@ function DocumentViewer({ doc, onClose }) {
             <p className="truncate text-xs text-chrome-text-muted">{doc.file_name}</p>
           </div>
           <div className="flex items-center gap-2">
-            {/^https?:/.test(doc.storage_path) && (
+            {drivePreview && /^https?:/.test(doc.storage_path) && (
               <a href={doc.storage_path} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs text-chrome-text hover:bg-chrome-bg-raised hover:text-chrome-text-active">
                 Abrir en Drive <ExternalLink size={12} />
+              </a>
+            )}
+            {!drivePreview && fileUrl && (
+              <a href={fileUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs text-chrome-text hover:bg-chrome-bg-raised hover:text-chrome-text-active">
+                Abrir <ExternalLink size={12} />
               </a>
             )}
             <button onClick={onClose} className="rounded-md p-1.5 text-chrome-text hover:bg-chrome-bg-raised hover:text-chrome-text-active"><X size={18} /></button>
@@ -208,8 +223,12 @@ function DocumentViewer({ doc, onClose }) {
         </div>
         <div className="flex flex-1 overflow-hidden">
           <div className="flex-1 bg-black">
-            {preview ? (
-              <iframe title="Documento" src={preview} className="h-full w-full" allow="autoplay" />
+            {drivePreview ? (
+              <iframe title="Documento" src={drivePreview} className="h-full w-full" allow="autoplay" />
+            ) : fileUrl && isPdf ? (
+              <iframe title="Documento" src={fileUrl} className="h-full w-full" />
+            ) : fileUrl ? (
+              <img src={fileUrl} alt={doc.file_name} className="h-full w-full object-contain" />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-chrome-text-muted">No hay vista previa disponible para este archivo.</div>
             )}
@@ -291,6 +310,50 @@ function Conversation({ messages, truncated }) {
   );
 }
 
+// Subida manual: para cuando un documento no llega por Kommo (ej. lo trae el
+// operador de otra fuente, como una carpeta de Drive cargada a mano).
+function UploadDocumentForm({ clientId, tramites, organizationId, onUploaded, onCancel }) {
+  const [tramiteId, setTramiteId] = useState(tramites[0]?.id || '');
+  const [tipoId, setTipoId] = useState('');
+  const [tipos, setTipos] = useState([]);
+  const [file, setFile] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { getDocumentTypes().then(setTipos).catch(() => setTipos([])); }, []);
+
+  const guardar = async () => {
+    if (!file || !tramiteId || !tipoId) { toast.error('Elige trámite, tipo de documento y archivo.'); return; }
+    setSaving(true);
+    try {
+      await uploadManualDocument(organizationId, clientId, tramiteId, tipoId, file);
+      toast.success('Documento subido');
+      onUploaded();
+    } catch (err) {
+      console.error(err);
+      toast.error('No se pudo subir el documento.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-chrome-border bg-chrome-bg-raised p-3">
+      <select value={tramiteId} onChange={e => setTramiteId(e.target.value)} className="rounded-md border border-chrome-border bg-chrome-bg px-2 py-1.5 text-xs text-chrome-text-active">
+        {tramites.map(t => <option key={t.id} value={t.id}>{t.servicio}{!t.esTitular ? ` (${t.titular?.full_name})` : ''}</option>)}
+      </select>
+      <select value={tipoId} onChange={e => setTipoId(e.target.value)} className="rounded-md border border-chrome-border bg-chrome-bg px-2 py-1.5 text-xs text-chrome-text-active">
+        <option value="">Tipo de documento…</option>
+        {tipos.map(t => <option key={t.id} value={t.id}>{t.description || t.name}</option>)}
+      </select>
+      <input type="file" onChange={e => setFile(e.target.files?.[0] || null)} className="max-w-[220px] text-xs text-chrome-text-muted file:mr-2 file:rounded-md file:border-0 file:bg-chrome-bg file:px-2 file:py-1 file:text-xs file:text-chrome-text-active" />
+      <button onClick={guardar} disabled={saving} className="inline-flex items-center gap-1.5 rounded-md bg-chrome-accent px-2.5 py-1.5 text-xs font-medium text-white hover:bg-chrome-accent-hover disabled:opacity-50">
+        <Upload size={13} /> Subir
+      </button>
+      <button onClick={onCancel} className="rounded-md px-2.5 py-1.5 text-xs text-chrome-text-muted hover:bg-chrome-bg">Cancelar</button>
+    </div>
+  );
+}
+
 function DetailSkeleton() {
   return (
     <div className="flex h-full flex-col gap-4 p-4 animate-pulse">
@@ -315,6 +378,7 @@ export default function ClientDetailView({ clientId, onBack, onNavigateToClient 
   const { data, isLoading, error } = useQuery({ queryKey, queryFn: () => getClientDetail(clientId), enabled: !!clientId });
   const [viewing, setViewing] = useState(null);
   const [docFilter, setDocFilter] = useState('all');
+  const [uploading, setUploading] = useState(false);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey });
@@ -578,12 +642,32 @@ export default function ClientDetailView({ clientId, onBack, onNavigateToClient 
             title="Documentos"
             count={documents.length}
             action={
-              <select value={docFilter} onChange={e => setDocFilter(e.target.value)} className="rounded-md border border-chrome-border bg-chrome-bg px-2 py-1 text-xs text-chrome-text-active">
-                <option value="all">Todos</option>
-                {Object.entries(DOC_STATUS).map(([value, s]) => <option key={value} value={value}>{s.label}</option>)}
-              </select>
+              <div className="flex items-center gap-2">
+                <select value={docFilter} onChange={e => setDocFilter(e.target.value)} className="rounded-md border border-chrome-border bg-chrome-bg px-2 py-1 text-xs text-chrome-text-active">
+                  <option value="all">Todos</option>
+                  {Object.entries(DOC_STATUS).map(([value, s]) => <option key={value} value={value}>{s.label}</option>)}
+                </select>
+                {tramites.length > 0 && (
+                  <button
+                    onClick={() => setUploading(u => !u)}
+                    className="inline-flex items-center gap-1 rounded-md border border-chrome-border px-2 py-1 text-xs text-chrome-text hover:bg-chrome-bg-raised hover:text-chrome-text-active"
+                    title="Subir un documento a mano"
+                  >
+                    <Upload size={12} /> Subir
+                  </button>
+                )}
+              </div>
             }
           >
+            {uploading && (
+              <UploadDocumentForm
+                clientId={client.id}
+                tramites={tramites}
+                organizationId={userProfile.organization_id}
+                onUploaded={() => { setUploading(false); refresh(); }}
+                onCancel={() => setUploading(false)}
+              />
+            )}
             {visibleDocs.length === 0 ? (
               <p className="text-sm text-chrome-text-muted">No hay documentos{docFilter !== 'all' ? ' con ese estado' : ''}. El agente de recepción los guarda acá cuando el cliente los manda por Kommo.</p>
             ) : (
