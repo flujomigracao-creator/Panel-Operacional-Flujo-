@@ -15,10 +15,14 @@ export async function getPendentesHoje() {
     .select('origem, ref_id, client_id, client_service_id, tipo, titulo, detalhes, prioridade, vence_em, desde, kommo_lead_id, enlace');
   if (error) throw error;
 
+  // Infinity para "sin vencimiento" (va al final); 0 como último respaldo para que un `desde`
+  // ausente o inválido nunca deje sort() con un NaN (orden indefinido entre refrescos).
+  const tiempoVence = (iso) => (iso ? new Date(iso).getTime() : Infinity);
+  const tiempoDesde = (iso) => { const t = iso ? new Date(iso).getTime() : NaN; return Number.isNaN(t) ? 0 : t; };
   return (data || []).sort((a, b) =>
     (PRIORITY_ORDER[a.prioridade] ?? 9) - (PRIORITY_ORDER[b.prioridade] ?? 9)
-    || (a.vence_em ? new Date(a.vence_em) : Infinity) - (b.vence_em ? new Date(b.vence_em) : Infinity)
-    || new Date(a.desde) - new Date(b.desde)
+    || tiempoVence(a.vence_em) - tiempoVence(b.vence_em)
+    || tiempoDesde(a.desde) - tiempoDesde(b.desde)
   );
 }
 

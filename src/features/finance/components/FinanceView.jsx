@@ -113,7 +113,10 @@ function NuevoGastoForm({ categorias, onCreated, onCancel }) {
   const [description, setDescription] = useState('');
   const [supplier, setSupplier] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
   const [saving, setSaving] = useState(false);
 
   const submit = async (e) => {

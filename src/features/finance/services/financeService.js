@@ -4,6 +4,13 @@ const must = ({ data, error }) => { if (error) throw error; return data; };
 
 const startOfMonth = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), 1).toISOString();
 const startOfNextMonth = (d = new Date()) => new Date(d.getFullYear(), d.getMonth() + 1, 1).toISOString();
+// Fecha local (no UTC): toISOString() puede adelantar un día en Brasil (UTC-3) de noche.
+const hoyLocal = () => {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+};
 
 /**
  * Resumen del mes: lo cobrado (pagos confirmados, viene de Kommo/PicPay), lo gastado,
@@ -27,7 +34,8 @@ export async function getResumenFinanciero(fecha = new Date()) {
 
   let saldoCuentas = (cuentas || []).reduce((s, c) => s + Number(c.initial_balance || 0), 0);
   if (cuentas?.length) {
-    const movs = must(await supabase.from('transactions').select('account_id, type, amount').eq('status', 'completed'));
+    const idsActivas = cuentas.map((c) => c.id);
+    const movs = must(await supabase.from('transactions').select('account_id, type, amount').eq('status', 'completed').in('account_id', idsActivas));
     for (const m of movs || []) {
       const signo = m.type === 'income' ? 1 : m.type === 'expense' ? -1 : 0;
       saldoCuentas += signo * Number(m.amount || 0);
@@ -80,7 +88,7 @@ export async function getGastosRecientes(limit = 30) {
 
 export async function crearGasto({ amount, description, supplier = null, category_id = null, expense_date, status = 'paid' }) {
   return must(await supabase.from('expenses')
-    .insert({ amount, description, supplier, category_id, expense_date: expense_date || new Date().toISOString().slice(0, 10), status, currency: 'BRL' })
+    .insert({ amount, description, supplier, category_id, expense_date: expense_date || hoyLocal(), status, currency: 'BRL' })
     .select().single());
 }
 

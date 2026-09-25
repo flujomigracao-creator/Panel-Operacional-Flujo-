@@ -198,7 +198,10 @@ function DocumentViewer({ doc, onClose }) {
   const [fileUrl, setFileUrl] = useState(null);
   useEffect(() => {
     if (drivePreview) return;
-    getDocumentPreviewUrl(doc.storage_path).then(setFileUrl).catch(() => setFileUrl(null));
+    let vigente = true;
+    setFileUrl(null);
+    getDocumentPreviewUrl(doc.storage_path).then(url => { if (vigente) setFileUrl(url); }).catch(() => { if (vigente) setFileUrl(null); });
+    return () => { vigente = false; };
   }, [doc.storage_path, drivePreview]);
   const isPdf = /pdf/.test(doc.mime_type || '') || /\.pdf$/i.test(doc.file_name || '');
   return (
@@ -254,7 +257,12 @@ function DocumentViewer({ doc, onClose }) {
 
 function Attachment({ attachment }) {
   const [url, setUrl] = useState(null);
-  useEffect(() => { getAttachmentUrl(attachment).then(setUrl).catch(() => setUrl(null)); }, [attachment]);
+  useEffect(() => {
+    let vigente = true;
+    setUrl(null);
+    getAttachmentUrl(attachment).then(u => { if (vigente) setUrl(u); }).catch(() => { if (vigente) setUrl(null); });
+    return () => { vigente = false; };
+  }, [attachment]);
   const isImage = /image/.test(attachment.mime_type || '') || /picture|image|photo/.test(attachment.kind || '');
   if (isImage && url) {
     return (
@@ -460,7 +468,12 @@ export default function ClientDetailView({ clientId, onBack, onNavigateToClient 
   };
 
   const visibleDocs = documents.filter(d => docFilter === 'all' || d.status === docFilter);
-  const paidTotal = payments.filter(p => p.status === 'paid').reduce((s, p) => s + Number(p.amount || 0), 0);
+  // Agrupado por moneda: sumar montos de monedas distintas como si fueran la misma da un total sin sentido.
+  const paidPorMoneda = payments.filter(p => p.status === 'paid').reduce((acc, p) => {
+    const cur = p.currency || 'BRL';
+    acc[cur] = (acc[cur] || 0) + Number(p.amount || 0);
+    return acc;
+  }, {});
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden p-4">
@@ -484,7 +497,9 @@ export default function ClientDetailView({ clientId, onBack, onNavigateToClient 
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="rounded-md border border-chrome-border px-2.5 py-1.5 text-chrome-text">{tramites.length} trámite(s)</span>
-          <span className="rounded-md border border-chrome-border px-2.5 py-1.5 text-chrome-text">{money(paidTotal)} pagado</span>
+          <span className="rounded-md border border-chrome-border px-2.5 py-1.5 text-chrome-text">
+            {Object.keys(paidPorMoneda).length ? Object.entries(paidPorMoneda).map(([cur, v]) => money(v, cur)).join(' + ') : money(0)} pagado
+          </span>
           <button
             onClick={() => assistant.setOpen(true)}
             className="inline-flex items-center gap-1 rounded-md border border-brand-primary/60 px-3 py-1.5 font-medium text-chrome-text-active hover:bg-brand-primary/20"

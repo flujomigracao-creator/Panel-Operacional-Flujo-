@@ -175,13 +175,23 @@ export default function ClientsView({ searchQuery = '', onNavigateToClient }) {
   const [tab, setTab] = useState('todos');
   const [servicio, setServicio] = useState('all');
   const [etapa, setEtapa] = useState('all');
+
+  // Si el filtro de trámite/etapa elegido no existe en la pestaña nueva, se limpia solo
+  // en vez de dejar una combinación que da 0 resultados sin ninguna pista de por qué.
+  useEffect(() => {
+    setServicio('all');
+    setEtapa('all');
+  }, [tab]);
   const [sort, setSort] = useState({ field: 'last_activity_at', dir: 'desc' });
   const [creating, setCreating] = useState(false);
 
-  const servicios = useMemo(() => [...new Set(clients.flatMap(c => c.tramites.map(t => t.servicio)))].sort(), [clients]);
-  const etapas = useMemo(() => [...new Set(clients.flatMap(c => c.tramites.filter(isActiveTramite).map(t => t.etapa_general).filter(Boolean)))], [clients]);
-
   const byTab = useMemo(() => Object.fromEntries(TABS.map(t => [t.key, clients.filter(t.match).length])), [clients]);
+
+  // Solo ofrece filtros de trámite/etapa que existen dentro de la pestaña activa — si no,
+  // el usuario puede elegir una combinación que nunca da resultados y parece un filtro roto.
+  const clientesDeLaPestana = useMemo(() => clients.filter(TABS.find(t => t.key === tab).match), [clients, tab]);
+  const servicios = useMemo(() => [...new Set(clientesDeLaPestana.flatMap(c => c.tramites.map(t => t.servicio)))].sort(), [clientesDeLaPestana]);
+  const etapas = useMemo(() => [...new Set(clientesDeLaPestana.flatMap(c => c.tramites.filter(isActiveTramite).map(t => t.etapa_general).filter(Boolean)))], [clientesDeLaPestana]);
 
   const visible = useMemo(() => {
     const tabMatch = TABS.find(t => t.key === tab).match;
