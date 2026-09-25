@@ -14,11 +14,13 @@ import DashboardView from '../components/dashboard/DashboardView';
 import TodayView from '@features/today/components/TodayView';
 // Laboratorio: centro de control de la operación automática (vista de inicio).
 import LabView from '@features/lab/components/LabView';
+// Finanzas: no es lazy porque el objetivo es que el usuario la revise a diario.
+import FinanceView from '@features/finance/components/FinanceView';
 
 // Vistas que todavía leen el esquema anterior (clientes, entradas, perfiles…).
 // Se reactivan una por una a medida que se migran al modelo de FLUJO
 // (clients, client_services, documents, messages, tasks).
-export const MIGRATED_VIEWS = new Set(['lab', 'today', 'clients', 'client']);
+export const MIGRATED_VIEWS = new Set(['lab', 'today', 'clients', 'client', 'finance']);
 
 // Navigation
 import Sidebar from '../navigation/components/Sidebar';
@@ -70,6 +72,7 @@ export default function AppLayout() {
     navigateToHome,
     navigateToToday,
     navigateToLab,
+    navigateToFinance,
     navigateToDashboard,
     navigateToClientsList,
     navigateToTeamChat,
@@ -162,6 +165,7 @@ export default function AppLayout() {
           navigateToHome={navigateToHome}
           navigateToToday={navigateToToday}
           navigateToLab={navigateToLab}
+          navigateToFinance={navigateToFinance}
           navigateToDashboard={navigateToDashboard}
           navigateToClientsList={navigateToClientsList}
           navigateToTeamChat={navigateToTeamChat}
@@ -198,6 +202,7 @@ export default function AppLayout() {
               {currentView === 'today' && (
                 <TodayView onNavigateToClient={isReady('client') ? navigateToClientTracked : undefined} />
               )}
+              {currentView === 'finance' && isReady('finance') && <FinanceView />}
               {currentView === 'dashboard' && isReady('dashboard') && <DashboardView navigateToClientsList={navigateToClientsList} />}
               {currentView === 'client' && isReady('client') && <ClientDetailView key={selectedClientId} clientId={selectedClientId} onBack={navigateToClientsList} onNavigateToClient={navigateToClientTracked} />}
               {currentView === 'clients' && isReady('clients') && <ClientsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} />}

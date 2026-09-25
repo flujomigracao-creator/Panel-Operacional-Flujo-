@@ -12,6 +12,7 @@ export const useNavigation = (isReady = true) => {
         if (hash.startsWith('#client/')) return 'client';
         if (hash === '#hoy') return 'today';
         if (hash === '#laboratorio') return 'lab';
+        if (hash === '#finanzas') return 'finance';
         if (hash === '#clients') return 'clients';
         if (hash === '#dashboard') return 'dashboard';
         if (hash === '#team-chat') return 'team-chat';
@@ -50,6 +51,8 @@ export const useNavigation = (isReady = true) => {
             window.location.hash = 'hoy';
         } else if (currentView === 'lab') {
             window.location.hash = 'laboratorio';
+        } else if (currentView === 'finance') {
+            window.location.hash = 'finanzas';
         } else if (currentView === 'clients') {
             window.location.hash = 'clients';
         } else if (currentView === 'dashboard') {
@@ -81,6 +84,9 @@ export const useNavigation = (isReady = true) => {
                 setSelectedClientId(null);
             } else if (hash === '#laboratorio') {
                 setCurrentView('lab');
+                setSelectedClientId(null);
+            } else if (hash === '#finanzas') {
+                setCurrentView('finance');
                 setSelectedClientId(null);
             } else if (hash === '#clients') {
                 setCurrentView('clients');
@@ -122,6 +128,11 @@ export const useNavigation = (isReady = true) => {
     const navigateToLab = useCallback(() => {
         setSelectedClientId(null);
         setCurrentView('lab');
+    }, []);
+
+    const navigateToFinance = useCallback(() => {
+        setSelectedClientId(null);
+        setCurrentView('finance');
     }, []);
 
     const navigateToToday = useCallback(() => {
@@ -166,6 +177,7 @@ export const useNavigation = (isReady = true) => {
         navigateToHome,
         navigateToToday,
         navigateToLab,
+        navigateToFinance,
         navigateToDashboard,
         navigateToClientsList,
         navigateToTeamChat,
