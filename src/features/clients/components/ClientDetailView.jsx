@@ -23,6 +23,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { useAssistant } from '@features/assistant/context/AssistantContext';
 import ClientRelations from './ClientRelations';
 import TramiteParticipants from './TramiteParticipants';
 import { useAuth } from '@features/auth/context/AuthContext';
@@ -308,6 +309,7 @@ function DetailSkeleton() {
  */
 export default function ClientDetailView({ clientId, onBack, onNavigateToClient }) {
   const { userId, userProfile } = useAuth();
+  const assistant = useAssistant();
   const queryClient = useQueryClient();
   const queryKey = ['client_detail', clientId];
   const { data, isLoading, error } = useQuery({ queryKey, queryFn: () => getClientDetail(clientId), enabled: !!clientId });
@@ -396,6 +398,13 @@ export default function ClientDetailView({ clientId, onBack, onNavigateToClient 
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="rounded-md border border-chrome-border px-2.5 py-1.5 text-chrome-text">{tramites.length} trámite(s)</span>
           <span className="rounded-md border border-chrome-border px-2.5 py-1.5 text-chrome-text">{money(paidTotal)} pagado</span>
+          <button
+            onClick={() => assistant.setOpen(true)}
+            className="inline-flex items-center gap-1 rounded-md border border-brand-primary/60 px-3 py-1.5 font-medium text-chrome-text-active hover:bg-brand-primary/20"
+            title="Resumir, extraer datos, redactar mensajes…"
+          >
+            <Bot size={13} /> Asistente
+          </button>
           {client.kommo_contact_id && (
             <a href={KOMMO_CONTACT_URL(client.kommo_contact_id)} target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-1 rounded-md bg-chrome-accent px-3 py-1.5 font-medium text-white hover:bg-chrome-accent-hover">

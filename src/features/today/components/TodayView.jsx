@@ -196,7 +196,9 @@ export default function TodayView({ onNavigateToClient }) {
   useEffect(() => {
     load();
     const id = setInterval(load, REFRESH_MS);
-    return () => clearInterval(id);
+    // El asistente avisa cuando una acción confirmada cambia datos
+    window.addEventListener('flujo:data-changed', load);
+    return () => { clearInterval(id); window.removeEventListener('flujo:data-changed', load); };
   }, [load]);
 
   const handleAction = useCallback(async (action, item) => {

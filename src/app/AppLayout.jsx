@@ -33,8 +33,8 @@ import SetPasswordForm from '../features/auth/components/SetPasswordForm';
 import { LoadingSpinner } from '../shared/components/ui/LoadingSpinner';
 
 // AI Chat
-import { GlobalAiChatProvider } from '../context/GlobalAiChatContext';
-import { GlobalAiChat } from '../components/GlobalAiChat';
+import { AssistantProvider } from '@features/assistant/context/AssistantContext';
+import AssistantChat from '@features/assistant/components/AssistantChat';
 import { GlobalBotListener } from '../components/GlobalBotListener';
 import { GlobalAgendamientoListener } from '../components/GlobalAgendamientoListener';
 import { GlobalDocumentoUnicoListener } from '../components/GlobalDocumentoUnicoListener';
@@ -148,7 +148,7 @@ export default function AppLayout() {
 
   // --- Main Layout ---
   return (
-    <GlobalAiChatProvider selectedClientId={isReady('ai-chat') && currentView === 'client' ? selectedClientId : null}>
+    <AssistantProvider currentView={currentView} clientId={selectedClientId}>
       <div className="app-layout" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
 
         {/* Sidebar */}
@@ -272,8 +272,8 @@ export default function AppLayout() {
           )}
         </Suspense>
 
-        {/* Listeners y chat IA globales leen tablas del esquema anterior: se
-            reactivan cuando se migren sus dominios (mensajes, agendamientos, IA). */}
+        {/* Listeners globales leen tablas del esquema anterior: se reactivan
+            cuando se migren sus dominios (mensajes, agendamientos). */}
         {isReady('listeners') && (
           <>
             <GlobalBotListener />
@@ -281,10 +281,8 @@ export default function AppLayout() {
             <GlobalDocumentoUnicoListener />
           </>
         )}
-        {isReady('ai-chat') && (
-          <GlobalAiChat isVisible={currentView !== 'client'} currentView={currentView} onNavigateToClient={navigateToClientTracked} />
-        )}
+        <AssistantChat onNavigateToClient={navigateToClientTracked} />
       </div>
-    </GlobalAiChatProvider>
+    </AssistantProvider>
   );
 }

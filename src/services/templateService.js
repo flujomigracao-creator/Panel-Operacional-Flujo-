@@ -372,56 +372,19 @@ REGLAS:
     ],
   }];
 
-  let raw = '';
-
-  // 1. Intentar ai-proxy Edge Function de Supabase
-  try {
-    const { data, error } = await supabase.functions.invoke('ai-proxy', {
-      body: {
-        model: MODEL_VISION,
-        messages: messagesPayload,
-        temperature: 0.1,
-        max_tokens: 8192,
-        response_format: { type: "json_object" }
-      }
-    });
-
-    if (!error && data && !data.error) {
-      raw = data.choices?.[0]?.message?.content?.trim() || '[]';
-    }
-  } catch (proxyErr) {
-    console.warn("Template AI Proxy invoke failed, falling back to direct fetch:", proxyErr.message);
-  }
-
-  // 2. Fallback a llamada directa si ai-proxy falló
-  if (!raw) {
-    const GROQ_BASE_URL = 'https://api.groq.com/openai/v1/chat/completions';
-    const key = import.meta.env.VITE_GROQ_API_KEY || import.meta.env['VITE_GROQ_API_' + 'KEY'];
-    if (!key) throw new Error('No Groq API Key configurada.');
-
-    const res = await fetch(GROQ_BASE_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + key,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL_VISION,
-        messages: messagesPayload,
-        temperature: 0.1,
-        max_tokens: 8192,
-        response_format: { type: "json_object" }
-      }),
-    });
-
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error?.message || `Groq HTTP ${res.status}`);
-    }
-
-    const data = await res.json();
-    raw = data.choices?.[0]?.message?.content?.trim() || '[]';
-  }
+  // La clave de Groq vive solo en el servidor: se usa la Edge Function `asistente` (accion 'proxy').
+  const { data, error } = await supabase.functions.invoke('asistente', {
+    body: {
+      accion: 'proxy',
+      model: MODEL_VISION,
+      messages: messagesPayload,
+      temperature: 0.1,
+      max_tokens: 8192,
+      response_format: { type: 'json_object' },
+    },
+  });
+  if (error || data?.error) throw new Error(`Error en el servicio de IA: ${data?.error || error?.message}`);
+  const raw = data?.choices?.[0]?.message?.content?.trim() || '[]';
 
   try {
     let textToParse = raw;

@@ -28,61 +28,18 @@ const MODEL_VISION = 'qwen/qwen3.6-27b'; // Visión + OCR
  * @returns {Promise<string>} contenido del mensaje del asistente
  */
 async function callGroq(model, messages, temperature = 0.1, responseFormat = null, reasoningEffort = null) {
-  // 1. Intentar invocación por Edge Function de Supabase (ai-proxy) usando GROQ_API_KEY guardado en Supabase
-  try {
-    const payload = { model, messages, temperature, max_tokens: 8192 };
-    if (responseFormat) payload.response_format = responseFormat;
-    if (reasoningEffort) payload.reasoning_effort = reasoningEffort;
+  // La clave de Groq vive solo en el servidor: todo pasa por la Edge Function `asistente` (accion 'proxy').
+  const payload = { accion: 'proxy', model, messages, temperature, max_tokens: 8192 };
+  if (responseFormat) payload.response_format = responseFormat;
+  if (reasoningEffort) payload.reasoning_effort = reasoningEffort;
 
-    const { data, error } = await supabase.functions.invoke('ai-proxy', {
-      body: payload
-    });
-
-    if (!error && data && !data.error) {
-      return data?.choices?.[0]?.message?.content?.trim() || '';
-    }
-  } catch (proxyErr) {
-    console.warn("AI Proxy invoke failed, trying fallback:", proxyErr.message);
+  const { data, error } = await supabase.functions.invoke('asistente', { body: payload });
+  if (error || data?.error) {
+    const msg = data?.error || error?.message || 'sin respuesta';
+    console.error('AI proxy error:', msg);
+    throw new Error(`Error en el servicio de IA: ${msg}`);
   }
-
-  // 2. Fallback a llamada directa si ai-proxy no está disponible o falla
-  try {
-    const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-    if (!apiKey) throw new Error('No Groq API Key configurada en VITE_GROQ_API_KEY ni en Supabase secrets.');
-
-    const bodyData = {
-      model,
-      messages,
-      temperature,
-      max_tokens: 8192
-    };
-    if (responseFormat) {
-      bodyData.response_format = responseFormat;
-    }
-    if (reasoningEffort) {
-      bodyData.reasoning_effort = reasoningEffort;
-    }
-
-    const res = await fetch(GROQ_BASE_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(bodyData)
-    });
-
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error?.message || `HTTP ${res.status}`);
-    }
-
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content?.trim() || '';
-  } catch (err) {
-    console.error("AI Fetch Error:", err.message);
-    throw new Error(`Error en el servicio de IA: ${err.message}`);
-  }
+  return data?.choices?.[0]?.message?.content?.trim() || '';
 }
 
 /** Limpia JSON que el modelo a veces envuelve en ```json ... ``` y remueve bloques <think> */

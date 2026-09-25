@@ -75,10 +75,25 @@ Deno.serve(async (req) => {
     }
   }
 
-  if (body.accion !== 'mensaje' || !String(body.mensaje || '').trim()) return json({ error: 'Falta el mensaje' }, 400);
-
   const groqKey = Deno.env.get('GROQ_API_KEY');
   if (!groqKey) return json({ error: 'Falta configurar el secreto GROQ_API_KEY en Supabase (Edge Functions → Secrets).' }, 500);
+
+  // 2b. Proxy para las funciones de IA del panel (análisis de documentos, plantillas):
+  //     la clave nunca sale del servidor; solo modelos permitidos.
+  if (body.accion === 'proxy') {
+    const permitidos = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.6-27b', 'llama-3.3-70b-versatile'];
+    if (!permitidos.includes(body.model)) return json({ error: 'Modelo no permitido' }, 400);
+    const payload: Record<string, unknown> = { model: body.model, messages: body.messages, temperature: body.temperature ?? 0.1, max_tokens: Math.min(Number(body.max_tokens) || 4096, 8192) };
+    if (body.response_format) payload.response_format = body.response_format;
+    if (body.reasoning_effort) payload.reasoning_effort = body.reasoning_effort;
+    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST', headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const data = await r.json().catch(() => ({}));
+    return r.ok ? json(data) : json({ error: data?.error?.message || ('Groq ' + r.status) }, 502);
+  }
+
+  if (body.accion !== 'mensaje' || !String(body.mensaje || '').trim()) return json({ error: 'Falta el mensaje' }, 400);
   const groq = async (payload: Record<string, unknown>) => {
     const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST', headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
