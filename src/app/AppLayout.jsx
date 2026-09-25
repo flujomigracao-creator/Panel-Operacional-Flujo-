@@ -12,11 +12,13 @@ import {
 import DashboardView from '../components/dashboard/DashboardView';
 // Hoy es la vista de inicio: tampoco es lazy por la misma razón.
 import TodayView from '@features/today/components/TodayView';
+// Laboratorio: centro de control de la operación automática (vista de inicio).
+import LabView from '@features/lab/components/LabView';
 
 // Vistas que todavía leen el esquema anterior (clientes, entradas, perfiles…).
 // Se reactivan una por una a medida que se migran al modelo de FLUJO
 // (clients, client_services, documents, messages, tasks).
-export const MIGRATED_VIEWS = new Set(['today', 'clients', 'client']);
+export const MIGRATED_VIEWS = new Set(['lab', 'today', 'clients', 'client']);
 
 // Navigation
 import Sidebar from '../navigation/components/Sidebar';
@@ -67,6 +69,7 @@ export default function AppLayout() {
     navigateToClient,
     navigateToHome,
     navigateToToday,
+    navigateToLab,
     navigateToDashboard,
     navigateToClientsList,
     navigateToTeamChat,
@@ -158,6 +161,7 @@ export default function AppLayout() {
           setIsSidebarOpen={setIsSidebarOpen}
           navigateToHome={navigateToHome}
           navigateToToday={navigateToToday}
+          navigateToLab={navigateToLab}
           navigateToDashboard={navigateToDashboard}
           navigateToClientsList={navigateToClientsList}
           navigateToTeamChat={navigateToTeamChat}
@@ -188,7 +192,10 @@ export default function AppLayout() {
           <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: currentView === 'client' ? 'hidden' : 'auto' }}>
             <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><LoadingSpinner size="lg" /></div>}>
 
-              {(currentView === 'today' || !isReady(currentView)) && (
+              {(currentView === 'lab' || !isReady(currentView)) && (
+                <LabView onNavigateToClient={isReady('client') ? navigateToClientTracked : undefined} onOpenToday={navigateToToday} />
+              )}
+              {currentView === 'today' && (
                 <TodayView onNavigateToClient={isReady('client') ? navigateToClientTracked : undefined} />
               )}
               {currentView === 'dashboard' && isReady('dashboard') && <DashboardView navigateToClientsList={navigateToClientsList} />}

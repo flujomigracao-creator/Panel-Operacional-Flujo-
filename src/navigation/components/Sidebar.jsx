@@ -9,6 +9,7 @@ import {
   BookOpen,
   BarChart3,
   ListTodo,
+  FlaskConical,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '../../features/auth/context/AuthContext';
@@ -23,7 +24,7 @@ const orgInitials = (name) => {
     : clean.substring(0, 2).toUpperCase();
 };
 
-export default function Sidebar({ currentView, isSidebarOpen, setIsSidebarOpen, navigateToHome, navigateToToday, navigateToDashboard, navigateToClientsList, navigateToTeamChat, navigateToTeamManagement, navigateToDirectory, isViewReady = () => true }) {
+export default function Sidebar({ currentView, isSidebarOpen, setIsSidebarOpen, navigateToHome, navigateToToday, navigateToLab, navigateToDashboard, navigateToClientsList, navigateToTeamChat, navigateToTeamManagement, navigateToDirectory, isViewReady = () => true }) {
   const { userProfile, logout, isAdmin } = useAuth();
   const { organizationName, logoUrl } = useOrganization();
 
@@ -59,6 +60,7 @@ export default function Sidebar({ currentView, isSidebarOpen, setIsSidebarOpen, 
 
       {/* Navigation */}
       <nav className="flex min-w-[76px] flex-1 flex-col items-center gap-2 px-2">
+        <SidebarButton icon={<FlaskConical size={19} />} label="Laboratorio" active={currentView === 'lab'} onClick={navigateToLab} />
         <SidebarButton icon={<ListTodo size={19} />} label="Hoy" active={currentView === 'today'} onClick={navigateToToday} />
         {isViewReady('dashboard') && (
           <SidebarButton icon={<BarChart3 size={19} />} label="Dashboard" active={currentView === 'dashboard'} onClick={navigateToDashboard} />
