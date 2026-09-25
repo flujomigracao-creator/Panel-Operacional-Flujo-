@@ -92,6 +92,15 @@
     anota(setValue($('slcSexo'), sexo.startsWith('F') ? '2' : sexo.startsWith('M') ? '1' : ''), 'Sexo');
     anota(setValue($('txtNomeMae'), sinAcentos(d.Nome_Mae).slice(0, 60)), 'Nome da mãe');
 
+    // Menor de edad: la Receita pide el responsable (la madre; si no, el padre).
+    const [dia, mes, ano] = fecha(d.Data_Nascimento).split('/').map(Number);
+    const idade = ano ? (Date.now() - new Date(ano, (mes || 1) - 1, dia || 1)) / (365.25 * 86400000) : 99;
+    if (idade < 18) {
+      anota(setValue($('txtNomeResp'), sinAcentos(d.Nome_Mae || d.Nome_Pai).slice(0, 60)), 'Nome do responsável');
+      if (d.CPF_Responsavel) setValue($('txtCpfResp'), String(d.CPF_Responsavel).replace(/\D/g, ''));
+      else falta.push('CPF do responsável (si ya lo tiene)');
+    }
+
     const residente = !/N[AÃ]O|NON|NO[ _-]?RESID/.test(sinAcentos(d.Condicao));
     if (residente) {
       setValue($('slcPaisOrig'), '000');
@@ -198,8 +207,10 @@
     const { casoActivo } = await chrome.storage.local.get('casoActivo');
     const texto = document.body.innerText || '';
     const cpf = (texto.match(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/) || [])[0] || '';
-    // Número de protocolo de la inscripción (va en el correo a la Receita).
-    const protocolo = (texto.match(/protocolo[^0-9A-Z]{0,40}([0-9A-Z][0-9A-Z.\-/]{5,})/i) || [])[1] || '';
+    // Número de la inscripción (va en el correo a la Receita). En el comprovante de la Receita
+    // aparece como "Cód. de Atendimento: 540519310"; se acepta también "Protocolo: ...".
+    const protocolo = (texto.match(/c[oó]d(?:igo)?\.?\s*de\s*atendimento\s*:?\s*([0-9][0-9.\-/]{5,})/i)
+      || texto.match(/protocolo\s*(?:n[º°o.]*)?\s*:\s*([0-9][0-9.\-/]{5,})/i) || [])[1] || '';
     if (!casoActivo) {
       c.innerHTML = '<h3>FLUJO · Comprovante</h3><p class="muted">No hay un cliente elegido. Vuelve al formulario y elige el caso primero.</p>';
       return;
