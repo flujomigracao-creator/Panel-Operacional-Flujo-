@@ -138,7 +138,7 @@ function InboxItem({ item, busy, onAction, onNavigateToClient }) {
         {item.tipo === 'inscricao_receita' && item.client_service_id && (
           <>
             <a
-              href={`${RECEITA_CPF_URL}#flujo=${item.client_service_id}`}
+              href={item.enlace || `${RECEITA_CPF_URL}#flujo=${item.client_service_id}`}
               target="_blank"
               rel="noreferrer"
               title="Abre la Receita ya llenada: marca el captcha, envía y guarda el comprovante"

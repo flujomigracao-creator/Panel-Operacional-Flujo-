@@ -12,7 +12,7 @@ export const KOMMO_LEAD_URL = (leadId) => `https://flujomigracao.kommo.com/leads
 export async function getPendentesHoje() {
   const { data, error } = await supabase
     .from('pendentes_hoje')
-    .select('origem, ref_id, client_id, client_service_id, tipo, titulo, detalhes, prioridade, vence_em, desde, kommo_lead_id');
+    .select('origem, ref_id, client_id, client_service_id, tipo, titulo, detalhes, prioridade, vence_em, desde, kommo_lead_id, enlace');
   if (error) throw error;
 
   return (data || []).sort((a, b) =>

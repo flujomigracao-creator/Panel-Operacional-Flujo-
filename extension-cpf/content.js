@@ -162,9 +162,11 @@
       return;
     }
     const casos = r.data || [];
-    // Abierta por la extensión o desde el panel con #flujo=<caso>: se llena sola.
-    const idAuto = (location.hash.match(/flujo=([0-9a-f-]{36})/) || [])[1];
-    const auto = idAuto && casos.find((x) => x.client_service_id === idAuto);
+    // Abierta por la extensión o desde el panel con #flujo=<trámite>:<persona>: se llena sola.
+    // Con solo el trámite, se llena si ese trámite tiene una sola persona pendiente.
+    const idAuto = (location.hash.match(/flujo=([0-9a-f-]{36}(?::[0-9a-f-]{36})?)/) || [])[1];
+    const delTramite = idAuto ? casos.filter((x) => x.chave === idAuto || x.client_service_id === idAuto) : [];
+    const auto = delTramite.length === 1 ? delTramite[0] : null;
     if (auto) return usarCaso(auto);
     if (!casos.length) {
       c.innerHTML = '<h3>FLUJO · Inscripción CPF</h3><p class="ok">No hay casos esperando inscripción.</p>';

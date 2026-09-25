@@ -86,7 +86,7 @@ async function guardarComprovante(tabId, caso, cpf, protocolo) {
   const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
   const fileName = `COMPROVANTE_CPF_${stamp}.pdf`;
-  const path = `${caso.organization_id}/cpf/${caso.client_service_id}/${fileName}`;
+  const path = `${caso.organization_id}/cpf/${caso.client_service_id}/${caso.client_id}/${fileName}`;
 
   const up = await fetch(`${SUPABASE_URL}/storage/v1/object/documents/${path}`, {
     method: 'POST',
@@ -97,6 +97,7 @@ async function guardarComprovante(tabId, caso, cpf, protocolo) {
 
   await rpc('registrar_comprovante_cpf', {
     p_client_service_id: caso.client_service_id,
+    p_client_id: caso.client_id,
     p_storage_path: path,
     p_file_name: fileName,
     p_mime: 'application/pdf',
@@ -129,21 +130,22 @@ async function revisarPendientes() {
   }
   const { abiertos = {} } = await chrome.storage.local.get('abiertos');
   const ahora = Date.now();
-  const siguiente = (pendientes || []).find((c) => !abiertos[c.client_service_id] || ahora - abiertos[c.client_service_id] > REABRIR_MS);
+  const siguiente = (pendientes || []).find((c) => !abiertos[c.chave] || ahora - abiertos[c.chave] > REABRIR_MS);
   await chrome.action.setBadgeText({ text: pendientes?.length ? String(pendientes.length) : '' });
   await chrome.action.setBadgeBackgroundColor({ color: '#7c3aed' });
   if (!siguiente) return;
 
-  abiertos[siguiente.client_service_id] = ahora;
-  await chrome.storage.local.set({ abiertos, casoAuto: siguiente.client_service_id });
-  await chrome.tabs.create({ url: `${RECEITA_URL}#flujo=${siguiente.client_service_id}`, active: true });
+  abiertos[siguiente.chave] = ahora;
+  await chrome.storage.local.set({ abiertos, casoAuto: siguiente.chave });
+  await chrome.tabs.create({ url: `${RECEITA_URL}#flujo=${siguiente.chave}`, active: true });
 }
 
-async function abrirCaso(clientServiceId) {
+// chave = <trámite>:<persona>: un trámite puede tener varias personas, cada una con su inscripción.
+async function abrirCaso(chave) {
   const { abiertos = {} } = await chrome.storage.local.get('abiertos');
-  abiertos[clientServiceId] = Date.now();
-  await chrome.storage.local.set({ abiertos, casoAuto: clientServiceId });
-  await chrome.tabs.create({ url: `${RECEITA_URL}#flujo=${clientServiceId}`, active: true });
+  abiertos[chave] = Date.now();
+  await chrome.storage.local.set({ abiertos, casoAuto: chave });
+  await chrome.tabs.create({ url: `${RECEITA_URL}#flujo=${chave}`, active: true });
 }
 
 chrome.runtime.onInstalled.addListener(() => chrome.alarms.create('revisar', { periodInMinutes: 2 }));

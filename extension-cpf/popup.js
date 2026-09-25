@@ -21,7 +21,7 @@ async function pintarLista() {
     const b = document.createElement('button');
     b.className = 'sec';
     b.textContent = `Abrir y llenar: ${caso.cliente}`;
-    b.onclick = () => send({ type: 'abrirCaso', id: caso.client_service_id }).then(() => window.close());
+    b.onclick = () => send({ type: 'abrirCaso', id: caso.chave }).then(() => window.close());
     lista.appendChild(b);
   });
 }
