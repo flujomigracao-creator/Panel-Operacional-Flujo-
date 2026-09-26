@@ -116,7 +116,7 @@ function NewClientModal({ organizationId, onClose, onCreated }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-chrome-border bg-chrome-bg p-5" onClick={e => e.stopPropagation()}>
+      <div className="w-full max-w-[28rem] rounded-xl border border-chrome-border bg-chrome-bg p-5" onClick={e => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-chrome-text-active">Nuevo cliente</h2>
           <button onClick={onClose} className="rounded-md p-1 text-chrome-text-muted hover:bg-chrome-bg-raised"><X size={16} /></button>

@@ -153,9 +153,9 @@ function LeadDrawer({ lead, onClose }) {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
+    <div className="fixed inset-0 z-[200] flex justify-end bg-black/40" onClick={onClose}>
       <aside
-        className="flex h-full w-full max-w-lg flex-col border-l border-chrome-border bg-chrome-bg shadow-2xl"
+        className="flex h-full w-full max-w-[32rem] flex-col border-l border-chrome-border bg-chrome-bg shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-start justify-between gap-3 border-b border-chrome-border px-4 py-3">
