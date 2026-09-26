@@ -82,7 +82,7 @@ export async function getClientDetail(clientId) {
     supabase.from('payments').select('*').eq('client_id', clientId).order('created_at', { ascending: false }).then(must),
     supabase
       .from('messages')
-      .select('id, direction, sender_type, message_type, content, author_name, created_at, message_attachments(id, storage_path, source_url, file_name, mime_type, kind)')
+      .select('id, direction, sender_type, message_type, content, author_name, created_at, metadata, message_attachments(id, storage_path, source_url, file_name, mime_type, kind)')
       .eq('client_id', clientId)
       .order('created_at', { ascending: false })
       .limit(MESSAGES_LIMIT)

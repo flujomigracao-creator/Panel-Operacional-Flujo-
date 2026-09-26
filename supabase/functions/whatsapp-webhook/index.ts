@@ -10,7 +10,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 const ORG_ID = '00000000-0000-0000-0000-000000000001';
 const BUCKET = 'chat-media';
 const VERIFY_TOKEN = 'flujo-migracao-verify-2026';
-const GRAPH = 'https://graph.facebook.com/v21.0';
+const GRAPH = 'https://graph.facebook.com/v23.0';
 
 const EXT: Record<string, string> = {
   'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3',
@@ -57,6 +57,15 @@ async function procesar(body: any) {
       if (value?.metadata?.phone_number_id && value.metadata.phone_number_id !== phoneNumberId) continue;
       const nombres: Record<string, string> = {};
       for (const c of value.contacts || []) nombres[c.wa_id] = c.profile?.name;
+
+      // Estado de entrega de lo que mandamos (enviado / entregado / leído / falló), para verlo en el panel.
+      for (const s of value.statuses || []) {
+        const e = s.errors?.[0];
+        const detalle = e ? [e.title, e.error_data?.details, e.code ? `(código ${e.code})` : null].filter(Boolean).join(' — ') : null;
+        const { error: sErr } = await admin.rpc('whatsapp_actualizar_estado', { p_wamid: s.id, p_estado: s.status, p_error: detalle });
+        if (sErr) console.error('estado', sErr.message);
+        if (s.status === 'failed') console.error('envío fallido', s.id, detalle);
+      }
 
       for (const m of value.messages || []) {
         try {

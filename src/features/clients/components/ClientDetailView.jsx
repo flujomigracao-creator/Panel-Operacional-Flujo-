@@ -28,6 +28,8 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import OpusRecorder from 'opus-recorder';
+import opusEncoderPath from 'opus-recorder/dist/encoderWorker.min.js?url';
 import { useAssistant } from '@features/assistant/context/AssistantContext';
 import ClientRelations from './ClientRelations';
 import TramiteParticipants from './TramiteParticipants';
@@ -287,6 +289,8 @@ function Attachment({ attachment }) {
   );
 }
 
+const ESTADO_ENVIO = { sent: 'Enviado', delivered: 'Entregado', read: 'Leído' };
+
 export function Conversation({ messages, truncated, emptyText }) {
   const endRef = useRef(null);
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages.length]);
@@ -318,7 +322,13 @@ export function Conversation({ messages, truncated, emptyText }) {
                 {(m.message_attachments || []).map(a => <Attachment key={a.id} attachment={a} />)}
                 <p className={`mt-1 text-right text-[10px] ${inbound ? 'text-chrome-text-muted' : 'opacity-70'}`}>
                   {new Date(m.created_at).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
+                  {!inbound && ESTADO_ENVIO[m.metadata?.estado_envio] && m.metadata?.estado_envio !== 'failed' && ` · ${ESTADO_ENVIO[m.metadata.estado_envio]}`}
                 </p>
+                {!inbound && m.metadata?.estado_envio === 'failed' && (
+                  <p className="mt-1 rounded bg-red-600/90 px-2 py-1 text-[11px] font-medium text-white">
+                    No se entregó{m.metadata?.error_envio ? `: ${m.metadata.error_envio}` : ''}
+                  </p>
+                )}
               </div>
             </div>
           </React.Fragment>
@@ -329,11 +339,10 @@ export function Conversation({ messages, truncated, emptyText }) {
   );
 }
 
-// Respuesta directa por WhatsApp Cloud API, sin pasar por Kommo — interino
-// mientras se conecta el canal personalizado (ver kommo-migracion-whatsapp).
-// Formatos que WhatsApp Cloud API acepta para audio: aac, mp4, mpeg, amr, ogg (opus).
-// Los navegadores no graban en esos contenedores de forma nativa parejo entre todos,
-// así que se pide el mejor disponible y se avisa si Meta lo termina rechazando.
+// Respuesta directa por WhatsApp Cloud API, sin pasar por Kommo.
+// Las grabaciones del micrófono se codifican en OGG/Opus mono con opus-recorder: es el único formato
+// que WhatsApp entrega como nota de voz. Lo que graba Chrome de forma nativa (mp4/webm con Opus)
+// Meta lo acepta al subirlo pero después no lo entrega.
 const AUDIO_MIME_CANDIDATES = ['audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 
 export function ReplyBox({ onSend, onSendFile }) {
@@ -378,8 +387,44 @@ export function ReplyBox({ onSend, onSendFile }) {
     }
   };
 
+  const enviarGrabacion = async (file) => {
+    setSending(true);
+    try {
+      await onSendFile(file, '');
+      toast.success('Audio enviado');
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'No se pudo enviar el audio.');
+    } finally {
+      setSending(false);
+    }
+  };
+
   const startRecording = async () => {
     if (sending || recording) return;
+    if (OpusRecorder.isRecordingSupported()) {
+      const rec = new OpusRecorder({
+        encoderPath: opusEncoderPath,
+        numberOfChannels: 1,
+        encoderApplication: 2048,
+        encoderSampleRate: 48000,
+        streamPages: false,
+      });
+      rec.ondataavailable = (bytes) => {
+        const file = new File([bytes], `audio-${Date.now()}.ogg`, { type: 'audio/ogg' });
+        enviarGrabacion(file);
+      };
+      try {
+        await rec.start();
+      } catch (err) {
+        console.error(err);
+        toast.error('No se pudo acceder al micrófono (revisá los permisos del navegador).');
+        return;
+      }
+      recorderRef.current = rec;
+      setRecording(true);
+      return;
+    }
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -397,16 +442,7 @@ export function ReplyBox({ onSend, onSendFile }) {
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
       const ext = (recorder.mimeType || 'audio/webm').includes('ogg') ? 'ogg' : (recorder.mimeType || '').includes('mp4') ? 'm4a' : 'webm';
       const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type });
-      setSending(true);
-      try {
-        await onSendFile(file, '');
-        toast.success('Audio enviado');
-      } catch (err) {
-        console.error(err);
-        toast.error(err.message || 'No se pudo enviar el audio.');
-      } finally {
-        setSending(false);
-      }
+      enviarGrabacion(file);
     };
     recorderRef.current = recorder;
     streamRef.current = stream;

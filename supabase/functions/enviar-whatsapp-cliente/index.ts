@@ -91,7 +91,8 @@ Deno.serve(async (req) => {
 
   let telefono = soloDigitos(telefonoCrudo);
   if (!telefono) return json({ error: 'No tiene teléfono registrado' }, 422);
-  if (!telefono.startsWith('55')) telefono = '55' + telefono;
+  // Solo se asume Brasil si el número no trae código de país (sin "+" y con 11 dígitos o menos).
+  if (!String(telefonoCrudo).trim().startsWith('+') && telefono.length <= 11 && !telefono.startsWith('55')) telefono = '55' + telefono;
 
   // Si un humano respondió a un lead de Comercial, el atendente automático no vuelve a contestar ese mismo mensaje.
   const marcarLeadAtendido = async () => {
@@ -114,7 +115,7 @@ Deno.serve(async (req) => {
     const form = new FormData();
     form.append('messaging_product', 'whatsapp');
     form.append('file', fileBlob, fileName || 'archivo');
-    const mediaRes = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/media`, {
+    const mediaRes = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/media`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${whatsappToken}` },
       body: form,
@@ -123,12 +124,13 @@ Deno.serve(async (req) => {
     if (!mediaRes.ok) return json({ error: mediaData?.error?.message || `WhatsApp Media API ${mediaRes.status}` }, 502);
     const mediaId = mediaData.id;
 
-    // 3. Mandar el mensaje referenciando ese media id.
+    // 3. Mandar el mensaje referenciando ese media id. Un OGG/Opus con voice:true llega como nota de voz.
     const mediaPayload: Record<string, unknown> = { id: mediaId };
+    if (tipo === 'audio' && /ogg|opus/.test(mime)) mediaPayload.voice = true;
     if (caption && (tipo === 'image' || tipo === 'video' || tipo === 'document')) mediaPayload.caption = caption;
     if (tipo === 'document' && fileName) mediaPayload.filename = fileName;
 
-    const sendRes = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+    const sendRes = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${whatsappToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ messaging_product: 'whatsapp', to: telefono, type: tipo, [tipo]: mediaPayload }),
@@ -156,7 +158,7 @@ Deno.serve(async (req) => {
   }
 
   // Solo texto
-  const metaRes = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+  const metaRes = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${whatsappToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ messaging_product: 'whatsapp', to: telefono, type: 'text', text: { body: mensaje } }),

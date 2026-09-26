@@ -26,6 +26,7 @@
     "file-saver": "^2.0.5",
     "html2pdf.js": "^0.14.0",
     "lucide-react": "^1.21.0",
+    "opus-recorder": "^8.0.5",
     "papaparse": "^5.5.4",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.0.227",

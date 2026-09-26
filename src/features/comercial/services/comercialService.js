@@ -87,7 +87,7 @@ export const CONVERSACION_LIMIT = 200;
 export async function getConversacionLead(kommoLeadId) {
   const desc = must(await supabase
     .from('messages')
-    .select('id, direction, sender_type, message_type, content, author_name, created_at, message_attachments(id, storage_path, source_url, file_name, mime_type, kind)')
+    .select('id, direction, sender_type, message_type, content, author_name, created_at, metadata, message_attachments(id, storage_path, source_url, file_name, mime_type, kind)')
     .eq('kommo_lead_id', kommoLeadId)
     .order('created_at', { ascending: false })
     .limit(CONVERSACION_LIMIT));
