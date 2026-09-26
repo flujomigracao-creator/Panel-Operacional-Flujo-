@@ -1,8 +1,8 @@
 // Envía un mensaje de WhatsApp a un cliente directo por Meta Cloud API (sin pasar por Kommo/Salesbot)
 // y lo deja registrado en `messages` con la misma función que usa el receptor de Kommo, para que
 // aparezca en la conversación del panel igual que los mensajes que sí pasan por Kommo.
-// POST { client_id, mensaje } → texto
-// POST { client_id, storage_path, file_name, mime_type, caption? } → foto/documento/audio/video
+// POST { client_id | kommo_lead_id, mensaje } → texto
+// POST { client_id | kommo_lead_id, storage_path, file_name, mime_type, caption? } → foto/documento/audio/video
 //   (storage_path es un archivo ya subido al bucket `chat-media` por el panel)
 // Secretos requeridos (Supabase → Edge Functions → Secrets): WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_TOKEN.
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
@@ -48,12 +48,13 @@ Deno.serve(async (req) => {
   let body: any;
   try { body = await req.json(); } catch { return json({ error: 'JSON inválido' }, 400); }
   const clientId = body.client_id;
+  const kommoLeadId = body.kommo_lead_id ? Number(body.kommo_lead_id) : null;
   const mensaje = String(body.mensaje || '').trim();
   const storagePath = body.storage_path ? String(body.storage_path) : null;
   const fileName = body.file_name ? String(body.file_name) : null;
   const mimeType = body.mime_type ? String(body.mime_type) : null;
   const caption = body.caption ? String(body.caption) : undefined;
-  if (!clientId || (!mensaje && !storagePath)) return json({ error: 'Falta client_id y mensaje o archivo' }, 400);
+  if ((!clientId && !kommoLeadId) || (!mensaje && !storagePath)) return json({ error: 'Falta client_id o kommo_lead_id, y mensaje o archivo' }, 400);
 
   const phoneNumberId = Deno.env.get('WHATSAPP_PHONE_NUMBER_ID');
   const whatsappToken = Deno.env.get('WHATSAPP_TOKEN');
@@ -61,18 +62,41 @@ Deno.serve(async (req) => {
     return json({ error: 'Falta configurar WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_TOKEN en Supabase (Edge Functions → Secrets). El envío directo todavía no está activo.' }, 500);
   }
 
-  const { data: client, error: clientErr } = await admin
-    .from('clients')
-    .select('id, kommo_contact_id, phone, whatsapp, full_name')
-    .eq('id', clientId)
-    .eq('organization_id', ORG_ID)
-    .maybeSingle();
-  if (clientErr) return json({ error: clientErr.message }, 500);
-  if (!client) return json({ error: 'Cliente no encontrado' }, 404);
+  // Destinatario: un cliente con ficha, o un lead de Comercial (que todavía no tiene ficha).
+  let contactId: number | null = null;
+  let telefonoCrudo = '';
+  if (kommoLeadId) {
+    const { data: lead, error: leadErr } = await admin
+      .from('comercial_leads')
+      .select('kommo_lead_id, kommo_contact_id, telefono')
+      .eq('kommo_lead_id', kommoLeadId)
+      .eq('organization_id', ORG_ID)
+      .maybeSingle();
+    if (leadErr) return json({ error: leadErr.message }, 500);
+    if (!lead) return json({ error: 'Lead no encontrado' }, 404);
+    contactId = lead.kommo_contact_id || null;
+    telefonoCrudo = lead.telefono || '';
+  } else {
+    const { data: client, error: clientErr } = await admin
+      .from('clients')
+      .select('id, kommo_contact_id, phone, whatsapp, full_name')
+      .eq('id', clientId)
+      .eq('organization_id', ORG_ID)
+      .maybeSingle();
+    if (clientErr) return json({ error: clientErr.message }, 500);
+    if (!client) return json({ error: 'Cliente no encontrado' }, 404);
+    contactId = client.kommo_contact_id || null;
+    telefonoCrudo = client.whatsapp || client.phone || '';
+  }
 
-  let telefono = soloDigitos(client.whatsapp || client.phone || '');
-  if (!telefono) return json({ error: 'El cliente no tiene teléfono registrado' }, 422);
+  let telefono = soloDigitos(telefonoCrudo);
+  if (!telefono) return json({ error: 'No tiene teléfono registrado' }, 422);
   if (!telefono.startsWith('55')) telefono = '55' + telefono;
+
+  // Si un humano respondió a un lead de Comercial, el atendente automático no vuelve a contestar ese mismo mensaje.
+  const marcarLeadAtendido = async () => {
+    if (kommoLeadId) await admin.from('comercial_leads').update({ last_atendido_at: new Date().toISOString() }).eq('kommo_lead_id', kommoLeadId);
+  };
 
   const { data: userProfile } = await admin.from('profiles').select('full_name').eq('id', u.id).maybeSingle();
   const autor = userProfile?.full_name || 'Operador (panel)';
@@ -116,7 +140,8 @@ Deno.serve(async (req) => {
     const { error: rpcErr } = await admin.rpc('registrar_mensagem_kommo', {
       p_message_id: wamid || `panel-${Date.now()}`,
       p_direction: 'outbound',
-      p_contact_id: client.kommo_contact_id || null,
+      p_contact_id: contactId,
+      p_lead_id: kommoLeadId,
       p_text: caption || null,
       p_origin: 'whatsapp_cloud_api',
       p_author_name: autor,
@@ -125,6 +150,7 @@ Deno.serve(async (req) => {
       p_storage_path: storagePath,
       p_mime_type: mime,
     });
+    await marcarLeadAtendido();
     if (rpcErr) return json({ ok: true, wamid, aviso: 'El archivo se envió pero no se pudo registrar en la conversación: ' + rpcErr.message });
     return json({ ok: true, wamid });
   }
@@ -142,11 +168,13 @@ Deno.serve(async (req) => {
   const { error: rpcErr } = await admin.rpc('registrar_mensagem_kommo', {
     p_message_id: wamid || `panel-${Date.now()}`,
     p_direction: 'outbound',
-    p_contact_id: client.kommo_contact_id || null,
+    p_contact_id: contactId,
+    p_lead_id: kommoLeadId,
     p_text: mensaje,
     p_origin: 'whatsapp_cloud_api',
     p_author_name: autor,
   });
+  await marcarLeadAtendido();
   if (rpcErr) return json({ ok: true, wamid, aviso: 'El mensaje se envió pero no se pudo registrar en la conversación: ' + rpcErr.message });
 
   return json({ ok: true, wamid });

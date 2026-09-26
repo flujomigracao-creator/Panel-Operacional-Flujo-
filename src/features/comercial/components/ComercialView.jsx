@@ -11,10 +11,11 @@ import {
   useDroppable,
   useDraggable,
 } from '@dnd-kit/core';
-import { ExternalLink, MessageSquare, Phone, User, X } from 'lucide-react';
-import { getComercialLeads, getConversacionLead, moverEtapaLead, ETAPAS_COMERCIAL, CONVERSACION_LIMIT } from '../services/comercialService';
+import { Bot, BotOff, ExternalLink, MessageSquare, Phone, User, X } from 'lucide-react';
+import { getComercialLeads, getConversacionLead, moverEtapaLead, setAtendentePausado, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, CONVERSACION_LIMIT } from '../services/comercialService';
+import { useAuth } from '@features/auth/context/AuthContext';
 import { KOMMO_LEAD_URL } from '@features/clients/services/clientsService';
-import { Conversation } from '@features/clients/components/ClientDetailView';
+import { Conversation, ReplyBox } from '@features/clients/components/ClientDetailView';
 
 const QUERY_KEY = ['comercial_leads'];
 
@@ -51,6 +52,9 @@ function LeadCard({ lead, dragging = false, onOpen }) {
       <div className="flex items-center gap-1.5 font-medium text-chrome-text-active">
         <User size={13} className="shrink-0 text-chrome-text-muted" />
         <span className="truncate">{lead.nombre || 'Sin nombre'}</span>
+        {lead.atendente_pausado && (
+          <span title="Atendente IA desactivado para este lead" className="ml-auto shrink-0 text-amber-400"><BotOff size={13} /></span>
+        )}
         {tieneMensajeNuevo(lead) && (
           <span title="Mensaje nuevo del cliente" className="ml-auto h-2 w-2 shrink-0 rounded-full bg-green-400" />
         )}
@@ -108,8 +112,36 @@ function Dato({ label, children }) {
 }
 
 function LeadDrawer({ lead, onClose }) {
+  const queryClient = useQueryClient();
+  const { userProfile } = useAuth();
+  const [cambiandoIA, setCambiandoIA] = useState(false);
+  const conversacionKey = ['comercial_conversacion', lead.kommo_lead_id];
+
+  const refrescar = () => {
+    queryClient.invalidateQueries({ queryKey: conversacionKey });
+    queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+  };
+
+  const toggleAtendente = async () => {
+    const pausar = !lead.atendente_pausado;
+    setCambiandoIA(true);
+    try {
+      await setAtendentePausado(lead.id, pausar);
+      queryClient.setQueryData(QUERY_KEY, (old) => (old || []).map((l) => (l.id === lead.id ? { ...l, atendente_pausado: pausar } : l)));
+      toast.success(pausar ? 'Atendente IA desactivado para este lead' : 'Atendente IA activado para este lead');
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'No se pudo cambiar el atendente.');
+    } finally {
+      setCambiandoIA(false);
+    }
+  };
+
+  const onSend = async (mensaje) => { await enviarMensajeLead(lead.kommo_lead_id, mensaje); refrescar(); };
+  const onSendFile = async (file, caption) => { await enviarArchivoLead(userProfile.organization_id, lead.kommo_lead_id, file, caption); refrescar(); };
+
   const { data: mensajes, isLoading, error } = useQuery({
-    queryKey: ['comercial_conversacion', lead.kommo_lead_id],
+    queryKey: conversacionKey,
     queryFn: () => getConversacionLead(lead.kommo_lead_id),
     refetchInterval: 15000,
   });
@@ -157,6 +189,25 @@ function LeadDrawer({ lead, onClose }) {
           <Dato label="Última respuesta">{fechaHora(lead.last_atendido_at)}</Dato>
         </div>
 
+        <div className="flex items-center justify-between gap-3 border-b border-chrome-border px-4 py-2.5">
+          <div className="flex items-center gap-2 text-sm">
+            {lead.atendente_pausado ? <BotOff size={16} className="text-amber-400" /> : <Bot size={16} className="text-green-400" />}
+            <span className="text-chrome-text-active">Atendente IA {lead.atendente_pausado ? 'desactivado' : 'activado'}</span>
+            <span className="text-xs text-chrome-text-muted">solo para este lead</span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!lead.atendente_pausado}
+            aria-label="Activar o desactivar el atendente IA para este lead"
+            disabled={cambiandoIA}
+            onClick={toggleAtendente}
+            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${lead.atendente_pausado ? 'bg-zinc-600' : 'bg-green-500'}`}
+          >
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${lead.atendente_pausado ? 'left-0.5' : 'left-[22px]'}`} />
+          </button>
+        </div>
+
         <div className="flex items-center gap-2 px-4 pt-3 text-sm font-semibold text-chrome-text-active">
           <MessageSquare size={15} /> Conversación
           {mensajes && <span className="text-xs font-normal text-chrome-text-muted">{mensajes.length}</span>}
@@ -172,6 +223,11 @@ function LeadDrawer({ lead, onClose }) {
             />
           )}
         </div>
+        {lead.telefono ? (
+          <ReplyBox onSend={onSend} onSendFile={onSendFile} />
+        ) : (
+          <div className="border-t border-chrome-border px-4 py-2 text-xs text-chrome-text-muted">Este lead no tiene teléfono registrado, no se le puede escribir desde acá.</div>
+        )}
       </aside>
     </div>
   );

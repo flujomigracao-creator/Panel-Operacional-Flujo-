@@ -23,9 +23,36 @@ export const ETAPAS_COMERCIAL = [
 export async function getComercialLeads() {
   return must(await supabase
     .from('comercial_leads')
-    .select('id, kommo_lead_id, client_id, nombre, telefono, tramite_texto, precio, etapa_status_id, etapa_nombre, etapa_position, updated_at, last_inbound_at, last_atendido_at, bienvenida_enviada, propuesta_enviada')
+    .select('id, kommo_lead_id, client_id, nombre, telefono, tramite_texto, precio, etapa_status_id, etapa_nombre, etapa_position, updated_at, last_inbound_at, last_atendido_at, bienvenida_enviada, propuesta_enviada, atendente_pausado')
     .order('etapa_position', { ascending: true })
     .order('updated_at', { ascending: false }));
+}
+
+export async function setAtendentePausado(leadId, pausado) {
+  must(await supabase.from('comercial_leads').update({ atendente_pausado: pausado }).eq('id', leadId));
+}
+
+// supabase.functions.invoke esconde el cuerpo de las respuestas no-2xx; se rescata el mensaje real.
+async function invocarEnvio(body) {
+  const { data, error } = await supabase.functions.invoke('enviar-whatsapp-cliente', { body });
+  if (error) {
+    const detalle = await error.context?.json?.().catch(() => null);
+    throw new Error(detalle?.error || error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export function enviarMensajeLead(kommoLeadId, mensaje) {
+  return invocarEnvio({ kommo_lead_id: kommoLeadId, mensaje });
+}
+
+export async function enviarArchivoLead(organizationId, kommoLeadId, file, caption = '') {
+  const ext = file.name.split('.').pop() || 'bin';
+  const path = `${organizationId}/panel/lead-${kommoLeadId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from('chat-media').upload(path, file, { contentType: file.type });
+  if (uploadError) throw uploadError;
+  return invocarEnvio({ kommo_lead_id: kommoLeadId, storage_path: path, file_name: file.name, mime_type: file.type, caption: caption || undefined });
 }
 
 export const CONVERSACION_LIMIT = 200;

@@ -336,7 +336,7 @@ export function Conversation({ messages, truncated, emptyText }) {
 // así que se pide el mejor disponible y se avisa si Meta lo termina rechazando.
 const AUDIO_MIME_CANDIDATES = ['audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 
-function ReplyBox({ onSend, onSendFile }) {
+export function ReplyBox({ onSend, onSendFile }) {
   const [texto, setTexto] = useState('');
   const [sending, setSending] = useState(false);
   const [recording, setRecording] = useState(false);
