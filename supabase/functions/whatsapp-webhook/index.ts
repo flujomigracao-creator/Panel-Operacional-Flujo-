@@ -65,6 +65,15 @@ async function procesar(body: any) {
           const chave = lead?.telefono_chave || from;
           const { texto, media, tipo } = contenidoDe(m);
 
+          // Elección de la lista de trámites que manda el atendente: se guarda en el lead antes de registrar
+          // el mensaje, así el atendente pasa directo a la fase de propuesta.
+          const eleccion = String(m.interactive?.list_reply?.id || '');
+          const enumElegido = Number(eleccion.replace(/^tramite:/, ''));
+          if (eleccion.startsWith('tramite:') && enumElegido && lead?.kommo_lead_id) {
+            const { error: eErr } = await admin.rpc('whatsapp_elegir_tramite', { p_kommo_lead_id: lead.kommo_lead_id, p_tramite_enum_id: enumElegido });
+            if (eErr) console.error('elegir_tramite', eErr.message);
+          }
+
           let storagePath: string | null = null;
           let mime: string | null = null;
           let fileName: string | null = null;
