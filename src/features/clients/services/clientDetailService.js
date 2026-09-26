@@ -23,6 +23,35 @@ const must = ({ data, error }) => {
   return data;
 };
 
+// Envía un mensaje directo por WhatsApp Cloud API (edge function `enviar-whatsapp-cliente`)
+// y lo deja registrado en `messages`, para responder al cliente sin salir del panel
+// mientras se conecta el canal personalizado de Kommo.
+export async function sendReply(clientId, mensaje) {
+  const { data, error } = await supabase.functions.invoke('enviar-whatsapp-cliente', {
+    body: { client_id: clientId, mensaje },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+// Igual que sendReply pero con un archivo (foto, documento o audio): lo sube a
+// Storage (bucket `chat-media`, mismo bucket que ya usa n8n) y la edge function
+// lo reenvía a Meta como media adjunto.
+export async function sendReplyMedia(organizationId, clientId, file, caption = '') {
+  const ext = file.name.split('.').pop() || 'bin';
+  const path = `${organizationId}/panel/client-${clientId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+  const { error: uploadError } = await supabase.storage.from('chat-media').upload(path, file, { contentType: file.type });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await supabase.functions.invoke('enviar-whatsapp-cliente', {
+    body: { client_id: clientId, storage_path: path, file_name: file.name, mime_type: file.type, caption: caption || undefined },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
 /**
  * Todo lo del cliente en una sola carga: datos, trámites (con etapas y campos
  * de cada servicio), documentos, pagos, historial de eventos y la conversación

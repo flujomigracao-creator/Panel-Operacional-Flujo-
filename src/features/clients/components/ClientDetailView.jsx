@@ -18,8 +18,11 @@ import {
   History,
   Image as ImageIcon,
   MessageSquare,
+  Mic,
   Paperclip,
   Pencil,
+  Send,
+  Square,
   Upload,
   User,
   Users,
@@ -41,6 +44,8 @@ import {
   getDocumentTypes,
   uploadManualDocument,
   importarDesdeDrive,
+  sendReply,
+  sendReplyMedia,
   PARTICIPANT_ROLES,
 } from '../services/clientDetailService';
 import { CLIENT_STATUS, TRAMITE_STATUS, KOMMO_CONTACT_URL, KOMMO_LEAD_URL } from '../services/clientsService';
@@ -320,6 +325,136 @@ function Conversation({ messages, truncated }) {
   );
 }
 
+// Respuesta directa por WhatsApp Cloud API, sin pasar por Kommo — interino
+// mientras se conecta el canal personalizado (ver kommo-migracion-whatsapp).
+// Formatos que WhatsApp Cloud API acepta para audio: aac, mp4, mpeg, amr, ogg (opus).
+// Los navegadores no graban en esos contenedores de forma nativa parejo entre todos,
+// así que se pide el mejor disponible y se avisa si Meta lo termina rechazando.
+const AUDIO_MIME_CANDIDATES = ['audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
+
+function ReplyBox({ onSend, onSendFile }) {
+  const [texto, setTexto] = useState('');
+  const [sending, setSending] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const fileInputRef = useRef(null);
+  const recorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
+
+  const submit = async () => {
+    const mensaje = texto.trim();
+    if (!mensaje || sending) return;
+    setSending(true);
+    try {
+      await onSend(mensaje);
+      setTexto('');
+      toast.success('Mensaje enviado');
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'No se pudo enviar el mensaje.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const onPickFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || sending) return;
+    setSending(true);
+    try {
+      await onSendFile(file, texto.trim());
+      setTexto('');
+      toast.success(`${file.type.startsWith('image/') ? 'Foto' : file.type.startsWith('audio/') ? 'Audio' : 'Documento'} enviado`);
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'No se pudo enviar el archivo.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const startRecording = async () => {
+    if (sending || recording) return;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      console.error(err);
+      toast.error('No se pudo acceder al micrófono (revisá los permisos del navegador).');
+      return;
+    }
+    const mimeType = AUDIO_MIME_CANDIDATES.find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || '';
+    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    chunksRef.current = [];
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+    recorder.onstop = async () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+      const ext = (recorder.mimeType || 'audio/webm').includes('ogg') ? 'ogg' : (recorder.mimeType || '').includes('mp4') ? 'm4a' : 'webm';
+      const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type });
+      setSending(true);
+      try {
+        await onSendFile(file, '');
+        toast.success('Audio enviado');
+      } catch (err) {
+        console.error(err);
+        toast.error(err.message || 'No se pudo enviar el audio.');
+      } finally {
+        setSending(false);
+      }
+    };
+    recorderRef.current = recorder;
+    streamRef.current = stream;
+    recorder.start();
+    setRecording(true);
+  };
+
+  const stopRecording = () => {
+    recorderRef.current?.stop();
+    setRecording(false);
+  };
+
+  return (
+    <div className="flex items-end gap-2 border-t border-chrome-border p-3">
+      <input ref={fileInputRef} type="file" className="hidden" onChange={onPickFile} accept="image/*,audio/*,video/*,application/pdf,.doc,.docx" />
+      <button
+        onClick={() => fileInputRef.current?.click()}
+        disabled={sending || recording}
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-chrome-text-muted hover:bg-chrome-bg-raised disabled:opacity-40"
+        title="Adjuntar foto, documento o audio"
+      >
+        <Paperclip size={16} />
+      </button>
+      <button
+        onClick={recording ? stopRecording : startRecording}
+        disabled={sending && !recording}
+        className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md disabled:opacity-40 ${recording ? 'animate-pulse bg-red-500/15 text-red-400' : 'text-chrome-text-muted hover:bg-chrome-bg-raised'}`}
+        title={recording ? 'Detener y enviar audio' : 'Grabar audio con el micrófono'}
+      >
+        {recording ? <Square size={15} /> : <Mic size={16} />}
+      </button>
+      <textarea
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+        placeholder={recording ? 'Grabando audio…' : 'Escribir una respuesta… (el texto se usa como pie si adjuntás un archivo)'}
+        rows={2}
+        disabled={sending || recording}
+        className="flex-1 resize-none rounded-md border border-chrome-border bg-chrome-bg px-3 py-2 text-sm text-chrome-text-active placeholder:text-chrome-text-muted focus:border-brand-primary focus:outline-none disabled:opacity-60"
+      />
+      <button
+        onClick={submit}
+        disabled={sending || recording || !texto.trim()}
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-primary text-white disabled:opacity-40"
+        title="Enviar"
+      >
+        <Send size={15} />
+      </button>
+    </div>
+  );
+}
+
 // Subida manual: para cuando un documento no llega por Kommo (ej. lo trae el
 // operador de otra fuente, como una carpeta de Drive cargada a mano).
 function UploadDocumentForm({ clientId, tramites, organizationId, onUploaded, onCancel }) {
@@ -445,6 +580,16 @@ export default function ClientDetailView({ clientId, onBack, onNavigateToClient 
       console.error(err);
       toast.error('No se pudo actualizar el trámite.');
     }
+  };
+
+  const onSendReply = async (mensaje) => {
+    await sendReply(client.id, mensaje);
+    refresh();
+  };
+
+  const onSendMedia = async (file, caption) => {
+    await sendReplyMedia(userProfile.organization_id, client.id, file, caption);
+    refresh();
   };
 
   const onImportarDrive = async (tramite) => {
@@ -785,9 +930,11 @@ export default function ClientDetailView({ clientId, onBack, onNavigateToClient 
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <Conversation messages={messages} truncated={messagesTruncated} />
             </div>
-            {client.kommo_contact_id && (
+            {(client.whatsapp || client.phone) ? (
+              <ReplyBox onSend={onSendReply} onSendFile={onSendMedia} />
+            ) : (
               <div className="border-t border-chrome-border px-4 py-2 text-xs text-chrome-text-muted">
-                Para responder, usa Kommo: es el único canal de atención.
+                El cliente no tiene teléfono registrado, no se puede responder desde acá.
               </div>
             )}
           </section>
