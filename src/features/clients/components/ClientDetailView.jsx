@@ -269,6 +269,10 @@ function Attachment({ attachment }) {
     return () => { vigente = false; };
   }, [attachment]);
   const isImage = /image/.test(attachment.mime_type || '') || /picture|image|photo/.test(attachment.kind || '');
+  const isAudio = /audio/.test(attachment.mime_type || '') || /audio|voice/.test(attachment.kind || '');
+  if (isAudio && url) {
+    return <audio controls preload="none" src={url} className="mt-1 h-10 w-64 max-w-full" />;
+  }
   if (isImage && url) {
     return (
       <a href={url} target="_blank" rel="noreferrer" className="mt-1 block">
@@ -283,12 +287,12 @@ function Attachment({ attachment }) {
   );
 }
 
-function Conversation({ messages, truncated }) {
+export function Conversation({ messages, truncated, emptyText }) {
   const endRef = useRef(null);
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages.length]);
 
   if (messages.length === 0) {
-    return <p className="text-sm text-chrome-text-muted">Todavía no hay mensajes guardados de este cliente. Desde que se activa el receptor de Kommo, cada mensaje entrante y saliente queda acá.</p>;
+    return <p className="text-sm text-chrome-text-muted">{emptyText || 'Todavía no hay mensajes guardados de este cliente. Desde que se activa el receptor de Kommo, cada mensaje entrante y saliente queda acá.'}</p>;
   }
 
   let lastDay = null;

@@ -23,9 +23,21 @@ export const ETAPAS_COMERCIAL = [
 export async function getComercialLeads() {
   return must(await supabase
     .from('comercial_leads')
-    .select('id, kommo_lead_id, client_id, nombre, telefono, tramite_texto, precio, etapa_status_id, etapa_nombre, etapa_position, updated_at')
+    .select('id, kommo_lead_id, client_id, nombre, telefono, tramite_texto, precio, etapa_status_id, etapa_nombre, etapa_position, updated_at, last_inbound_at, last_atendido_at, bienvenida_enviada, propuesta_enviada')
     .order('etapa_position', { ascending: true })
     .order('updated_at', { ascending: false }));
+}
+
+export const CONVERSACION_LIMIT = 200;
+
+export async function getConversacionLead(kommoLeadId) {
+  const desc = must(await supabase
+    .from('messages')
+    .select('id, direction, sender_type, message_type, content, author_name, created_at, message_attachments(id, storage_path, source_url, file_name, mime_type, kind)')
+    .eq('kommo_lead_id', kommoLeadId)
+    .order('created_at', { ascending: false })
+    .limit(CONVERSACION_LIMIT));
+  return desc.slice().reverse();
 }
 
 export async function moverEtapaLead(kommoLeadId, etapa) {

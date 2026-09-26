@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
@@ -9,11 +9,12 @@ import {
   useSensor,
   useSensors,
   useDroppable,
+  useDraggable,
 } from '@dnd-kit/core';
-import { useDraggable } from '@dnd-kit/core';
-import { ExternalLink, Phone, User } from 'lucide-react';
-import { getComercialLeads, moverEtapaLead, ETAPAS_COMERCIAL } from '../services/comercialService';
+import { ExternalLink, MessageSquare, Phone, User, X } from 'lucide-react';
+import { getComercialLeads, getConversacionLead, moverEtapaLead, ETAPAS_COMERCIAL, CONVERSACION_LIMIT } from '../services/comercialService';
 import { KOMMO_LEAD_URL } from '@features/clients/services/clientsService';
+import { Conversation } from '@features/clients/components/ClientDetailView';
 
 const QUERY_KEY = ['comercial_leads'];
 
@@ -22,7 +23,17 @@ function money(v) {
   return `R$ ${Number(v).toFixed(2)}`;
 }
 
-function LeadCard({ lead, dragging = false }) {
+function tieneMensajeNuevo(lead) {
+  if (!lead.last_inbound_at) return false;
+  return !lead.last_atendido_at || new Date(lead.last_inbound_at) > new Date(lead.last_atendido_at);
+}
+
+function fechaHora(v) {
+  if (!v) return '—';
+  return new Date(v).toLocaleString('es', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function LeadCard({ lead, dragging = false, onOpen }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: lead.id, data: lead });
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
@@ -34,11 +45,15 @@ function LeadCard({ lead, dragging = false }) {
       style={style}
       {...listeners}
       {...attributes}
-      className={`cursor-grab select-none rounded-lg border border-chrome-border bg-chrome-bg-raised p-3 text-sm shadow-sm active:cursor-grabbing ${isDragging ? 'opacity-30' : ''} ${dragging ? 'rotate-2 shadow-lg' : ''}`}
+      onClick={() => onOpen?.(lead)}
+      className={`cursor-grab select-none rounded-lg border border-chrome-border bg-chrome-bg-raised p-3 text-sm shadow-sm transition-colors hover:border-brand-primary/60 active:cursor-grabbing ${isDragging ? 'opacity-30' : ''} ${dragging ? 'rotate-2 shadow-lg' : ''}`}
     >
       <div className="flex items-center gap-1.5 font-medium text-chrome-text-active">
         <User size={13} className="shrink-0 text-chrome-text-muted" />
         <span className="truncate">{lead.nombre || 'Sin nombre'}</span>
+        {tieneMensajeNuevo(lead) && (
+          <span title="Mensaje nuevo del cliente" className="ml-auto h-2 w-2 shrink-0 rounded-full bg-green-400" />
+        )}
       </div>
       {lead.telefono && (
         <div className="mt-1 flex items-center gap-1.5 text-xs text-chrome-text-muted">
@@ -55,6 +70,7 @@ function LeadCard({ lead, dragging = false }) {
         target="_blank"
         rel="noreferrer"
         onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         className="mt-2 inline-flex items-center gap-1 text-xs text-sky-400 hover:underline"
       >
         Ver en Kommo <ExternalLink size={11} />
@@ -63,7 +79,7 @@ function LeadCard({ lead, dragging = false }) {
   );
 }
 
-function Column({ etapa, leads }) {
+function Column({ etapa, leads, onOpen }) {
   const { setNodeRef, isOver } = useDroppable({ id: String(etapa.statusId) });
   return (
     <div
@@ -75,17 +91,98 @@ function Column({ etapa, leads }) {
         <span className="rounded-full bg-chrome-bg-raised px-2 py-0.5 text-xs text-chrome-text-muted">{leads.length}</span>
       </header>
       <div className="flex min-h-[120px] flex-1 flex-col gap-2 overflow-y-auto p-2.5">
-        {leads.map((lead) => <LeadCard key={lead.id} lead={lead} />)}
+        {leads.map((lead) => <LeadCard key={lead.id} lead={lead} onOpen={onOpen} />)}
         {leads.length === 0 && <p className="p-2 text-center text-xs text-chrome-text-muted">Sin leads</p>}
       </div>
     </div>
   );
 }
 
+function Dato({ label, children }) {
+  return (
+    <div>
+      <p className="text-[11px] uppercase tracking-wide text-chrome-text-muted">{label}</p>
+      <p className="text-sm text-chrome-text-active">{children}</p>
+    </div>
+  );
+}
+
+function LeadDrawer({ lead, onClose }) {
+  const { data: mensajes, isLoading, error } = useQuery({
+    queryKey: ['comercial_conversacion', lead.kommo_lead_id],
+    queryFn: () => getConversacionLead(lead.kommo_lead_id),
+    refetchInterval: 15000,
+  });
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
+      <aside
+        className="flex h-full w-full max-w-lg flex-col border-l border-chrome-border bg-chrome-bg shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-start justify-between gap-3 border-b border-chrome-border px-4 py-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-semibold text-chrome-text-active">{lead.nombre || 'Sin nombre'}</h2>
+            <p className="text-xs text-chrome-text-muted">{lead.etapa_nombre || 'Sin etapa'}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <a
+              href={KOMMO_LEAD_URL(lead.kommo_lead_id)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs text-sky-400 hover:bg-chrome-bg-raised"
+            >
+              Kommo <ExternalLink size={12} />
+            </a>
+            <button onClick={onClose} aria-label="Cerrar" className="rounded-md p-1.5 text-chrome-text hover:bg-chrome-bg-raised hover:text-chrome-text-active">
+              <X size={18} />
+            </button>
+          </div>
+        </header>
+
+        <div className="grid grid-cols-2 gap-3 border-b border-chrome-border px-4 py-3">
+          <Dato label="Teléfono">{lead.telefono || '—'}</Dato>
+          <Dato label="Trámite">{lead.tramite_texto || 'Por definir'}</Dato>
+          <Dato label="Precio">{money(lead.precio) || '—'}</Dato>
+          <Dato label="Atendente">
+            {lead.propuesta_enviada ? 'Propuesta enviada' : lead.bienvenida_enviada ? 'Bienvenida enviada' : 'Sin contacto aún'}
+          </Dato>
+          <Dato label="Último mensaje del cliente">{fechaHora(lead.last_inbound_at)}</Dato>
+          <Dato label="Última respuesta">{fechaHora(lead.last_atendido_at)}</Dato>
+        </div>
+
+        <div className="flex items-center gap-2 px-4 pt-3 text-sm font-semibold text-chrome-text-active">
+          <MessageSquare size={15} /> Conversación
+          {mensajes && <span className="text-xs font-normal text-chrome-text-muted">{mensajes.length}</span>}
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          {isLoading && <p className="text-sm text-chrome-text-muted">Cargando conversación…</p>}
+          {error && <p className="text-sm text-red-400">No se pudo cargar la conversación.</p>}
+          {mensajes && (
+            <Conversation
+              messages={mensajes}
+              truncated={mensajes.length === CONVERSACION_LIMIT}
+              emptyText="Todavía no hay mensajes guardados de este lead. El historial anterior está en Kommo; los mensajes nuevos van a aparecer acá."
+            />
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 export default function ComercialView() {
   const queryClient = useQueryClient();
-  const { data: leads, isLoading, error } = useQuery({ queryKey: QUERY_KEY, queryFn: getComercialLeads });
+  const { data: leads, isLoading, error } = useQuery({ queryKey: QUERY_KEY, queryFn: getComercialLeads, refetchInterval: 30000 });
   const [activeLead, setActiveLead] = useState(null);
+  const [leadAbiertoId, setLeadAbiertoId] = useState(null);
+  const leadAbierto = (leads || []).find((l) => l.id === leadAbiertoId) || null;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -97,7 +194,6 @@ export default function ComercialView() {
     for (const lead of leads || []) {
       const bucket = porEtapa.get(lead.etapa_status_id);
       if (bucket) bucket.push(lead);
-      // Leads en una etapa que no tiene columna (ej. "Incoming leads" sin calificar) quedan ocultos del tablero a propósito.
     }
     return ETAPAS_COMERCIAL.map((e) => ({ etapa: e, leads: porEtapa.get(e.statusId) || [] }));
   }, [leads]);
@@ -145,11 +241,12 @@ export default function ComercialView() {
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="flex flex-1 gap-3 overflow-x-auto pb-2">
           {columnas.map(({ etapa, leads: leadsEtapa }) => (
-            <Column key={etapa.statusId} etapa={etapa} leads={leadsEtapa} />
+            <Column key={etapa.statusId} etapa={etapa} leads={leadsEtapa} onOpen={(l) => setLeadAbiertoId(l.id)} />
           ))}
         </div>
         <DragOverlay>{activeLead ? <LeadCard lead={activeLead} dragging /> : null}</DragOverlay>
       </DndContext>
+      {leadAbierto && <LeadDrawer lead={leadAbierto} onClose={() => setLeadAbiertoId(null)} />}
     </div>
   );
 }
