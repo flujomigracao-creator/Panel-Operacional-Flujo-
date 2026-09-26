@@ -1,14 +1,15 @@
 // Envío por WhatsApp Cloud API de las respuestas del atendente IA de Comercial (lo llama n8n con la service role).
 // POST { kommo_lead_id, mensaje, audio_path?, extra_texto?, lista_tramites?, fase? }
 //   lista_tramites: manda además los trámites (comercial_audios_pitch.en_lista) como botones para que el cliente elija.
-//   audio_path: mp3 ya subido a `chat-media` (se manda como nota de voz; si falla, se manda el texto).
+//   audio_path: audio ya subido a `chat-media` (.ogg = nota de voz; si falla, se manda el texto).
 //   extra_texto: segundo mensaje de texto (ej. la clave PIX cuando el cliente quiere pagar).
+//   submenu: 'agendamiento' → botones para elegir si la cita es de RNM o refugio (ids motivo:<enum>).
 // Respeta `comercial_leads.atendente_pausado`: si el lead está pausado no manda nada.
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const BUCKET = 'chat-media';
-const GRAPH = 'https://graph.facebook.com/v21.0';
+const GRAPH = 'https://graph.facebook.com/v23.0';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -46,7 +47,7 @@ Deno.serve(async (req) => {
   // si no, llega como archivo de audio con ícono de auriculares.
   const esOgg = /\.(ogg|opus)$/i.test(audioPath || '');
   const audioMime = esOgg ? 'audio/ogg; codecs=opus' : 'audio/mpeg';
-  if (!kommoLeadId || (!mensaje && !audioPath && !body.lista_tramites)) return json({ error: 'Falta kommo_lead_id y mensaje o audio' }, 400);
+  if (!kommoLeadId || (!mensaje && !audioPath && !body.lista_tramites && !body.submenu)) return json({ error: 'Falta kommo_lead_id y mensaje o audio' }, 400);
 
   const { data: lead } = await admin
     .from('comercial_leads')
@@ -133,9 +134,7 @@ Deno.serve(async (req) => {
       const grupos: { id: string; title: string }[][] = [];
       for (let i = 0; i < botones.length; i += 3) grupos.push(botones.slice(i, i + 3));
       for (let i = 0; i < grupos.length; i++) {
-        const cuerpo = i === 0
-          ? 'Tocá el trámite que necesitás:'
-          : i === grupos.length - 1 ? 'O alguno de estos (si es otro trámite, escribime cuál):' : 'O alguno de estos:';
+        const cuerpo = i === 0 ? 'Tocá el trámite que necesitás:' : 'O:';
         const wamid = await enviar({
           type: 'interactive',
           interactive: {
@@ -145,6 +144,21 @@ Deno.serve(async (req) => {
           },
         });
         await registrar(wamid, `${cuerpo}\n${grupos[i].map((b) => `[${b.title}]`).join(' ')}`, false);
+        enviados.push(wamid);
+      }
+    }
+    // Después de la propuesta de "Agendamiento PF": botones para saber para qué es la cita.
+    if (body.submenu === 'agendamiento') {
+      const preguntas = [
+        { cuerpo: '¿Para qué es el agendamiento?', opciones: [{ id: 'motivo:165690', title: 'RNM (1ª vía)' }, { id: 'motivo:165692', title: 'RNM (2ª vía)' }] },
+        { cuerpo: '¿O es para refugio?', opciones: [{ id: 'motivo:166572', title: 'Refugio (1ª vez)' }, { id: 'motivo:166574', title: 'Refugio (renovación)' }] },
+      ];
+      for (const p of preguntas) {
+        const wamid = await enviar({
+          type: 'interactive',
+          interactive: { type: 'button', body: { text: p.cuerpo }, action: { buttons: p.opciones.map((b) => ({ type: 'reply', reply: b })) } },
+        });
+        await registrar(wamid, `${p.cuerpo}\n${p.opciones.map((b) => `[${b.title}]`).join(' ')}`, false);
         enviados.push(wamid);
       }
     }

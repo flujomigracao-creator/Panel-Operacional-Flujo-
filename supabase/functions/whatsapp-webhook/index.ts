@@ -82,6 +82,12 @@ async function procesar(body: any) {
             const { error: eErr } = await admin.rpc('whatsapp_elegir_tramite', { p_kommo_lead_id: lead.kommo_lead_id, p_tramite_enum_id: enumElegido });
             if (eErr) console.error('elegir_tramite', eErr.message);
           }
+          // Segundo paso del agendamiento (para qué es la cita): guarda el trámite exacto sin repetir la propuesta.
+          const motivo = Number(eleccion.replace(/^motivo:/, ''));
+          if (eleccion.startsWith('motivo:') && motivo && lead?.kommo_lead_id) {
+            const { error: mErr } = await admin.rpc('whatsapp_elegir_motivo', { p_kommo_lead_id: lead.kommo_lead_id, p_tramite_enum_id: motivo });
+            if (mErr) console.error('elegir_motivo', mErr.message);
+          }
 
           let storagePath: string | null = null;
           let mime: string | null = null;
