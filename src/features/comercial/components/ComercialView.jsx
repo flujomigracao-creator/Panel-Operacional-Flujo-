@@ -11,7 +11,9 @@ import {
   useDroppable,
   useDraggable,
 } from '@dnd-kit/core';
-import { Bot, BotOff, ExternalLink, MessageSquare, Phone, User, X } from 'lucide-react';
+import { Bot, BotOff, ExternalLink, GraduationCap, MessageSquare, Phone, User, X } from 'lucide-react';
+import NoraAprendizajes, { APRENDIZAJES_KEY } from './NoraAprendizajes';
+import { getAprendizajesNora } from '../services/comercialService';
 import { getComercialLeads, getConversacionLead, moverEtapaLead, setAtendentePausado, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, CONVERSACION_LIMIT } from '../services/comercialService';
 import { useAuth } from '@features/auth/context/AuthContext';
 import { KOMMO_LEAD_URL } from '@features/clients/services/clientsService';
@@ -239,6 +241,9 @@ export default function ComercialView() {
   const [activeLead, setActiveLead] = useState(null);
   const [leadAbiertoId, setLeadAbiertoId] = useState(null);
   const leadAbierto = (leads || []).find((l) => l.id === leadAbiertoId) || null;
+  const [verAprendizajes, setVerAprendizajes] = useState(false);
+  const { data: aprendizajes } = useQuery({ queryKey: APRENDIZAJES_KEY, queryFn: getAprendizajesNora, refetchInterval: 60000 });
+  const porRevisar = (aprendizajes || []).filter((a) => a.estado === 'pendiente').length;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -293,7 +298,16 @@ export default function ComercialView() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden p-4">
-      <h1 className="mb-3 text-lg font-semibold text-chrome-text-active">Comercial</h1>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h1 className="text-lg font-semibold text-chrome-text-active">Comercial</h1>
+        <button
+          onClick={() => setVerAprendizajes(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-chrome-border bg-chrome-bg-raised px-3 py-1.5 text-sm text-chrome-text-active hover:border-brand-primary/60"
+        >
+          <GraduationCap size={15} /> Lo que aprende Nora
+          {porRevisar > 0 && <span className="rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-black">{porRevisar}</span>}
+        </button>
+      </div>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="flex flex-1 gap-3 overflow-x-auto pb-2">
           {columnas.map(({ etapa, leads: leadsEtapa }) => (
@@ -303,6 +317,7 @@ export default function ComercialView() {
         <DragOverlay>{activeLead ? <LeadCard lead={activeLead} dragging /> : null}</DragOverlay>
       </DndContext>
       {leadAbierto && <LeadDrawer lead={leadAbierto} onClose={() => setLeadAbiertoId(null)} />}
+      {verAprendizajes && <NoraAprendizajes onClose={() => setVerAprendizajes(false)} />}
     </div>
   );
 }

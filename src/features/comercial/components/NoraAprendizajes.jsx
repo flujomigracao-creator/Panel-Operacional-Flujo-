@@ -1,0 +1,170 @@
+import React, { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
+import { Check, GraduationCap, Trash2, X } from 'lucide-react';
+import { useAuth } from '@features/auth/context/AuthContext';
+import { getAprendizajesNora, actualizarAprendizajeNora, ensenarANora } from '../services/comercialService';
+
+export const APRENDIZAJES_KEY = ['nora_aprendizajes'];
+
+const ORIGEN = {
+  venta: 'De una venta',
+  perdido: 'De un lead perdido',
+  humano: 'De una respuesta del equipo',
+  manual: 'Enseñada por vos',
+};
+
+function Tarjeta({ item, onGuardar, onAprobar, onDescartar }) {
+  const [texto, setTexto] = useState(item.leccion);
+  const [ocupado, setOcupado] = useState(false);
+  const cambiado = texto.trim() !== item.leccion;
+
+  const correr = async (fn) => {
+    setOcupado(true);
+    try { await fn(); } finally { setOcupado(false); }
+  };
+
+  return (
+    <div className="rounded-lg border border-chrome-border bg-chrome-bg-raised p-3">
+      <div className="mb-1.5 flex items-center justify-between text-[11px] text-chrome-text-muted">
+        <span>{item.tipo === 'ejemplo' ? 'Ejemplo real' : 'Lección'} · {ORIGEN[item.origen] || item.origen}</span>
+        <span>{new Date(item.created_at).toLocaleDateString('es')}</span>
+      </div>
+      <textarea
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        rows={Math.min(6, Math.max(2, Math.ceil(texto.length / 70)))}
+        className="w-full resize-y rounded-md border border-chrome-border bg-chrome-bg p-2 text-sm text-chrome-text-active outline-none focus:border-brand-primary"
+      />
+      <div className="mt-2 flex flex-wrap justify-end gap-2">
+        {item.estado === 'aprobada' && cambiado && (
+          <button disabled={ocupado || texto.trim().length < 10} onClick={() => correr(() => onGuardar(texto))}
+            className="rounded-md bg-chrome-bg-active px-2.5 py-1.5 text-xs text-chrome-text-active disabled:opacity-50">Guardar cambios</button>
+        )}
+        <button disabled={ocupado} onClick={() => correr(onDescartar)}
+          className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50">
+          <Trash2 size={12} /> {item.estado === 'aprobada' ? 'Olvidar' : 'Descartar'}
+        </button>
+        {item.estado === 'pendiente' && (
+          <button disabled={ocupado || texto.trim().length < 10} onClick={() => correr(() => onAprobar(texto))}
+            className="inline-flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-50">
+            <Check size={12} /> Aprobar
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function NoraAprendizajes({ onClose }) {
+  const queryClient = useQueryClient();
+  const { userProfile } = useAuth();
+  const userId = userProfile?.id;
+  const { data, isLoading, error } = useQuery({ queryKey: APRENDIZAJES_KEY, queryFn: getAprendizajesNora });
+  const [nuevo, setNuevo] = useState('');
+  const [tipoNuevo, setTipoNuevo] = useState('leccion');
+  const [guardando, setGuardando] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const refrescar = () => queryClient.invalidateQueries({ queryKey: APRENDIZAJES_KEY });
+  const accion = (fn, ok) => async (...args) => {
+    try { await fn(...args); toast.success(ok); refrescar(); } catch (err) { console.error(err); toast.error(err.message || 'No se pudo guardar.'); }
+  };
+
+  const pendientes = (data || []).filter((x) => x.estado === 'pendiente');
+  const aprobadas = (data || []).filter((x) => x.estado === 'aprobada');
+
+  const ensenar = async () => {
+    if (nuevo.trim().length < 10 || guardando) return;
+    setGuardando(true);
+    try {
+      await ensenarANora(nuevo, tipoNuevo, userId);
+      setNuevo('');
+      toast.success('Nora ya lo aprendió');
+      refrescar();
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'No se pudo guardar.');
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const tarjeta = (item) => (
+    <Tarjeta
+      key={item.id}
+      item={item}
+      onAprobar={accion((texto) => actualizarAprendizajeNora(item.id, { estado: 'aprobada', leccion: texto.trim() }, userId), 'Aprobada: Nora ya la usa')}
+      onGuardar={accion((texto) => actualizarAprendizajeNora(item.id, { leccion: texto.trim() }, userId), 'Cambios guardados')}
+      onDescartar={accion(() => actualizarAprendizajeNora(item.id, { estado: 'descartada' }, userId), item.estado === 'aprobada' ? 'Nora la olvidó' : 'Descartada')}
+    />
+  );
+
+  return (
+    <div className="fixed inset-0 z-[200] flex justify-end bg-black/40" onClick={onClose}>
+      <aside className="flex h-full w-full max-w-[36rem] flex-col border-l border-chrome-border bg-chrome-bg shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <header className="flex items-center justify-between border-b border-chrome-border px-4 py-3">
+          <div className="flex items-center gap-2">
+            <GraduationCap size={18} className="text-brand-primary" />
+            <div>
+              <h2 className="text-base font-semibold text-chrome-text-active">Lo que aprende Nora</h2>
+              <p className="text-xs text-chrome-text-muted">Solo usa lo aprobado. Las reglas de precios, plazos y PIX siempre mandan.</p>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Cerrar" className="rounded-md p-1.5 text-chrome-text hover:bg-chrome-bg-raised hover:text-chrome-text-active"><X size={18} /></button>
+        </header>
+
+        <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
+          <section>
+            <h3 className="mb-2 text-sm font-semibold text-chrome-text-active">Enseñale algo a Nora</h3>
+            <div className="mb-2 flex gap-2 text-xs">
+              {[['leccion', 'Lección'], ['ejemplo', 'Ejemplo de respuesta']].map(([v, l]) => (
+                <button key={v} onClick={() => setTipoNuevo(v)}
+                  className={`rounded-full px-2.5 py-1 ${tipoNuevo === v ? 'bg-brand-primary text-white' : 'bg-chrome-bg-raised text-chrome-text'}`}>{l}</button>
+              ))}
+            </div>
+            <textarea
+              value={nuevo}
+              onChange={(e) => setNuevo(e.target.value)}
+              rows={3}
+              placeholder={tipoNuevo === 'leccion'
+                ? 'Ej: Cuando un cliente de Refugio pregunta si puede trabajar, decile que sí puede con el protocolo y ofrecé el CPF.'
+                : 'Ej: Cuando el cliente dijo "lo voy a pensar", se le respondió: "Dale, te guardo el cupo hasta mañana, ¿te parece?"'}
+              className="w-full resize-y rounded-md border border-chrome-border bg-chrome-bg-raised p-2 text-sm text-chrome-text-active outline-none focus:border-brand-primary"
+            />
+            <div className="mt-2 flex justify-end">
+              <button onClick={ensenar} disabled={guardando || nuevo.trim().length < 10}
+                className="rounded-md bg-brand-primary px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">Enseñar</button>
+            </div>
+          </section>
+
+          {isLoading && <p className="text-sm text-chrome-text-muted">Cargando…</p>}
+          {error && <p className="text-sm text-red-400">No se pudo cargar lo que aprendió Nora.</p>}
+
+          {data && (
+            <section>
+              <h3 className="mb-2 text-sm font-semibold text-chrome-text-active">Por revisar <span className="text-xs font-normal text-chrome-text-muted">{pendientes.length}</span></h3>
+              {pendientes.length === 0
+                ? <p className="text-xs text-chrome-text-muted">No hay lecciones nuevas. Cada madrugada Nora analiza las ventas, los leads perdidos y las respuestas del equipo, y propone lo que aprendió.</p>
+                : <div className="space-y-2">{pendientes.map(tarjeta)}</div>}
+            </section>
+          )}
+
+          {data && (
+            <section>
+              <h3 className="mb-2 text-sm font-semibold text-chrome-text-active">Ya aprendido <span className="text-xs font-normal text-chrome-text-muted">{aprobadas.length}</span></h3>
+              {aprobadas.length === 0
+                ? <p className="text-xs text-chrome-text-muted">Todavía no aprobaste ninguna lección.</p>
+                : <div className="space-y-2">{aprobadas.map(tarjeta)}</div>}
+            </section>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}

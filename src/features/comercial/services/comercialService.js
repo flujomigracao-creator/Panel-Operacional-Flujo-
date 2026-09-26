@@ -55,6 +55,33 @@ export async function enviarArchivoLead(organizationId, kommoLeadId, file, capti
   return invocarEnvio({ kommo_lead_id: kommoLeadId, storage_path: path, file_name: file.name, mime_type: file.type, caption: caption || undefined });
 }
 
+export async function getAprendizajesNora() {
+  return must(await supabase
+    .from('nora_aprendizajes')
+    .select('id, leccion, tipo, origen, estado, kommo_lead_id, created_at, revisado_at')
+    .neq('estado', 'descartada')
+    .order('created_at', { ascending: false })
+    .limit(300));
+}
+
+export async function actualizarAprendizajeNora(id, cambios, userId) {
+  must(await supabase
+    .from('nora_aprendizajes')
+    .update({ ...cambios, revisado_at: new Date().toISOString(), revisado_por: userId || null })
+    .eq('id', id));
+}
+
+export async function ensenarANora(texto, tipo, userId) {
+  must(await supabase.from('nora_aprendizajes').insert({
+    leccion: texto.trim(),
+    tipo,
+    origen: 'manual',
+    estado: 'aprobada',
+    revisado_at: new Date().toISOString(),
+    revisado_por: userId || null,
+  }));
+}
+
 export const CONVERSACION_LIMIT = 200;
 
 export async function getConversacionLead(kommoLeadId) {
