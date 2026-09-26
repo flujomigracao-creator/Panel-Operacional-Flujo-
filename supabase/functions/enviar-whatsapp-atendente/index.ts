@@ -1,6 +1,6 @@
 // Envío por WhatsApp Cloud API de las respuestas del atendente IA de Comercial (lo llama n8n con la service role).
 // POST { kommo_lead_id, mensaje, audio_path?, extra_texto?, lista_tramites?, fase? }
-//   lista_tramites: manda además la lista interactiva de trámites (comercial_audios_pitch.en_lista) para que el cliente elija.
+//   lista_tramites: manda además los trámites (comercial_audios_pitch.en_lista) como botones para que el cliente elija.
 //   audio_path: mp3 ya subido a `chat-media` (se manda como nota de voz; si falla, se manda el texto).
 //   extra_texto: segundo mensaje de texto (ej. la clave PIX cuando el cliente quiere pagar).
 // Respeta `comercial_leads.atendente_pausado`: si el lead está pausado no manda nada.
@@ -127,20 +127,26 @@ Deno.serve(async (req) => {
         .select('tramite_enum_id, tramite_nombre, precio')
         .eq('en_lista', true)
         .order('orden', { ascending: true });
-      // WhatsApp: máximo 10 filas por lista, título de fila hasta 24 caracteres.
-      const rows = (tramites || []).slice(0, 9).map((t: any) => ({
-        id: `tramite:${t.tramite_enum_id}`,
-        title: String(t.tramite_nombre).slice(0, 24),
-        ...(t.precio ? { description: `R$ ${Number(t.precio).toFixed(0)}` } : {}),
-      }));
-      rows.push({ id: 'tramite:otro', title: 'Otro trámite', description: 'Contame qué necesitás' });
-      const cuerpo = 'Para ayudarte más rápido, tocá el botón y elegí el trámite que necesitás:';
-      const wamid = await enviar({
-        type: 'interactive',
-        interactive: { type: 'list', body: { text: cuerpo }, action: { button: 'Ver trámites', sections: [{ title: 'Trámites', rows }] } },
-      });
-      await registrar(wamid, `${cuerpo}\n${rows.map((r) => `• ${r.title}`).join('\n')}`, false);
-      enviados.push(wamid);
+      // Botones a la vista (no lista desplegable). WhatsApp: máximo 3 botones por mensaje y 20 caracteres por título,
+      // así que van en grupos de 3, un mensaje por grupo.
+      const botones = (tramites || []).map((t: any) => ({ id: `tramite:${t.tramite_enum_id}`, title: String(t.tramite_nombre).slice(0, 20) }));
+      const grupos: { id: string; title: string }[][] = [];
+      for (let i = 0; i < botones.length; i += 3) grupos.push(botones.slice(i, i + 3));
+      for (let i = 0; i < grupos.length; i++) {
+        const cuerpo = i === 0
+          ? 'Tocá el trámite que necesitás:'
+          : i === grupos.length - 1 ? 'O alguno de estos (si es otro trámite, escribime cuál):' : 'O alguno de estos:';
+        const wamid = await enviar({
+          type: 'interactive',
+          interactive: {
+            type: 'button',
+            body: { text: cuerpo },
+            action: { buttons: grupos[i].map((b) => ({ type: 'reply', reply: b })) },
+          },
+        });
+        await registrar(wamid, `${cuerpo}\n${grupos[i].map((b) => `[${b.title}]`).join(' ')}`, false);
+        enviados.push(wamid);
+      }
     }
   } catch (err) {
     return json({ ok: false, error: String((err as Error).message || err), enviados }, 502);
