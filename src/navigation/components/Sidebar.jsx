@@ -11,6 +11,7 @@ import {
   ListTodo,
   FlaskConical,
   Landmark,
+  Kanban,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '../../features/auth/context/AuthContext';
@@ -25,7 +26,7 @@ const orgInitials = (name) => {
     : clean.substring(0, 2).toUpperCase();
 };
 
-export default function Sidebar({ currentView, isSidebarOpen, setIsSidebarOpen, navigateToHome, navigateToToday, navigateToLab, navigateToFinance, navigateToDashboard, navigateToClientsList, navigateToTeamChat, navigateToTeamManagement, navigateToDirectory, isViewReady = () => true }) {
+export default function Sidebar({ currentView, isSidebarOpen, setIsSidebarOpen, navigateToHome, navigateToToday, navigateToLab, navigateToFinance, navigateToDashboard, navigateToClientsList, navigateToComercial, navigateToTeamChat, navigateToTeamManagement, navigateToDirectory, isViewReady = () => true }) {
   const { userProfile, logout, isAdmin } = useAuth();
   const { organizationName, logoUrl } = useOrganization();
 
@@ -69,6 +70,9 @@ export default function Sidebar({ currentView, isSidebarOpen, setIsSidebarOpen, 
         )}
         {isViewReady('clients') && (
           <SidebarButton icon={<Users size={19} />} label="Clientes" active={currentView === 'clients'} onClick={navigateToClientsList} />
+        )}
+        {isViewReady('comercial') && (
+          <SidebarButton icon={<Kanban size={19} />} label="Comercial" active={currentView === 'comercial'} onClick={navigateToComercial} />
         )}
         {isViewReady('team-chat') && (
           <SidebarButton icon={<MessageSquare size={19} />} label="Mensajes" active={currentView === 'team-chat'} onClick={navigateToTeamChat} />

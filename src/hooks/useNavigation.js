@@ -14,6 +14,7 @@ export const useNavigation = (isReady = true) => {
         if (hash === '#laboratorio') return 'lab';
         if (hash === '#finanzas') return 'finance';
         if (hash === '#clients') return 'clients';
+        if (hash === '#comercial') return 'comercial';
         if (hash === '#dashboard') return 'dashboard';
         if (hash === '#team-chat') return 'team-chat';
         if (hash === '#team-management') return 'team-management';
@@ -55,6 +56,8 @@ export const useNavigation = (isReady = true) => {
             window.location.hash = 'finanzas';
         } else if (currentView === 'clients') {
             window.location.hash = 'clients';
+        } else if (currentView === 'comercial') {
+            window.location.hash = 'comercial';
         } else if (currentView === 'dashboard') {
             window.location.hash = 'dashboard';
         } else if (currentView === 'team-chat') {
@@ -90,6 +93,9 @@ export const useNavigation = (isReady = true) => {
                 setSelectedClientId(null);
             } else if (hash === '#clients') {
                 setCurrentView('clients');
+                setSelectedClientId(null);
+            } else if (hash === '#comercial') {
+                setCurrentView('comercial');
                 setSelectedClientId(null);
             } else if (hash === '#dashboard') {
                 setCurrentView('dashboard');
@@ -150,6 +156,11 @@ export const useNavigation = (isReady = true) => {
         setCurrentView('clients');
     }, []);
 
+    const navigateToComercial = useCallback(() => {
+        setSelectedClientId(null);
+        setCurrentView('comercial');
+    }, []);
+
     const navigateToTeamChat = useCallback(() => {
         setSelectedClientId(null);
         setCurrentView('team-chat');
@@ -180,6 +191,7 @@ export const useNavigation = (isReady = true) => {
         navigateToFinance,
         navigateToDashboard,
         navigateToClientsList,
+        navigateToComercial,
         navigateToTeamChat,
         navigateToTeamManagement,
         navigateToSettings,
