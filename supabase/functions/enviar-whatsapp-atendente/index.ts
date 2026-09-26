@@ -42,9 +42,10 @@ Deno.serve(async (req) => {
   const mensaje = String(body.mensaje || '').trim();
   const audioPath = body.audio_path ? String(body.audio_path).replace(/^chat-media\//, '') : null;
   const extra = body.extra_texto ? String(body.extra_texto).trim() : '';
-  // WhatsApp solo muestra el audio como nota de voz (con onda y foto) si es OGG/Opus; el MP3 llega como archivo.
+  // WhatsApp solo muestra el audio como nota de voz (con onda y foto) si es OGG/Opus y se envía con `voice: true`;
+  // si no, llega como archivo de audio con ícono de auriculares.
   const esOgg = /\.(ogg|opus)$/i.test(audioPath || '');
-  const audioMime = esOgg ? 'audio/ogg' : 'audio/mpeg';
+  const audioMime = esOgg ? 'audio/ogg; codecs=opus' : 'audio/mpeg';
   if (!kommoLeadId || (!mensaje && !audioPath && !body.lista_tramites)) return json({ error: 'Falta kommo_lead_id y mensaje o audio' }, 400);
 
   const { data: lead } = await admin
@@ -98,11 +99,11 @@ Deno.serve(async (req) => {
         if (dlErr || !blob) throw new Error(dlErr?.message || 'no se pudo leer el audio');
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
-        form.append('file', new Blob([await blob.arrayBuffer()], { type: audioMime }), esOgg ? 'audio.ogg' : 'audio.mp3');
+        form.append('file', new Blob([await blob.arrayBuffer()], { type: esOgg ? 'audio/ogg' : 'audio/mpeg' }), esOgg ? 'audio.ogg' : 'audio.mp3');
         const up = await fetch(`${GRAPH}/${phoneNumberId}/media`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
         const upData = await up.json().catch(() => ({}));
         if (!up.ok) throw new Error(upData?.error?.message || `Media API ${up.status}`);
-        const wamid = await enviar({ type: 'audio', audio: { id: upData.id } });
+        const wamid = await enviar({ type: 'audio', audio: esOgg ? { id: upData.id, voice: true } : { id: upData.id } });
         await registrar(wamid, mensaje || null, true);
         enviados.push(wamid);
         audioEnviado = true;
