@@ -88,6 +88,11 @@ async function procesar(body: any) {
             const { error: mErr } = await admin.rpc('whatsapp_elegir_motivo', { p_kommo_lead_id: lead.kommo_lead_id, p_tramite_enum_id: motivo });
             if (mErr) console.error('elegir_motivo', mErr.message);
           }
+          // Vía de la residencia permanente (reunión familiar / Mercosur): define qué lista de datos se manda.
+          if (eleccion.startsWith('variante:') && lead?.kommo_lead_id) {
+            const { error: vErr } = await admin.rpc('whatsapp_elegir_variante', { p_kommo_lead_id: lead.kommo_lead_id, p_variante: eleccion.replace(/^variante:/, '') });
+            if (vErr) console.error('elegir_variante', vErr.message);
+          }
 
           let storagePath: string | null = null;
           let mime: string | null = null;

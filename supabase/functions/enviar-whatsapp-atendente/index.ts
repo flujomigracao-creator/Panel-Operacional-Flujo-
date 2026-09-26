@@ -3,7 +3,9 @@
 //   lista_tramites: manda además los trámites (comercial_audios_pitch.en_lista) como botones para que el cliente elija.
 //   audio_path: audio ya subido a `chat-media` (.ogg = nota de voz; si falla, se manda el texto).
 //   extra_texto: segundo mensaje de texto (ej. la clave PIX cuando el cliente quiere pagar).
-//   submenu: 'agendamiento' → botones para elegir si la cita es de RNM o refugio (ids motivo:<enum>).
+//   submenu: 'agendamiento' → botones RNM/refugio (ids motivo:<enum>); 'residencia' → vía (ids variante:<familiar|mercosur>).
+//   datos_pago: manda la plantilla de PIX de Kommo con el valor y la plantilla de datos del trámite del lead.
+//   texto_previo: texto que se manda antes que todo (ej. presentación de Nora si el cliente arrancó pidiendo un trámite).
 // Respeta `comercial_leads.atendente_pausado`: si el lead está pausado no manda nada.
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -47,7 +49,7 @@ Deno.serve(async (req) => {
   // si no, llega como archivo de audio con ícono de auriculares.
   const esOgg = /\.(ogg|opus)$/i.test(audioPath || '');
   const audioMime = esOgg ? 'audio/ogg; codecs=opus' : 'audio/mpeg';
-  if (!kommoLeadId || (!mensaje && !audioPath && !body.lista_tramites && !body.submenu)) return json({ error: 'Falta kommo_lead_id y mensaje o audio' }, 400);
+  if (!kommoLeadId || (!mensaje && !audioPath && !body.lista_tramites && !body.submenu && !body.datos_pago)) return json({ error: 'Falta kommo_lead_id y mensaje o audio' }, 400);
 
   const { data: lead } = await admin
     .from('comercial_leads')
@@ -91,8 +93,27 @@ Deno.serve(async (req) => {
       p_raw: { fase: body.fase || null, origen: 'atendente_comercial' },
     });
 
+  // Las plantillas vienen de Kommo (kommo_plantillas): se reemplazan sus variables y el **negrita** de Kommo
+  // se pasa al *negrita* de WhatsApp.
+  const completarPlantilla = (texto: string, nombre: string, precio: number | null) => {
+    const primerNombre = /^[+\d\s]*$/.test(nombre || '') ? '' : String(nombre).trim().split(/\s+/)[0];
+    return String(texto || '')
+      .replace(/\{\{\s*lead\.price\s*\}\}/g, precio ? `R$ ${Number(precio).toFixed(0)}` : '')
+      .replace(/\{\{\s*contact\.first_name\s*\}\}/g, primerNombre || 'Listo')
+      .replace(/\{\{[^}]*\}\}/g, '')
+      .replace(/\*\*/g, '*')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  };
+
   const enviados: string[] = [];
   try {
+    if (body.texto_previo) {
+      const previo = String(body.texto_previo).trim();
+      const wamid = await enviar({ type: 'text', text: { body: previo } });
+      await registrar(wamid, previo, false);
+      enviados.push(wamid);
+    }
     let audioEnviado = false;
     if (audioPath) {
       try {
@@ -122,6 +143,22 @@ Deno.serve(async (req) => {
       await registrar(wamid, extra, false);
       enviados.push(wamid);
     }
+    // Cierre: plantilla de PIX con el valor y, enseguida, la lista de datos del trámite (plantillas de Kommo).
+    if (body.datos_pago) {
+      const { data: d } = await admin.rpc('comercial_datos_para_lead', { p_kommo_lead_id: kommoLeadId });
+      const pix = d?.pix
+        ? completarPlantilla(d.pix, d?.nombre, d?.precio)
+        : `Para realizar el pago, la clave PIX (CNPJ) es 69.093.014/0001-01${d?.precio ? ` — valor R$ ${Number(d.precio).toFixed(0)}` : ''}. Después de pagar, mandame el comprobante por acá.`;
+      const w1 = await enviar({ type: 'text', text: { body: pix } });
+      await registrar(w1, pix, false);
+      enviados.push(w1);
+      const datos = d?.datos
+        ? completarPlantilla(d.datos, d?.nombre, d?.precio)
+        : 'Apenas nos mandes el comprobante, el equipo operacional te pide los datos y documentos para arrancar tu trámite.';
+      const w2 = await enviar({ type: 'text', text: { body: datos } });
+      await registrar(w2, datos, false);
+      enviados.push(w2);
+    }
     if (body.lista_tramites) {
       const { data: tramites } = await admin
         .from('comercial_audios_pitch')
@@ -147,12 +184,18 @@ Deno.serve(async (req) => {
         enviados.push(wamid);
       }
     }
-    // Después de la propuesta de "Agendamiento PF": botones para saber para qué es la cita.
-    if (body.submenu === 'agendamiento') {
-      const preguntas = [
+    // Después de la propuesta: botones para precisar el trámite (agendamiento: para qué es; residencia: por qué vía).
+    const SUBMENUS: Record<string, { cuerpo: string; opciones: { id: string; title: string }[] }[]> = {
+      agendamiento: [
         { cuerpo: '¿Para qué es el agendamiento?', opciones: [{ id: 'motivo:165690', title: 'RNM (1ª vía)' }, { id: 'motivo:165692', title: 'RNM (2ª vía)' }] },
         { cuerpo: '¿O es para refugio?', opciones: [{ id: 'motivo:166572', title: 'Refugio (1ª vez)' }, { id: 'motivo:166574', title: 'Refugio (renovación)' }] },
-      ];
+      ],
+      residencia: [
+        { cuerpo: '¿Por qué vía es tu residencia permanente?', opciones: [{ id: 'variante:familiar', title: 'Reunión familiar' }, { id: 'variante:mercosur', title: 'Acuerdo Mercosur' }] },
+      ],
+    };
+    if (body.submenu && SUBMENUS[body.submenu]) {
+      const preguntas = SUBMENUS[body.submenu];
       for (const p of preguntas) {
         const wamid = await enviar({
           type: 'interactive',
