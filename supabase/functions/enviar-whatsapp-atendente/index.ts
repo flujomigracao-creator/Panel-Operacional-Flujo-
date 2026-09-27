@@ -4,7 +4,8 @@
 //   audio_path: audio ya subido a `chat-media` (.ogg = nota de voz; si falla, se manda el texto).
 //   extra_texto: segundo mensaje de texto (ej. la clave PIX cuando el cliente quiere pagar).
 //   submenu: 'agendamiento' → botones RNM/refugio (ids motivo:<enum>); 'residencia' → vía (ids variante:<familiar|mercosur>).
-//   datos_pago: manda la plantilla de PIX de Kommo con el valor y la plantilla de datos del trámite del lead.
+//   datos_pago: manda la plantilla de PIX de Kommo con el valor (o monto_pix si se acordó otro, ej. la mitad) y la plantilla de datos.
+//   solo_datos: manda solo la plantilla de datos (plan "empezar y pagar al final").
 //   texto_previo: texto que se manda antes que todo (ej. presentación de Nora si el cliente arrancó pidiendo un trámite).
 // Respeta `comercial_leads.atendente_pausado`: si el lead está pausado no manda nada.
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
@@ -49,7 +50,7 @@ Deno.serve(async (req) => {
   // si no, llega como archivo de audio con ícono de auriculares.
   const esOgg = /\.(ogg|opus)$/i.test(audioPath || '');
   const audioMime = esOgg ? 'audio/ogg; codecs=opus' : 'audio/mpeg';
-  if (!kommoLeadId || (!mensaje && !audioPath && !body.lista_tramites && !body.submenu && !body.datos_pago)) return json({ error: 'Falta kommo_lead_id y mensaje o audio' }, 400);
+  if (!kommoLeadId || (!mensaje && !audioPath && !body.lista_tramites && !body.submenu && !body.datos_pago && !body.solo_datos)) return json({ error: 'Falta kommo_lead_id y mensaje o audio' }, 400);
 
   const { data: lead } = await admin
     .from('comercial_leads')
@@ -95,10 +96,11 @@ Deno.serve(async (req) => {
 
   // Las plantillas vienen de Kommo (kommo_plantillas): se reemplazan sus variables y el **negrita** de Kommo
   // se pasa al *negrita* de WhatsApp.
+  const reales = (v: number) => `R$ ${Number.isInteger(Number(v)) ? Number(v).toFixed(0) : Number(v).toFixed(2).replace('.', ',')}`;
   const completarPlantilla = (texto: string, nombre: string, precio: number | null) => {
     const primerNombre = /^[+\d\s]*$/.test(nombre || '') ? '' : String(nombre).trim().split(/\s+/)[0];
     return String(texto || '')
-      .replace(/\{\{\s*lead\.price\s*\}\}/g, precio ? `R$ ${Number(precio).toFixed(0)}` : '')
+      .replace(/\{\{\s*lead\.price\s*\}\}/g, precio ? reales(precio) : '')
       .replace(/\{\{\s*contact\.first_name\s*\}\}/g, primerNombre || 'Listo')
       .replace(/\{\{[^}]*\}\}/g, '')
       .replace(/\*\*/g, '*')
@@ -143,18 +145,24 @@ Deno.serve(async (req) => {
       await registrar(wamid, extra, false);
       enviados.push(wamid);
     }
-    // Cierre: plantilla de PIX con el valor y, enseguida, la lista de datos del trámite (plantillas de Kommo).
-    if (body.datos_pago) {
+    // Cierre: plantilla de PIX con el valor (o el monto acordado, ej. la mitad) y, enseguida, la lista de datos del
+    // trámite (plantillas de Kommo). Con solo_datos (plan "pagar al final") se manda solo la lista, sin PIX.
+    if (body.datos_pago || body.solo_datos) {
       const { data: d } = await admin.rpc('comercial_datos_para_lead', { p_kommo_lead_id: kommoLeadId });
-      const pix = d?.pix
-        ? completarPlantilla(d.pix, d?.nombre, d?.precio)
-        : `Para realizar el pago, la clave PIX (CNPJ) es 69.093.014/0001-01${d?.precio ? ` — valor R$ ${Number(d.precio).toFixed(0)}` : ''}. Después de pagar, mandame el comprobante por acá.`;
-      const w1 = await enviar({ type: 'text', text: { body: pix } });
-      await registrar(w1, pix, false);
-      enviados.push(w1);
+      const monto = body.monto_pix ? Number(body.monto_pix) : d?.precio;
+      if (!body.solo_datos) {
+        const pix = d?.pix
+          ? completarPlantilla(d.pix, d?.nombre, monto)
+          : `Para realizar el pago, la clave PIX (CNPJ) es 69.093.014/0001-01${monto ? ` — valor ${reales(monto)}` : ''}. Después de pagar, mandame el comprobante por acá.`;
+        const w1 = await enviar({ type: 'text', text: { body: pix } });
+        await registrar(w1, pix, false);
+        enviados.push(w1);
+      }
       const datos = d?.datos
         ? completarPlantilla(d.datos, d?.nombre, d?.precio)
-        : 'Apenas nos mandes el comprobante, el equipo operacional te pide los datos y documentos para arrancar tu trámite.';
+        : body.solo_datos
+          ? 'Enseguida el equipo operacional te pide los datos y documentos para arrancar tu trámite.'
+          : 'Apenas nos mandes el comprobante, el equipo operacional te pide los datos y documentos para arrancar tu trámite.';
       const w2 = await enviar({ type: 'text', text: { body: datos } });
       await registrar(w2, datos, false);
       enviados.push(w2);
