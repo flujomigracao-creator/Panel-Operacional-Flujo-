@@ -3,9 +3,46 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { Check, GraduationCap, Trash2, X } from 'lucide-react';
 import { useAuth } from '@features/auth/context/AuthContext';
-import { getAprendizajesNora, actualizarAprendizajeNora, ensenarANora } from '../services/comercialService';
+import { getAprendizajesNora, actualizarAprendizajeNora, ensenarANora, getResultadosConfianza } from '../services/comercialService';
 
 export const APRENDIZAJES_KEY = ['nora_aprendizajes'];
+
+// Qué argumento convence más a los que desconfían: se mide si el cliente pidió el PIX dentro de 7 días.
+function ResultadosConfianza() {
+  const { data } = useQuery({ queryKey: ['nora_resultados_confianza'], queryFn: getResultadosConfianza });
+  if (!data) return null;
+  const filas = data
+    .map((e) => {
+      const evaluados = e.usos - e.pendientes;
+      return { ...e, evaluados, tasa: evaluados > 0 ? Math.round((e.convirtieron / evaluados) * 100) : null };
+    })
+    .sort((a, b) => (b.tasa ?? -1) - (a.tasa ?? -1));
+  return (
+    <section>
+      <h3 className="mb-1 text-sm font-semibold text-chrome-text-active">Qué convence a los que desconfían</h3>
+      <p className="mb-2 text-xs text-chrome-text-muted">
+        Nora va probando estos argumentos y usa más el que mejor funciona. Cuenta como éxito si el cliente pide el PIX dentro de los 7 días.
+      </p>
+      <div className="overflow-hidden rounded-lg border border-chrome-border">
+        <table className="w-full text-xs">
+          <thead className="bg-chrome-bg-raised text-chrome-text-muted">
+            <tr><th className="px-2 py-1.5 text-left font-medium">Argumento</th><th className="px-2 py-1.5 text-right font-medium">Usado</th><th className="px-2 py-1.5 text-right font-medium">Pidieron PIX</th><th className="px-2 py-1.5 text-right font-medium">Éxito</th></tr>
+          </thead>
+          <tbody>
+            {filas.map((e) => (
+              <tr key={e.codigo} className="border-t border-chrome-border text-chrome-text-active">
+                <td className="px-2 py-1.5">{e.nombre}</td>
+                <td className="px-2 py-1.5 text-right">{e.usos}{e.pendientes > 0 && <span className="text-chrome-text-muted"> ({e.pendientes} esperando)</span>}</td>
+                <td className="px-2 py-1.5 text-right">{e.convirtieron}</td>
+                <td className="px-2 py-1.5 text-right">{e.tasa === null ? '—' : `${e.tasa}%`}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
 
 const ORIGEN = {
   venta: 'De una venta',
@@ -142,6 +179,8 @@ export default function NoraAprendizajes({ onClose }) {
                 className="rounded-md bg-brand-primary px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">Enseñar</button>
             </div>
           </section>
+
+          <ResultadosConfianza />
 
           {isLoading && <p className="text-sm text-chrome-text-muted">Cargando…</p>}
           {error && <p className="text-sm text-red-400">No se pudo cargar lo que aprendió Nora.</p>}

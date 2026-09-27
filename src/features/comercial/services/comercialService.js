@@ -55,6 +55,14 @@ export async function enviarArchivoLead(organizationId, kommoLeadId, file, capti
   return invocarEnvio({ kommo_lead_id: kommoLeadId, storage_path: path, file_name: file.name, mime_type: file.type, caption: caption || undefined });
 }
 
+// Argumentos que Nora prueba con los clientes que desconfían, y cuántos terminaron pidiendo el PIX.
+export async function getResultadosConfianza() {
+  return must(await supabase
+    .from('nora_resultados_confianza')
+    .select('codigo, nombre, activa, usos, convirtieron, pendientes, pruebas_simuladas')
+    .order('codigo'));
+}
+
 export async function getAprendizajesNora() {
   return must(await supabase
     .from('nora_aprendizajes')
