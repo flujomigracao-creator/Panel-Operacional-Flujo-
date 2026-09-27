@@ -14,7 +14,7 @@ export const useNavigation = (isReady = true) => {
         if (hash === '#laboratorio') return 'lab';
         if (hash === '#finanzas') return 'finance';
         if (hash === '#clients') return 'clients';
-        if (hash === '#comercial') return 'comercial';
+        if (hash.startsWith('#comercial')) return 'comercial';
         if (hash === '#dashboard') return 'dashboard';
         if (hash === '#team-chat') return 'team-chat';
         if (hash === '#team-management') return 'team-management';
@@ -24,6 +24,12 @@ export const useNavigation = (isReady = true) => {
         const saved = localStorage.getItem('app_currentView');
         if (saved) return saved;
         return 'lab'; // Default view
+    });
+
+    // Lead de Comercial abierto (kommo_lead_id), para poder llegar directo desde Hoy: #comercial/<id>.
+    const [comercialLeadId, setComercialLeadId] = useState(() => {
+        const m = window.location.hash.match(/^#comercial\/(\d+)/);
+        return m ? Number(m[1]) : null;
     });
 
     const [selectedClientId, setSelectedClientId] = useState(() => {
@@ -57,7 +63,7 @@ export const useNavigation = (isReady = true) => {
         } else if (currentView === 'clients') {
             window.location.hash = 'clients';
         } else if (currentView === 'comercial') {
-            window.location.hash = 'comercial';
+            window.location.hash = comercialLeadId ? `comercial/${comercialLeadId}` : 'comercial';
         } else if (currentView === 'dashboard') {
             window.location.hash = 'dashboard';
         } else if (currentView === 'team-chat') {
@@ -71,7 +77,7 @@ export const useNavigation = (isReady = true) => {
         } else {
             window.location.hash = 'laboratorio';
         }
-    }, [currentView, selectedClientId, isReady]);
+    }, [currentView, selectedClientId, comercialLeadId, isReady]);
 
     // Listen to browser Back/Forward buttons and manual hash changes
     useEffect(() => {
@@ -94,8 +100,10 @@ export const useNavigation = (isReady = true) => {
             } else if (hash === '#clients') {
                 setCurrentView('clients');
                 setSelectedClientId(null);
-            } else if (hash === '#comercial') {
+            } else if (hash.startsWith('#comercial')) {
+                const m = hash.match(/^#comercial\/(\d+)/);
                 setCurrentView('comercial');
+                setComercialLeadId(m ? Number(m[1]) : null);
                 setSelectedClientId(null);
             } else if (hash === '#dashboard') {
                 setCurrentView('dashboard');
@@ -156,8 +164,10 @@ export const useNavigation = (isReady = true) => {
         setCurrentView('clients');
     }, []);
 
-    const navigateToComercial = useCallback(() => {
+    // leadId (opcional) abre ese lead al llegar; null lo cierra.
+    const navigateToComercial = useCallback((leadId = null) => {
         setSelectedClientId(null);
+        setComercialLeadId(typeof leadId === 'number' || typeof leadId === 'string' ? Number(leadId) || null : null);
         setCurrentView('comercial');
     }, []);
 
@@ -184,6 +194,7 @@ export const useNavigation = (isReady = true) => {
     return {
         currentView,
         selectedClientId,
+        comercialLeadId,
         navigateToClient,
         navigateToHome,
         navigateToToday,

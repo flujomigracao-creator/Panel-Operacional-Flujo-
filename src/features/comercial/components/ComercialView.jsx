@@ -15,7 +15,7 @@ import { Bot, BotOff, ExternalLink, GraduationCap, MessageSquare, Phone, User, X
 import NoraAprendizajes, { APRENDIZAJES_KEY } from './NoraAprendizajes';
 import NoraEntrenador from './NoraEntrenador';
 import { getAprendizajesNora } from '../services/comercialService';
-import { getComercialLeads, getConversacionLead, moverEtapaLead, setAtendentePausado, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, CONVERSACION_LIMIT } from '../services/comercialService';
+import { getComercialLeads, getConversacionLead, getMotivoPausa, moverEtapaLead, setAtendentePausado, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, CONVERSACION_LIMIT } from '../services/comercialService';
 import { useAuth } from '@features/auth/context/AuthContext';
 import { KOMMO_LEAD_URL } from '@features/clients/services/clientsService';
 import { Conversation, ReplyBox } from '@features/clients/components/ClientDetailView';
@@ -30,6 +30,46 @@ function money(v) {
 function tieneMensajeNuevo(lead) {
   if (!lead.last_inbound_at) return false;
   return !lead.last_atendido_at || new Date(lead.last_inbound_at) > new Date(lead.last_atendido_at);
+}
+
+const ETAPA_PAGO = 111919155;
+const ETAPA_PAGADO = 111919159;
+const ETAPAS_CERRADAS = new Set([142, 143]);
+
+// Clientes simulados con los que se entrena a Nora (+55 00 …): no son ventas reales.
+const esPrueba = (lead) => (lead.telefono || '').replace(/\D/g, '').startsWith('5500');
+
+// Nora pausada (esperando al dueño) o un mensaje del cliente sin contestar hace más de 10 minutos.
+const necesitaAtencion = (lead) => {
+  if (ETAPAS_CERRADAS.has(lead.etapa_status_id)) return false;
+  if (lead.atendente_pausado) return true;
+  return tieneMensajeNuevo(lead) && Date.now() - new Date(lead.last_inbound_at) > 10 * 60 * 1000;
+};
+
+function Kpi({ label, value, sub, tone = 'text-chrome-text-active', onClick, active }) {
+  const Tag = onClick ? 'button' : 'div';
+  return (
+    <Tag onClick={onClick}
+      className={`min-w-[8.5rem] rounded-lg border px-3 py-2 text-left ${active ? 'border-brand-primary bg-brand-primary/10' : 'border-chrome-border bg-chrome-bg-raised'} ${onClick ? 'hover:border-brand-primary/60' : ''}`}>
+      <p className="text-[11px] uppercase tracking-wide text-chrome-text-muted">{label}</p>
+      <p className={`text-lg font-semibold ${tone}`}>{value}</p>
+      {sub && <p className="text-[11px] text-chrome-text-muted">{sub}</p>}
+    </Tag>
+  );
+}
+
+// Por qué Nora se pausó con este cliente (la consulta que dejó en Hoy).
+function MotivoPausa({ kommoLeadId }) {
+  const { data } = useQuery({
+    queryKey: ['comercial_motivo_pausa', kommoLeadId],
+    queryFn: () => getMotivoPausa(kommoLeadId),
+  });
+  if (!data) return null;
+  return (
+    <div className="border-b border-chrome-border bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
+      <b>Por qué paró Nora:</b> {data.detalhes || data.titulo}
+    </div>
+  );
 }
 
 function fechaHora(v) {
@@ -221,6 +261,7 @@ function LeadDrawer({ lead, onClose }) {
             <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${lead.atendente_pausado ? 'left-0.5' : 'left-[22px]'}`} />
           </button>
         </div>
+        {lead.atendente_pausado && <MotivoPausa kommoLeadId={lead.kommo_lead_id} />}
 
         <div className="flex items-center gap-2 px-4 pt-3 text-sm font-semibold text-chrome-text-active">
           <MessageSquare size={15} /> Conversación
@@ -258,12 +299,18 @@ function LeadDrawer({ lead, onClose }) {
   );
 }
 
-export default function ComercialView() {
+export default function ComercialView({ leadAbiertoKommoId = null, onAbrirLead }) {
   const queryClient = useQueryClient();
   const { data: leads, isLoading, error } = useQuery({ queryKey: QUERY_KEY, queryFn: getComercialLeads, refetchInterval: 30000 });
   const [activeLead, setActiveLead] = useState(null);
-  const [leadAbiertoId, setLeadAbiertoId] = useState(null);
-  const leadAbierto = (leads || []).find((l) => l.id === leadAbiertoId) || null;
+  // El lead abierto vive en la URL (#comercial/<kommo_lead_id>) para poder llegar directo desde Hoy.
+  const [leadLocal, setLeadLocal] = useState(null);
+  const abiertoId = onAbrirLead ? leadAbiertoKommoId : leadLocal;
+  const abrirLead = (kommoLeadId) => (onAbrirLead ? onAbrirLead(kommoLeadId) : setLeadLocal(kommoLeadId));
+  const leadAbierto = (leads || []).find((l) => l.kommo_lead_id === Number(abiertoId)) || null;
+  const [busqueda, setBusqueda] = useState('');
+  const [soloAtencion, setSoloAtencion] = useState(false);
+  const [verPruebas, setVerPruebas] = useState(false);
   const [verAprendizajes, setVerAprendizajes] = useState(false);
   const { data: aprendizajes } = useQuery({ queryKey: APRENDIZAJES_KEY, queryFn: getAprendizajesNora, refetchInterval: 60000 });
   const porRevisar = (aprendizajes || []).filter((a) => a.estado === 'pendiente').length;
@@ -273,14 +320,39 @@ export default function ComercialView() {
     useSensor(KeyboardSensor)
   );
 
+  const visibles = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    const digitos = q.replace(/\D/g, '');
+    return (leads || []).filter((l) => {
+      if (!verPruebas && esPrueba(l)) return false;
+      if (soloAtencion && !necesitaAtencion(l)) return false;
+      if (!q) return true;
+      return [l.nombre, l.tramite_texto].some((t) => (t || '').toLowerCase().includes(q))
+        || (digitos.length >= 3 && (l.telefono || '').replace(/\D/g, '').includes(digitos));
+    });
+  }, [leads, busqueda, soloAtencion, verPruebas]);
+
+  const resumen = useMemo(() => {
+    const reales = (leads || []).filter((l) => !esPrueba(l));
+    const enPago = reales.filter((l) => l.etapa_status_id === ETAPA_PAGO);
+    return {
+      activos: reales.filter((l) => !ETAPAS_CERRADAS.has(l.etapa_status_id)).length,
+      atencion: reales.filter(necesitaAtencion).length,
+      enPago: enPago.length,
+      montoEnPago: enPago.reduce((s, l) => s + (Number(l.precio) || 0), 0),
+      pagados: reales.filter((l) => l.etapa_status_id === ETAPA_PAGADO).length,
+      pruebas: (leads || []).length - reales.length,
+    };
+  }, [leads]);
+
   const columnas = useMemo(() => {
     const porEtapa = new Map(ETAPAS_COMERCIAL.map((e) => [e.statusId, []]));
-    for (const lead of leads || []) {
+    for (const lead of visibles) {
       const bucket = porEtapa.get(lead.etapa_status_id);
       if (bucket) bucket.push(lead);
     }
     return ETAPAS_COMERCIAL.map((e) => ({ etapa: e, leads: porEtapa.get(e.statusId) || [] }));
-  }, [leads]);
+  }, [visibles]);
 
   const onDragStart = (event) => {
     const lead = (leads || []).find((l) => l.id === event.active.id);
@@ -321,8 +393,14 @@ export default function ComercialView() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-semibold text-chrome-text-active">Comercial</h1>
+        <input
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          placeholder="Buscar nombre, teléfono o trámite…"
+          className="ml-auto w-64 max-w-full rounded-lg border border-chrome-border bg-chrome-bg-raised px-3 py-1.5 text-sm text-chrome-text-active outline-none placeholder:text-chrome-text-muted focus:border-brand-primary"
+        />
         <button
           onClick={() => setVerAprendizajes(true)}
           className="inline-flex items-center gap-1.5 rounded-lg border border-chrome-border bg-chrome-bg-raised px-3 py-1.5 text-sm text-chrome-text-active hover:border-brand-primary/60"
@@ -331,15 +409,28 @@ export default function ComercialView() {
           {porRevisar > 0 && <span className="rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-black">{porRevisar}</span>}
         </button>
       </div>
+      <div className="mb-3 flex flex-wrap items-stretch gap-2">
+        <Kpi label="Leads activos" value={resumen.activos} />
+        <Kpi label="Te necesitan" value={resumen.atencion} tone={resumen.atencion ? 'text-amber-400' : 'text-chrome-text-active'}
+          sub={soloAtencion ? 'Mostrando solo estos' : 'Nora pausada o sin respuesta'} onClick={() => setSoloAtencion((v) => !v)} active={soloAtencion} />
+        <Kpi label="Esperando pago" value={resumen.enPago} sub={money(resumen.montoEnPago) || 'R$ 0.00'} tone="text-sky-400" />
+        <Kpi label="Pagaron" value={resumen.pagados} sub="Esperando documentos" tone="text-green-400" />
+        {resumen.pruebas > 0 && (
+          <label className="ml-auto flex cursor-pointer items-center gap-2 self-center text-xs text-chrome-text-muted">
+            <input type="checkbox" checked={verPruebas} onChange={(e) => setVerPruebas(e.target.checked)} />
+            Mostrar {resumen.pruebas} de prueba
+          </label>
+        )}
+      </div>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="flex flex-1 gap-3 overflow-x-auto pb-2">
           {columnas.map(({ etapa, leads: leadsEtapa }) => (
-            <Column key={etapa.statusId} etapa={etapa} leads={leadsEtapa} onOpen={(l) => setLeadAbiertoId(l.id)} />
+            <Column key={etapa.statusId} etapa={etapa} leads={leadsEtapa} onOpen={(l) => abrirLead(l.kommo_lead_id)} />
           ))}
         </div>
         <DragOverlay>{activeLead ? <LeadCard lead={activeLead} dragging /> : null}</DragOverlay>
       </DndContext>
-      {leadAbierto && <LeadDrawer lead={leadAbierto} onClose={() => setLeadAbiertoId(null)} />}
+      {leadAbierto && <LeadDrawer lead={leadAbierto} onClose={() => abrirLead(null)} />}
       {verAprendizajes && <NoraAprendizajes onClose={() => setVerAprendizajes(false)} />}
     </div>
   );

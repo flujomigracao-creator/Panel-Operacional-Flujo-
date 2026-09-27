@@ -69,6 +69,7 @@ export default function AppLayout() {
   const {
     currentView,
     selectedClientId,
+    comercialLeadId,
     navigateToClient,
     navigateToHome,
     navigateToToday,
@@ -203,13 +204,13 @@ export default function AppLayout() {
                 <LabView onNavigateToClient={isReady('client') ? navigateToClientTracked : undefined} onOpenToday={navigateToToday} />
               )}
               {currentView === 'today' && (
-                <TodayView onNavigateToClient={isReady('client') ? navigateToClientTracked : undefined} />
+                <TodayView onNavigateToClient={isReady('client') ? navigateToClientTracked : undefined} onOpenLead={navigateToComercial} />
               )}
               {currentView === 'finance' && isReady('finance') && <FinanceView />}
               {currentView === 'dashboard' && isReady('dashboard') && <DashboardView navigateToClientsList={navigateToClientsList} />}
               {currentView === 'client' && isReady('client') && <ClientDetailView key={selectedClientId} clientId={selectedClientId} onBack={navigateToClientsList} onNavigateToClient={navigateToClientTracked} />}
               {currentView === 'clients' && isReady('clients') && <ClientsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} />}
-              {currentView === 'comercial' && isReady('comercial') && <ComercialView />}
+              {currentView === 'comercial' && isReady('comercial') && <ComercialView leadAbiertoKommoId={comercialLeadId} onAbrirLead={navigateToComercial} />}
               {currentView === 'team-chat' && isReady('team-chat') && <TeamChat isFullView={true} />}
               {currentView === 'team-management' && isReady('team-management') && <TeamManagement userProfile={userProfile} />}
               {currentView === 'settings' && isReady('settings') && <SettingsView userProfile={userProfile} />}

@@ -28,6 +28,17 @@ export async function getComercialLeads() {
     .order('updated_at', { ascending: false }));
 }
 
+// La consulta más reciente que Nora dejó en Hoy para este lead (por qué se pausó).
+export async function getMotivoPausa(kommoLeadId) {
+  const rows = must(await supabase
+    .from('pendentes_hoje')
+    .select('titulo, detalhes, desde')
+    .eq('kommo_lead_id', kommoLeadId)
+    .order('desde', { ascending: false })
+    .limit(1));
+  return rows[0] || null;
+}
+
 export async function setAtendentePausado(leadId, pausado) {
   must(await supabase.from('comercial_leads').update({ atendente_pausado: pausado }).eq('id', leadId));
 }

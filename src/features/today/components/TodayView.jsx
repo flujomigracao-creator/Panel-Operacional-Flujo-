@@ -15,6 +15,7 @@ import {
   Mail,
   MapPin,
   ListTodo,
+  MessageSquare,
   RefreshCw,
   X,
 } from 'lucide-react';
@@ -156,7 +157,7 @@ function DireccionForm({ item, organizationId, onSaved }) {
   );
 }
 
-function InboxItem({ item, busy, organizationId, onAction, onNavigateToClient, onDireccionGuardada }) {
+function InboxItem({ item, busy, organizationId, onAction, onNavigateToClient, onOpenLead, onDireccionGuardada }) {
   const priority = PRIORITY_META[item.prioridade] || PRIORITY_META.normal;
   const type = TYPE_META[item.tipo] || { label: item.origem === 'tarefa' ? 'Tarea' : item.tipo, icon: ListTodo };
   const Icon = type.icon;
@@ -231,6 +232,11 @@ function InboxItem({ item, busy, organizationId, onAction, onNavigateToClient, o
             </ActionButton>
           </>
         )}
+        {item.kommo_lead_id && onOpenLead && (
+          <ActionButton variant="primary" onClick={() => onOpenLead(item.kommo_lead_id)} title="Ver la conversación, responder y enseñarle a Nora">
+            <MessageSquare size={14} /> Responder
+          </ActionButton>
+        )}
         {item.client_id && onNavigateToClient && (
           <ActionButton onClick={() => onNavigateToClient(item.client_id)} title="Abrir ficha del cliente">
             Ficha
@@ -256,7 +262,7 @@ function InboxItem({ item, busy, organizationId, onAction, onNavigateToClient, o
  * Hoy — todo lo que necesita intervención humana, en un solo lugar.
  * Lo que no aparece acá lo están resolviendo las automatizaciones.
  */
-export default function TodayView({ onNavigateToClient }) {
+export default function TodayView({ onNavigateToClient, onOpenLead }) {
   const { userId, userProfile } = useAuth();
   const organizationId = userProfile?.organization_id;
   const [items, setItems] = useState([]);
@@ -382,6 +388,7 @@ export default function TodayView({ onNavigateToClient }) {
               organizationId={organizationId}
               onAction={handleAction}
               onNavigateToClient={onNavigateToClient}
+              onOpenLead={onOpenLead}
               onDireccionGuardada={handleDireccionGuardada}
             />
           ))}
