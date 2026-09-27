@@ -5,7 +5,8 @@
 //   extra_texto: segundo mensaje de texto (ej. la clave PIX cuando el cliente quiere pagar).
 //   submenu: 'agendamiento' → botones RNM/refugio (ids motivo:<enum>); 'residencia' → vía (ids variante:<familiar|mercosur>).
 //   datos_pago: manda la plantilla de PIX de Kommo con el valor (o monto_pix si se acordó otro, ej. la mitad) y la plantilla de datos.
-//   solo_datos: manda solo la plantilla de datos (plan "empezar y pagar al final").
+//   solo_datos: manda solo la plantilla de datos (plan "empezar y pagar al final") y avisa que se espera la documentación.
+//   idioma: 'pt' | 'es' para los textos fijos.
 //   texto_previo: texto que se manda antes que todo (ej. presentación de Nora si el cliente arrancó pidiendo un trámite).
 //   solo_escribiendo: no manda nada; marca como leído el último mensaje del cliente y muestra "escribiendo…".
 // Respeta `comercial_leads.atendente_pausado`: si el lead está pausado no manda nada.
@@ -209,6 +210,15 @@ Deno.serve(async (req) => {
       const w2 = await enviar({ type: 'text', text: { body: datos } });
       await registrar(w2, datos, false);
       enviados.push(w2);
+      // Plan "pagar al final": el trámite ya pasó a Operacional, solo falta que el cliente mande lo de la lista.
+      if (body.solo_datos) {
+        const espera = body.idioma === 'pt'
+          ? 'Seu trâmite já passou para a nossa equipe operacional ✅ Ficamos aguardando a sua documentação para começar.'
+          : 'Su trámite ya pasó a nuestro equipo operacional ✅ Quedamos esperando su documentación para empezar.';
+        const w3 = await enviar({ type: 'text', text: { body: espera } });
+        await registrar(w3, espera, false);
+        enviados.push(w3);
+      }
     }
     if (body.lista_tramites) {
       const { data: tramites } = await admin

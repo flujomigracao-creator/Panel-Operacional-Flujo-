@@ -77,6 +77,23 @@ function fechaHora(v) {
   return new Date(v).toLocaleString('es', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+const PLANES = { mitad: 'Mitad ahora', al_final: 'Paga al final' };
+
+// Cómo va el cobro de un lead que ya recibió los datos de pago.
+function EstadoPago({ lead }) {
+  const chips = [];
+  if (PLANES[lead.plan_pago]) chips.push(['bg-violet-500/15 text-violet-300', PLANES[lead.plan_pago]]);
+  if (lead.enviado_operacional_at) chips.push(['bg-green-500/15 text-green-300', 'En Operacional']);
+  else if (lead.comprobante_at) chips.push(['bg-green-500/15 text-green-300', `Comprobante${lead.comprobante_monto ? ` R$ ${Number(lead.comprobante_monto).toFixed(0)}` : ''} · verificar`]);
+  else if (lead.recordatorio_pago_at) chips.push(['bg-amber-500/15 text-amber-300', 'Se le recordó el comprobante']);
+  if (!chips.length) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      {chips.map(([cls, txt]) => <span key={txt} className={`rounded-full px-1.5 py-0.5 text-[10px] ${cls}`}>{txt}</span>)}
+    </div>
+  );
+}
+
 function LeadCard({ lead, dragging = false, onOpen }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: lead.id, data: lead });
   const style = transform
@@ -112,6 +129,7 @@ function LeadCard({ lead, dragging = false, onOpen }) {
         <span className="text-xs text-chrome-text-muted">{lead.tramite_texto || 'Trámite por definir'}</span>
         {money(lead.precio) && <span className="text-xs font-semibold text-green-400">{money(lead.precio)}</span>}
       </div>
+      <EstadoPago lead={lead} />
       <a
         href={KOMMO_LEAD_URL(lead.kommo_lead_id)}
         target="_blank"
@@ -340,7 +358,8 @@ export default function ComercialView({ leadAbiertoKommoId = null, onAbrirLead }
       atencion: reales.filter(necesitaAtencion).length,
       enPago: enPago.length,
       montoEnPago: enPago.reduce((s, l) => s + (Number(l.precio) || 0), 0),
-      pagados: reales.filter((l) => l.etapa_status_id === ETAPA_PAGADO).length,
+      comprobantes: enPago.filter((l) => l.comprobante_at).length,
+      ganados: reales.filter((l) => l.etapa_status_id === 142 || l.etapa_status_id === ETAPA_PAGADO).length,
       pruebas: (leads || []).length - reales.length,
     };
   }, [leads]);
@@ -413,8 +432,8 @@ export default function ComercialView({ leadAbiertoKommoId = null, onAbrirLead }
         <Kpi label="Leads activos" value={resumen.activos} />
         <Kpi label="Te necesitan" value={resumen.atencion} tone={resumen.atencion ? 'text-amber-400' : 'text-chrome-text-active'}
           sub={soloAtencion ? 'Mostrando solo estos' : 'Nora pausada o sin respuesta'} onClick={() => setSoloAtencion((v) => !v)} active={soloAtencion} />
-        <Kpi label="Esperando pago" value={resumen.enPago} sub={money(resumen.montoEnPago) || 'R$ 0.00'} tone="text-sky-400" />
-        <Kpi label="Pagaron" value={resumen.pagados} sub="Esperando documentos" tone="text-green-400" />
+        <Kpi label="Esperando pago" value={resumen.enPago} sub={`${money(resumen.montoEnPago) || 'R$ 0.00'}${resumen.comprobantes ? ` · ${resumen.comprobantes} con comprobante` : ''}`} tone="text-sky-400" />
+        <Kpi label="Ganados" value={resumen.ganados} sub="Pasaron a Operacional" tone="text-green-400" />
         {resumen.pruebas > 0 && (
           <label className="ml-auto flex cursor-pointer items-center gap-2 self-center text-xs text-chrome-text-muted">
             <input type="checkbox" checked={verPruebas} onChange={(e) => setVerPruebas(e.target.checked)} />
