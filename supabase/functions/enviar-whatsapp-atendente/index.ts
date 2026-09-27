@@ -10,6 +10,7 @@
 //   solo_escribiendo: no manda nada; marca como leído el último mensaje del cliente y muestra "escribiendo…".
 // Respeta `comercial_leads.atendente_pausado`: si el lead está pausado no manda nada.
 // Entre un mensaje y el siguiente muestra "escribiendo…" y hace una pausa corta, como una persona.
+// Teléfonos +55 00… (DDD inexistente) son clientes simulados para probar a Nora: no se manda nada a WhatsApp.
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -66,6 +67,9 @@ Deno.serve(async (req) => {
   if (!to) return json({ error: 'El lead no tiene teléfono' }, 422);
   const { data: resol } = await admin.rpc('whatsapp_resolver_lead', { p_telefono: to });
   const chatId = `wa:${resol?.telefono_chave || to}`;
+  // Clientes simulados para probar a Nora (DDD 00, no existe en Brasil): se registra todo como si se enviara,
+  // pero no se llama a WhatsApp.
+  const simulado = to.startsWith('5500');
 
   // "Escribiendo…": la Cloud API lo muestra sobre el último mensaje recibido (y lo marca como leído) hasta
   // 25 s o hasta que llega nuestro mensaje. No existe un indicador de "grabando audio".
@@ -79,7 +83,7 @@ Deno.serve(async (req) => {
     .limit(1)
     .maybeSingle();
   const escribiendo = async () => {
-    if (!ultimoRecibido?.external_message_id) return;
+    if (simulado || !ultimoRecibido?.external_message_id) return;
     await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -93,12 +97,13 @@ Deno.serve(async (req) => {
 
   let primerEnvio = true;
   const enviar = async (payload: Record<string, unknown>) => {
-    if (!primerEnvio) {
+    if (!primerEnvio && !simulado) {
       const texto = String((payload as any)?.text?.body || (payload as any)?.interactive?.body?.text || '');
       await escribiendo();
       await new Promise((ok) => setTimeout(ok, Math.min(3500, 1000 + texto.length * 12)));
     }
     primerEnvio = false;
+    if (simulado) return `wamid.SIM${crypto.randomUUID()}`;
     const r = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -150,7 +155,12 @@ Deno.serve(async (req) => {
       enviados.push(wamid);
     }
     let audioEnviado = false;
-    if (audioPath) {
+    if (audioPath && simulado) {
+      const wamid = await enviar({ type: 'audio' });
+      await registrar(wamid, mensaje || null, true);
+      enviados.push(wamid);
+      audioEnviado = true;
+    } else if (audioPath) {
       try {
         const { data: blob, error: dlErr } = await admin.storage.from(BUCKET).download(audioPath);
         if (dlErr || !blob) throw new Error(dlErr?.message || 'no se pudo leer el audio');
