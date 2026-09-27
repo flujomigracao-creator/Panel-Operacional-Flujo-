@@ -1,11 +1,70 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Check, GraduationCap, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, GraduationCap, MessageSquare, Trash2, X } from 'lucide-react';
 import { useAuth } from '@features/auth/context/AuthContext';
-import { getAprendizajesNora, actualizarAprendizajeNora, ensenarANora, getResultadosConfianza } from '../services/comercialService';
+import { getAprendizajesNora, actualizarAprendizajeNora, ensenarANora, getResultadosConfianza, getReglasNora, actualizarReglaNora } from '../services/comercialService';
+import NoraEntrenador, { REGLAS_KEY } from './NoraEntrenador';
 
 export const APRENDIZAJES_KEY = ['nora_aprendizajes'];
+
+// Datos fijos del negocio que Nora respeta siempre (se crean desde el chat con Nora).
+function ReglasFijas() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({ queryKey: REGLAS_KEY, queryFn: getReglasNora });
+  const [editando, setEditando] = useState(null);
+  const [texto, setTexto] = useState('');
+  if (!data) return null;
+
+  const guardar = async (id, cambios, ok) => {
+    try {
+      await actualizarReglaNora(id, cambios);
+      toast.success(ok);
+      setEditando(null);
+      queryClient.invalidateQueries({ queryKey: REGLAS_KEY });
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'No se pudo guardar.');
+    }
+  };
+
+  return (
+    <section>
+      <h3 className="mb-1 text-sm font-semibold text-chrome-text-active">Reglas fijas <span className="text-xs font-normal text-chrome-text-muted">{data.length}</span></h3>
+      <p className="mb-2 text-xs text-chrome-text-muted">Lo que Nora respeta siempre y responde con seguridad, sin consultar.</p>
+      {data.length === 0
+        ? <p className="text-xs text-chrome-text-muted">Todavía no hay reglas. Enseñáselas desde “Hablar con Nora”.</p>
+        : (
+          <ul className="space-y-1.5">
+            {data.map((r) => (
+              <li key={r.id} className="rounded-lg border border-chrome-border bg-chrome-bg-raised p-2.5 text-sm text-chrome-text-active">
+                {editando === r.id ? (
+                  <>
+                    <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={3}
+                      className="w-full resize-y rounded-md border border-chrome-border bg-chrome-bg p-2 text-sm outline-none focus:border-brand-primary" />
+                    <div className="mt-1.5 flex justify-end gap-2 text-xs">
+                      <button onClick={() => setEditando(null)} className="rounded-md px-2.5 py-1 text-chrome-text">Cancelar</button>
+                      <button disabled={texto.trim().length < 10} onClick={() => guardar(r.id, { texto: texto.trim() }, 'Regla actualizada')}
+                        className="rounded-md bg-chrome-bg-active px-2.5 py-1 text-chrome-text-active disabled:opacity-50">Guardar</button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-start justify-between gap-2">
+                    <span>{r.texto}</span>
+                    <div className="flex shrink-0 gap-1 text-xs">
+                      <button onClick={() => { setEditando(r.id); setTexto(r.texto); }} className="rounded px-1.5 py-0.5 text-chrome-text hover:bg-chrome-bg">Editar</button>
+                      <button onClick={() => guardar(r.id, { activa: false }, 'Nora la olvidó')} aria-label="Olvidar regla"
+                        className="rounded px-1.5 py-0.5 text-red-400 hover:bg-red-500/10"><Trash2 size={12} /></button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+    </section>
+  );
+}
 
 // Qué argumento convence más a los que desconfían: se mide si el cliente pidió el PIX dentro de 7 días.
 function ResultadosConfianza() {
@@ -49,6 +108,7 @@ const ORIGEN = {
   perdido: 'De un lead perdido',
   humano: 'De una respuesta del equipo',
   manual: 'Enseñada por vos',
+  entrenador: 'Enseñada en el chat',
 };
 
 function Tarjeta({ item, onGuardar, onAprobar, onDescartar }) {
@@ -101,6 +161,7 @@ export default function NoraAprendizajes({ onClose }) {
   const [nuevo, setNuevo] = useState('');
   const [tipoNuevo, setTipoNuevo] = useState('leccion');
   const [guardando, setGuardando] = useState(false);
+  const [charlando, setCharlando] = useState(false);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -153,9 +214,18 @@ export default function NoraAprendizajes({ onClose }) {
               <p className="text-xs text-chrome-text-muted">Solo usa lo aprobado. Las reglas de precios, plazos y PIX siempre mandan.</p>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Cerrar" className="rounded-md p-1.5 text-chrome-text hover:bg-chrome-bg-raised hover:text-chrome-text-active"><X size={18} /></button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setCharlando((v) => !v)}
+              className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs text-brand-primary hover:bg-chrome-bg-raised">
+              {charlando ? <><ArrowLeft size={13} /> Lo aprendido</> : <><MessageSquare size={13} /> Hablar con Nora</>}
+            </button>
+            <button onClick={onClose} aria-label="Cerrar" className="rounded-md p-1.5 text-chrome-text hover:bg-chrome-bg-raised hover:text-chrome-text-active"><X size={18} /></button>
+          </div>
         </header>
 
+        {charlando ? (
+          <div className="min-h-0 flex-1"><NoraEntrenador /></div>
+        ) : (
         <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
           <section>
             <h3 className="mb-2 text-sm font-semibold text-chrome-text-active">Enseñale algo a Nora</h3>
@@ -180,6 +250,8 @@ export default function NoraAprendizajes({ onClose }) {
             </div>
           </section>
 
+          <ReglasFijas />
+
           <ResultadosConfianza />
 
           {isLoading && <p className="text-sm text-chrome-text-muted">Cargando…</p>}
@@ -203,6 +275,7 @@ export default function NoraAprendizajes({ onClose }) {
             </section>
           )}
         </div>
+        )}
       </aside>
     </div>
   );

@@ -13,6 +13,7 @@ import {
 } from '@dnd-kit/core';
 import { Bot, BotOff, ExternalLink, GraduationCap, MessageSquare, Phone, User, X } from 'lucide-react';
 import NoraAprendizajes, { APRENDIZAJES_KEY } from './NoraAprendizajes';
+import NoraEntrenador from './NoraEntrenador';
 import { getAprendizajesNora } from '../services/comercialService';
 import { getComercialLeads, getConversacionLead, moverEtapaLead, setAtendentePausado, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, CONVERSACION_LIMIT } from '../services/comercialService';
 import { useAuth } from '@features/auth/context/AuthContext';
@@ -117,6 +118,7 @@ function LeadDrawer({ lead, onClose }) {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
   const [cambiandoIA, setCambiandoIA] = useState(false);
+  const [entrenando, setEntrenando] = useState(false);
   const conversacionKey = ['comercial_conversacion', lead.kommo_lead_id];
 
   const refrescar = () => {
@@ -124,8 +126,7 @@ function LeadDrawer({ lead, onClose }) {
     queryClient.invalidateQueries({ queryKey: QUERY_KEY });
   };
 
-  const toggleAtendente = async () => {
-    const pausar = !lead.atendente_pausado;
+  const toggleAtendente = async (pausar = !lead.atendente_pausado) => {
     setCambiandoIA(true);
     try {
       await setAtendentePausado(lead.id, pausar);
@@ -156,9 +157,12 @@ function LeadDrawer({ lead, onClose }) {
 
   return (
     <div className="fixed inset-0 z-[200] flex justify-end bg-black/40" onClick={onClose}>
-      <aside
-        className="flex h-full w-full max-w-[32rem] flex-col border-l border-chrome-border bg-chrome-bg shadow-2xl"
+      <div
+        className={`flex h-full w-full flex-col md:flex-row ${entrenando ? 'max-w-[66rem]' : 'max-w-[32rem]'}`}
         onClick={(e) => e.stopPropagation()}
+      >
+      <aside
+        className={`flex min-h-0 w-full flex-col border-l border-chrome-border bg-chrome-bg shadow-2xl md:h-full md:max-w-[32rem] ${entrenando ? 'h-1/2' : 'h-full'}`}
       >
         <header className="flex items-start justify-between gap-3 border-b border-chrome-border px-4 py-3">
           <div className="min-w-0">
@@ -166,6 +170,14 @@ function LeadDrawer({ lead, onClose }) {
             <p className="text-xs text-chrome-text-muted">{lead.etapa_nombre || 'Sin etapa'}</p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {!entrenando && (
+              <button
+                onClick={() => setEntrenando(true)}
+                className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs text-brand-primary hover:bg-chrome-bg-raised"
+              >
+                <GraduationCap size={13} /> Enseñarle a Nora
+              </button>
+            )}
             <a
               href={KOMMO_LEAD_URL(lead.kommo_lead_id)}
               target="_blank"
@@ -203,7 +215,7 @@ function LeadDrawer({ lead, onClose }) {
             aria-checked={!lead.atendente_pausado}
             aria-label="Activar o desactivar el atendente IA para este lead"
             disabled={cambiandoIA}
-            onClick={toggleAtendente}
+            onClick={() => toggleAtendente()}
             className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${lead.atendente_pausado ? 'bg-zinc-600' : 'bg-green-500'}`}
           >
             <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${lead.atendente_pausado ? 'left-0.5' : 'left-[22px]'}`} />
@@ -231,6 +243,17 @@ function LeadDrawer({ lead, onClose }) {
           <div className="border-t border-chrome-border px-4 py-2 text-xs text-chrome-text-muted">Este lead no tiene teléfono registrado, no se le puede escribir desde acá.</div>
         )}
       </aside>
+      {entrenando && (
+        <section className="flex h-1/2 min-h-0 w-full flex-col border-l border-t border-chrome-border bg-chrome-bg shadow-2xl md:h-full md:border-t-0">
+          <NoraEntrenador
+            lead={lead}
+            onClose={() => setEntrenando(false)}
+            onReactivar={() => toggleAtendente(false)}
+            onMensajeEnviado={refrescar}
+          />
+        </section>
+      )}
+      </div>
     </div>
   );
 }

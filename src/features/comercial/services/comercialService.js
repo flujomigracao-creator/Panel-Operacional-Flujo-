@@ -79,15 +79,53 @@ export async function actualizarAprendizajeNora(id, cambios, userId) {
     .eq('id', id));
 }
 
-export async function ensenarANora(texto, tipo, userId) {
+export async function ensenarANora(texto, tipo, userId, origen = 'manual', kommoLeadId = null) {
   must(await supabase.from('nora_aprendizajes').insert({
     leccion: texto.trim(),
     tipo,
-    origen: 'manual',
+    origen,
+    kommo_lead_id: kommoLeadId,
     estado: 'aprobada',
     revisado_at: new Date().toISOString(),
     revisado_por: userId || null,
   }));
+}
+
+// Reglas fijas del negocio que Nora respeta siempre (documentos, requisitos, políticas).
+export async function getReglasNora() {
+  return must(await supabase
+    .from('nora_reglas')
+    .select('id, texto, activa, origen, kommo_lead_id, created_at')
+    .eq('activa', true)
+    .order('created_at', { ascending: true }));
+}
+
+export async function guardarReglaNora(texto, userId, kommoLeadId = null) {
+  must(await supabase.from('nora_reglas').insert({ texto: texto.trim(), kommo_lead_id: kommoLeadId, creado_por: userId || null }));
+}
+
+export async function actualizarReglaNora(id, cambios) {
+  must(await supabase.from('nora_reglas').update({ ...cambios, updated_at: new Date().toISOString() }).eq('id', id));
+}
+
+const ENTRENADOR_URL = 'https://yhlqmdlg-n8n.cbr6xz.easypanel.host/webhook/nora-entrenador';
+
+// El pedido se guarda con la sesión del usuario (RLS) y n8n solo responde pedidos que existen,
+// así el webhook no necesita claves. mensajes: [{ role: 'dueno' | 'nora', content }].
+export async function hablarConEntrenador(mensajes, kommoLeadId = null) {
+  const { id } = must(await supabase
+    .from('nora_entrenador_pedidos')
+    .insert({ kommo_lead_id: kommoLeadId, mensajes })
+    .select('id')
+    .single());
+  const res = await fetch(ENTRENADOR_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.ok) throw new Error(data?.error || 'Nora no pudo responder, probá de nuevo.');
+  return data;
 }
 
 export const CONVERSACION_LIMIT = 200;
