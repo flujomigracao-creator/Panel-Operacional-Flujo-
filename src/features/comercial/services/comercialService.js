@@ -23,7 +23,7 @@ export const ETAPAS_COMERCIAL = [
 export async function getComercialLeads() {
   return must(await supabase
     .from('comercial_leads')
-    .select('id, kommo_lead_id, client_id, nombre, telefono, tramite_texto, precio, etapa_status_id, etapa_nombre, etapa_position, updated_at, last_inbound_at, last_atendido_at, bienvenida_enviada, propuesta_enviada, atendente_pausado')
+    .select('id, kommo_lead_id, kommo_contact_id, client_id, nombre, telefono, tramite_texto, precio, etapa_status_id, etapa_nombre, etapa_position, updated_at, last_inbound_at, last_atendido_at, bienvenida_enviada, propuesta_enviada, atendente_pausado')
     .order('etapa_position', { ascending: true })
     .order('updated_at', { ascending: false }));
 }
@@ -84,11 +84,15 @@ export async function ensenarANora(texto, tipo, userId) {
 
 export const CONVERSACION_LIMIT = 200;
 
-export async function getConversacionLead(kommoLeadId) {
-  const desc = must(await supabase
+// Un cliente puede tener un lead por trámite: la charla de WhatsApp es una sola, así que se trae la del contacto entero.
+export async function getConversacionLead(kommoLeadId, kommoContactId) {
+  const query = supabase
     .from('messages')
-    .select('id, direction, sender_type, message_type, content, author_name, created_at, metadata, message_attachments(id, storage_path, source_url, file_name, mime_type, kind)')
-    .eq('kommo_lead_id', kommoLeadId)
+    .select('id, direction, sender_type, message_type, content, author_name, created_at, metadata, message_attachments(id, storage_path, source_url, file_name, mime_type, kind)');
+  const filtrada = kommoContactId
+    ? query.or(`kommo_lead_id.eq.${Number(kommoLeadId)},kommo_contact_id.eq.${Number(kommoContactId)}`)
+    : query.eq('kommo_lead_id', kommoLeadId);
+  const desc = must(await filtrada
     .order('created_at', { ascending: false })
     .limit(CONVERSACION_LIMIT));
   return desc.slice().reverse();

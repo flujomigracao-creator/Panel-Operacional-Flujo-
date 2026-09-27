@@ -144,7 +144,7 @@ function LeadDrawer({ lead, onClose }) {
 
   const { data: mensajes, isLoading, error } = useQuery({
     queryKey: conversacionKey,
-    queryFn: () => getConversacionLead(lead.kommo_lead_id),
+    queryFn: () => getConversacionLead(lead.kommo_lead_id, lead.kommo_contact_id),
     refetchInterval: 15000,
   });
 

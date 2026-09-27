@@ -7,7 +7,9 @@
 //   datos_pago: manda la plantilla de PIX de Kommo con el valor (o monto_pix si se acordó otro, ej. la mitad) y la plantilla de datos.
 //   solo_datos: manda solo la plantilla de datos (plan "empezar y pagar al final").
 //   texto_previo: texto que se manda antes que todo (ej. presentación de Nora si el cliente arrancó pidiendo un trámite).
+//   solo_escribiendo: no manda nada; marca como leído el último mensaje del cliente y muestra "escribiendo…".
 // Respeta `comercial_leads.atendente_pausado`: si el lead está pausado no manda nada.
+// Entre un mensaje y el siguiente muestra "escribiendo…" y hace una pausa corta, como una persona.
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -50,7 +52,7 @@ Deno.serve(async (req) => {
   // si no, llega como archivo de audio con ícono de auriculares.
   const esOgg = /\.(ogg|opus)$/i.test(audioPath || '');
   const audioMime = esOgg ? 'audio/ogg; codecs=opus' : 'audio/mpeg';
-  if (!kommoLeadId || (!mensaje && !audioPath && !body.lista_tramites && !body.submenu && !body.datos_pago && !body.solo_datos)) return json({ error: 'Falta kommo_lead_id y mensaje o audio' }, 400);
+  if (!kommoLeadId || (!mensaje && !audioPath && !body.lista_tramites && !body.submenu && !body.datos_pago && !body.solo_datos && !body.solo_escribiendo)) return json({ error: 'Falta kommo_lead_id y mensaje o audio' }, 400);
 
   const { data: lead } = await admin
     .from('comercial_leads')
@@ -65,7 +67,38 @@ Deno.serve(async (req) => {
   const { data: resol } = await admin.rpc('whatsapp_resolver_lead', { p_telefono: to });
   const chatId = `wa:${resol?.telefono_chave || to}`;
 
+  // "Escribiendo…": la Cloud API lo muestra sobre el último mensaje recibido (y lo marca como leído) hasta
+  // 25 s o hasta que llega nuestro mensaje. No existe un indicador de "grabando audio".
+  const { data: ultimoRecibido } = await admin
+    .from('messages')
+    .select('external_message_id')
+    .eq('kommo_lead_id', kommoLeadId)
+    .eq('direction', 'inbound')
+    .like('external_message_id', 'wamid.%')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const escribiendo = async () => {
+    if (!ultimoRecibido?.external_message_id) return;
+    await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: ultimoRecibido.external_message_id, typing_indicator: { type: 'text' } }),
+    }).catch((e) => console.error('escribiendo', e));
+  };
+  if (body.solo_escribiendo) {
+    await escribiendo();
+    return json({ ok: true, escribiendo: Boolean(ultimoRecibido?.external_message_id) });
+  }
+
+  let primerEnvio = true;
   const enviar = async (payload: Record<string, unknown>) => {
+    if (!primerEnvio) {
+      const texto = String((payload as any)?.text?.body || (payload as any)?.interactive?.body?.text || '');
+      await escribiendo();
+      await new Promise((ok) => setTimeout(ok, Math.min(3500, 1000 + texto.length * 12)));
+    }
+    primerEnvio = false;
     const r = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
