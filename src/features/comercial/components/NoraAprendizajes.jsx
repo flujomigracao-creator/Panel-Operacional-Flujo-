@@ -109,6 +109,8 @@ const ORIGEN = {
   humano: 'De una respuesta del equipo',
   manual: 'Enseñada por vos',
   entrenador: 'Enseñada en el chat',
+  cierre: 'De un cliente que confirmó',
+  silencio: 'De un cliente que dejó de responder',
 };
 
 function Tarjeta({ item, onGuardar, onAprobar, onDescartar }) {
