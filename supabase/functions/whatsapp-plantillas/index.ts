@@ -3,6 +3,7 @@
 // POST { accion: 'crear', plantillas: [{ name, language, category, components }] }  → las manda a aprobación de Meta.
 // POST { accion: 'listar' }                                                         → nombre, idioma, estado y motivo de rechazo.
 // POST { accion: 'diagnostico' }                                                    → permisos del token y cuentas visibles.
+// POST { accion: 'suscripcion' }                                                    → apps suscritas al webhook y estado del número.
 // Secretos: WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID; WHATSAPP_WABA_ID opcional (si no está, se busca la cuenta que tiene el número).
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 
@@ -72,6 +73,13 @@ Deno.serve(async (req) => {
   const waba = await resolverWaba();
   if (!waba) return json({ ok: false, error: 'No encontré la cuenta de WhatsApp Business del número (usar accion diagnostico).' }, 404);
 
+  // Salud del canal: ¿la app sigue suscrita a la cuenta (webhook) y el número está conectado?
+  if (body.accion === 'suscripcion') {
+    const apps = await get(`${waba}/subscribed_apps`);
+    const tel = await get(`${phoneId}?fields=display_phone_number,verified_name,status,quality_rating,code_verification_status,platform_type,throughput,messaging_limit_tier`);
+    return json({ ok: true, waba, apps: apps.data || apps.error || null, numero: tel });
+  }
+
   if (body.accion === 'listar') {
     const r = await fetch(`${GRAPH}/${waba}/message_templates?fields=name,language,status,category,rejected_reason&limit=100`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -95,5 +103,5 @@ Deno.serve(async (req) => {
     return json({ ok: true, waba, resultados });
   }
 
-  return json({ error: 'accion debe ser crear, listar o diagnostico' }, 400);
+  return json({ error: 'accion debe ser crear, listar, suscripcion o diagnostico' }, 400);
 });
