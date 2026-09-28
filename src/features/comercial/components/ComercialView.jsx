@@ -15,7 +15,7 @@ import { Bot, BotOff, ExternalLink, GraduationCap, MessageSquare, Phone, User, X
 import NoraAprendizajes, { APRENDIZAJES_KEY } from './NoraAprendizajes';
 import NoraEntrenador from './NoraEntrenador';
 import { getAprendizajesNora } from '../services/comercialService';
-import { getComercialLeads, getConversacionLead, getMotivoPausa, moverEtapaLead, setAtendentePausado, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, CONVERSACION_LIMIT } from '../services/comercialService';
+import { getComercialLeads, getConversacionLead, getMotivoPausa, moverEtapaLead, setAtendentePausado, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, ETAPA_SUPERVISOR, CONVERSACION_LIMIT } from '../services/comercialService';
 import { useAuth } from '@features/auth/context/AuthContext';
 import { KOMMO_LEAD_URL } from '@features/clients/services/clientsService';
 import { Conversation, ReplyBox } from '@features/clients/components/ClientDetailView';
@@ -86,6 +86,10 @@ function EstadoPago({ lead }) {
   if (lead.enviado_operacional_at) chips.push(['bg-green-500/15 text-green-300', 'En Operacional']);
   else if (lead.comprobante_at) chips.push(['bg-green-500/15 text-green-300', `Comprobante${lead.comprobante_monto ? ` R$ ${Number(lead.comprobante_monto).toFixed(0)}` : ''} · verificar`]);
   else if (lead.recordatorio_pago_at) chips.push(['bg-amber-500/15 text-amber-300', 'Se le recordó el comprobante']);
+  // Seguimientos que Nora le mandó desde su último mensaje (máximo 2 dentro de la ventana de 24 h de WhatsApp).
+  if (lead.seguimiento_intentos > 0 && lead.seguimiento_ultimo_at && (!lead.last_inbound_at || new Date(lead.seguimiento_ultimo_at) > new Date(lead.last_inbound_at))) {
+    chips.push(['bg-sky-500/15 text-sky-300', `Seguimiento ${lead.seguimiento_intentos}/2`]);
+  }
   if (!chips.length) return null;
   return (
     <div className="mt-1.5 flex flex-wrap gap-1">
@@ -151,8 +155,8 @@ function Column({ etapa, leads, onOpen }) {
       ref={setNodeRef}
       className={`flex w-72 shrink-0 flex-col rounded-xl border ${isOver ? 'border-brand-primary bg-chrome-bg-active/40' : 'border-chrome-border bg-chrome-bg'}`}
     >
-      <header className="flex items-center justify-between border-b border-chrome-border px-3 py-2.5">
-        <h3 className="text-sm font-semibold text-chrome-text-active">{etapa.nombre}</h3>
+      <header className={`flex items-center justify-between border-b border-chrome-border px-3 py-2.5 ${etapa.statusId === ETAPA_SUPERVISOR && leads.length ? 'rounded-t-xl bg-red-500/15' : ''}`}>
+        <h3 className={`text-sm font-semibold ${etapa.statusId === ETAPA_SUPERVISOR && leads.length ? 'text-red-300' : 'text-chrome-text-active'}`}>{etapa.nombre}</h3>
         <span className="rounded-full bg-chrome-bg-raised px-2 py-0.5 text-xs text-chrome-text-muted">{leads.length}</span>
       </header>
       <div className="flex min-h-[120px] flex-1 flex-col gap-2 overflow-y-auto p-2.5">
@@ -188,6 +192,11 @@ function LeadDrawer({ lead, onClose }) {
     setCambiandoIA(true);
     try {
       await setAtendentePausado(lead.id, pausar);
+      // Nora vuelve a atender a un cliente que esperaba al supervisor: el lead regresa a la etapa donde estaba.
+      if (!pausar && lead.etapa_status_id === ETAPA_SUPERVISOR && lead.etapa_previa_status_id) {
+        await moverEtapaLead(lead.kommo_lead_id, { statusId: lead.etapa_previa_status_id, nombre: lead.etapa_previa_nombre, position: lead.etapa_previa_position });
+        queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      }
       queryClient.setQueryData(QUERY_KEY, (old) => (old || []).map((l) => (l.id === lead.id ? { ...l, atendente_pausado: pausar } : l)));
       toast.success(pausar ? 'Atendente IA desactivado para este lead' : 'Atendente IA activado para este lead');
     } catch (err) {

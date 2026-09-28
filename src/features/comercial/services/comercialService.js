@@ -8,7 +8,10 @@ const must = ({ data, error }) => {
 // Las 8 etapas reales del pipeline Comercial de Kommo (14489115), en el orden
 // del tablero. "Incoming leads" (sin calificar aún) no se muestra como columna
 // propia — son pocos y quedan agrupados con "Bienvenida y Confianza" en la vista.
+export const ETAPA_SUPERVISOR = 112261572;
+
 export const ETAPAS_COMERCIAL = [
+  { statusId: ETAPA_SUPERVISOR, nombre: 'Espera al Supervisor', position: 15 },
   { statusId: 111918875, nombre: 'Bienvenida y Confianza', position: 20 },
   { statusId: 111918879, nombre: 'Calificación de Necesidad', position: 30 },
   { statusId: 111918883, nombre: 'Propuesta y Precio', position: 40 },
@@ -23,7 +26,7 @@ export const ETAPAS_COMERCIAL = [
 export async function getComercialLeads() {
   return must(await supabase
     .from('comercial_leads')
-    .select('id, kommo_lead_id, kommo_contact_id, client_id, nombre, telefono, tramite_texto, precio, etapa_status_id, etapa_nombre, etapa_position, updated_at, last_inbound_at, last_atendido_at, bienvenida_enviada, propuesta_enviada, atendente_pausado, plan_pago, monto_ahora, datos_pago_at, comprobante_at, comprobante_monto, recordatorio_pago_at, enviado_operacional_at')
+    .select('id, kommo_lead_id, kommo_contact_id, client_id, nombre, telefono, tramite_texto, precio, etapa_status_id, etapa_nombre, etapa_position, updated_at, last_inbound_at, last_atendido_at, bienvenida_enviada, propuesta_enviada, atendente_pausado, plan_pago, monto_ahora, datos_pago_at, comprobante_at, comprobante_monto, recordatorio_pago_at, enviado_operacional_at, etapa_previa_status_id, etapa_previa_nombre, etapa_previa_position, seguimiento_intentos, seguimiento_ultimo_at')
     .order('etapa_position', { ascending: true })
     .order('updated_at', { ascending: false }));
 }
