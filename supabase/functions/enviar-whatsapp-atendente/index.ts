@@ -7,6 +7,7 @@
 //   datos_pago: manda la plantilla de PIX de Kommo con el valor (o monto_pix si se acordó otro, ej. la mitad) y la plantilla de datos.
 //   solo_datos: manda solo la plantilla de datos (plan "empezar y pagar al final") y avisa que se espera la documentación.
 //   idioma: 'pt' | 'es' para los textos fijos.
+//   plantilla: { nombre, idioma, parametros, texto } → manda una plantilla aprobada de Meta (fuera de la ventana de 24 h).
 //   texto_previo: texto que se manda antes que todo (ej. presentación de Nora si el cliente arrancó pidiendo un trámite).
 //   solo_escribiendo: no manda nada; marca como leído el último mensaje del cliente y muestra "escribiendo…".
 // Respeta `comercial_leads.atendente_pausado`: si el lead está pausado no manda nada.
@@ -54,7 +55,7 @@ Deno.serve(async (req) => {
   // si no, llega como archivo de audio con ícono de auriculares.
   const esOgg = /\.(ogg|opus)$/i.test(audioPath || '');
   const audioMime = esOgg ? 'audio/ogg; codecs=opus' : 'audio/mpeg';
-  if (!kommoLeadId || (!mensaje && !audioPath && !body.lista_tramites && !body.submenu && !body.datos_pago && !body.solo_datos && !body.solo_escribiendo)) return json({ error: 'Falta kommo_lead_id y mensaje o audio' }, 400);
+  if (!kommoLeadId || (!mensaje && !audioPath && !body.lista_tramites && !body.submenu && !body.datos_pago && !body.solo_datos && !body.solo_escribiendo && !body.plantilla)) return json({ error: 'Falta kommo_lead_id y mensaje o audio' }, 400);
 
   const { data: lead } = await admin
     .from('comercial_leads')
@@ -149,6 +150,23 @@ Deno.serve(async (req) => {
 
   const enviados: string[] = [];
   try {
+    // Plantilla aprobada por Meta (única forma de escribirle pasadas 24 h de su último mensaje).
+    // plantilla: { nombre, idioma, parametros: [..], texto } — texto es como se ve, para guardarlo en la conversación.
+    if (body.plantilla?.nombre) {
+      const p = body.plantilla;
+      const wamid = await enviar({
+        type: 'template',
+        template: {
+          name: p.nombre,
+          language: { code: p.idioma || 'es' },
+          components: (p.parametros || []).length
+            ? [{ type: 'body', parameters: p.parametros.map((t: string) => ({ type: 'text', text: String(t) })) }]
+            : [],
+        },
+      });
+      await registrar(wamid, p.texto || `[Plantilla ${p.nombre}]`, false);
+      return json({ ok: true, enviados: [wamid] });
+    }
     if (body.texto_previo) {
       const previo = String(body.texto_previo).trim();
       const wamid = await enviar({ type: 'text', text: { body: previo } });
