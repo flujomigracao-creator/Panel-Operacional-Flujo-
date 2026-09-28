@@ -28,7 +28,7 @@ export const ETAPAS_COMERCIAL = [
 export async function getComercialLeads() {
   return must(await supabase
     .from('comercial_leads')
-    .select('id, kommo_lead_id, kommo_contact_id, client_id, nombre, telefono, tramite_texto, precio, etapa_status_id, etapa_nombre, etapa_position, updated_at, last_inbound_at, last_atendido_at, bienvenida_enviada, propuesta_enviada, atendente_pausado, plan_pago, monto_ahora, datos_pago_at, comprobante_at, comprobante_monto, recordatorio_pago_at, enviado_operacional_at, etapa_previa_status_id, etapa_previa_nombre, etapa_previa_position, seguimiento_intentos, seguimiento_ultimo_at')
+    .select('id, kommo_lead_id, kommo_contact_id, client_id, nombre, telefono, tramite_texto, precio, etapa_status_id, etapa_nombre, etapa_position, updated_at, last_inbound_at, last_atendido_at, bienvenida_enviada, propuesta_enviada, atendente_pausado, plan_pago, monto_ahora, datos_pago_at, comprobante_at, comprobante_monto, recordatorio_pago_at, enviado_operacional_at, etapa_previa_status_id, etapa_previa_nombre, etapa_previa_position, seguimiento_intentos, seguimiento_ultimo_at, nombre_completo, nacionalidad, ciudad_brasil, personas')
     .order('etapa_position', { ascending: true })
     .order('updated_at', { ascending: false }));
 }
@@ -160,11 +160,31 @@ export async function getConversacionLead(kommoLeadId, kommoContactId) {
   return desc.slice().reverse();
 }
 
-export async function moverEtapaLead(kommoLeadId, etapa) {
-  const { data, error } = await supabase.functions.invoke('mover-etapa-comercial', {
-    body: { kommo_lead_id: kommoLeadId, status_id: etapa.statusId, etapa_nombre: etapa.nombre, etapa_position: etapa.position },
-  });
-  if (error) throw error;
+async function invocarMover(body) {
+  const { data, error } = await supabase.functions.invoke('mover-etapa-comercial', { body });
+  if (error) {
+    const detalle = await error.context?.json?.().catch(() => null);
+    throw new Error(detalle?.error || error.message);
+  }
   if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export function moverEtapaLead(kommoLeadId, etapa) {
+  return invocarMover({ kommo_lead_id: kommoLeadId, status_id: etapa.statusId, etapa_nombre: etapa.nombre, etapa_position: etapa.position });
+}
+
+// Primera etapa del embudo Operacional: al llegar ahí el Receptor de Kommo registra el caso y el pago.
+const PIPELINE_OPERACIONAL = 14443755;
+const ETAPA_OPERACIONAL_INICIAL = 111568151;
+
+export function enviarAOperacional(kommoLeadId) {
+  return invocarMover({ kommo_lead_id: kommoLeadId, pipeline_id: PIPELINE_OPERACIONAL, status_id: ETAPA_OPERACIONAL_INICIAL, etapa_nombre: 'Operacional' });
+}
+
+// ¿El token de Kommo sigue funcionando? Si no, Nora no puede mover etapas ni se registran los pagos.
+export async function getEstadoKommo() {
+  const { data, error } = await supabase.functions.invoke('estado-kommo', { body: {} });
+  if (error) return { ok: true }; // si falla el chequeo en sí, no se alarma
   return data;
 }

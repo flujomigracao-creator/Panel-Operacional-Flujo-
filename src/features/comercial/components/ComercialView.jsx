@@ -11,11 +11,11 @@ import {
   useDroppable,
   useDraggable,
 } from '@dnd-kit/core';
-import { Bot, BotOff, ExternalLink, GraduationCap, MessageSquare, Phone, User, X } from 'lucide-react';
+import { AlertTriangle, ArrowRightCircle, Bot, BotOff, ExternalLink, GraduationCap, MessageSquare, Phone, User, X } from 'lucide-react';
 import NoraAprendizajes, { APRENDIZAJES_KEY } from './NoraAprendizajes';
 import NoraEntrenador from './NoraEntrenador';
 import { getAprendizajesNora } from '../services/comercialService';
-import { getComercialLeads, getConversacionLead, getMotivoPausa, moverEtapaLead, setAtendentePausado, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, ETAPA_SUPERVISOR, ETAPA_PRUEBAS, CONVERSACION_LIMIT } from '../services/comercialService';
+import { getComercialLeads, getConversacionLead, getMotivoPausa, moverEtapaLead, enviarAOperacional, getEstadoKommo, setAtendentePausado, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, ETAPA_SUPERVISOR, ETAPA_PRUEBAS, CONVERSACION_LIMIT } from '../services/comercialService';
 import { useAuth } from '@features/auth/context/AuthContext';
 import { KOMMO_LEAD_URL } from '@features/clients/services/clientsService';
 import { Conversation, ReplyBox } from '@features/clients/components/ClientDetailView';
@@ -68,6 +68,22 @@ function MotivoPausa({ kommoLeadId }) {
   return (
     <div className="border-b border-chrome-border bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
       <b>Por qué paró Nora:</b> {data.detalhes || data.titulo}
+    </div>
+  );
+}
+
+// Si el token de Kommo vence, Nora no puede mover etapas y los pagos no se registran en Operacional.
+function AvisoKommo() {
+  const { data } = useQuery({ queryKey: ['estado_kommo'], queryFn: getEstadoKommo, refetchInterval: 5 * 60 * 1000, staleTime: 60 * 1000 });
+  if (!data || data.ok) return null;
+  return (
+    <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+      <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
+      <div>
+        <b>Kommo está desconectado:</b> {data.motivo} Nora sigue contestando por WhatsApp, pero no puede mover etapas ni se registran
+        los pagos en Operacional. Generá un token nuevo de larga duración en Kommo y pegalo en n8n (credencial «Kommo Flujo Migração»)
+        y en Supabase (secreto KOMMO_API_TOKEN).
+      </div>
     </div>
   );
 }
@@ -181,6 +197,7 @@ function LeadDrawer({ lead, onClose }) {
   const { userProfile } = useAuth();
   const [cambiandoIA, setCambiandoIA] = useState(false);
   const [entrenando, setEntrenando] = useState(false);
+  const [enviandoOp, setEnviandoOp] = useState(false);
   const conversacionKey = ['comercial_conversacion', lead.kommo_lead_id];
 
   const refrescar = () => {
@@ -204,6 +221,27 @@ function LeadDrawer({ lead, onClose }) {
       toast.error(err.message || 'No se pudo cambiar el atendente.');
     } finally {
       setCambiandoIA(false);
+    }
+  };
+
+  // El dueño verificó el comprobante (o el cliente paga al final): el lead pasa a Operacional en Kommo.
+  const puedeIrAOperacional = !lead.enviado_operacional_at && !ETAPAS_CERRADAS.has(lead.etapa_status_id)
+    && (lead.etapa_status_id === ETAPA_PAGO || lead.etapa_status_id === ETAPA_PAGADO || lead.comprobante_at || lead.plan_pago === 'al_final');
+  const pasarAOperacional = async () => {
+    const aviso = lead.comprobante_at || lead.plan_pago === 'al_final'
+      ? `¿Pasar a ${lead.nombre || 'este cliente'} a Operacional?`
+      : `${lead.nombre || 'Este cliente'} todavía no mandó comprobante. ¿Pasarlo igual a Operacional?`;
+    if (!window.confirm(aviso)) return;
+    setEnviandoOp(true);
+    try {
+      await enviarAOperacional(lead.kommo_lead_id);
+      toast.success('Enviado a Operacional. En un minuto aparece como caso nuevo.');
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'No se pudo pasar a Operacional.');
+    } finally {
+      setEnviandoOp(false);
     }
   };
 
@@ -268,7 +306,30 @@ function LeadDrawer({ lead, onClose }) {
           </Dato>
           <Dato label="Último mensaje del cliente">{fechaHora(lead.last_inbound_at)}</Dato>
           <Dato label="Última respuesta">{fechaHora(lead.last_atendido_at)}</Dato>
+          {(lead.nombre_completo || lead.nacionalidad || lead.ciudad_brasil) && (
+            <>
+              <Dato label="Nombre completo">{lead.nombre_completo || '—'}</Dato>
+              <Dato label="Nacionalidad · ciudad">{[lead.nacionalidad, lead.ciudad_brasil].filter(Boolean).join(' · ') || '—'}</Dato>
+            </>
+          )}
+          {lead.personas > 1 && <Dato label="Personas">{lead.personas}</Dato>}
+          {PLANES[lead.plan_pago] && <Dato label="Plan de pago">{PLANES[lead.plan_pago]}{money(lead.monto_ahora) ? ` · ahora ${money(lead.monto_ahora)}` : ''}</Dato>}
+          {lead.comprobante_at && <Dato label="Comprobante">{fechaHora(lead.comprobante_at)}{money(lead.comprobante_monto) ? ` · ${money(lead.comprobante_monto)}` : ''}</Dato>}
         </div>
+        {puedeIrAOperacional && (
+          <div className="flex items-center justify-between gap-3 border-b border-chrome-border bg-green-500/5 px-4 py-2.5">
+            <p className="text-xs text-chrome-text-muted">
+              {lead.comprobante_at ? 'Mandó comprobante: verificalo en el banco y pasalo a Operacional.' : lead.plan_pago === 'al_final' ? 'Paga al final: ya puede pasar a Operacional.' : 'Cuando confirmes el pago, pasalo a Operacional.'}
+            </p>
+            <button
+              onClick={pasarAOperacional}
+              disabled={enviandoOp}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-500 disabled:opacity-50"
+            >
+              <ArrowRightCircle size={14} /> {enviandoOp ? 'Enviando…' : 'Pago verificado → Operacional'}
+            </button>
+          </div>
+        )}
 
         <div className="flex items-center justify-between gap-3 border-b border-chrome-border px-4 py-2.5">
           <div className="flex items-center gap-2 text-sm">
@@ -440,6 +501,7 @@ export default function ComercialView({ leadAbiertoKommoId = null, onAbrirLead }
           {porRevisar > 0 && <span className="rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-black">{porRevisar}</span>}
         </button>
       </div>
+      <AvisoKommo />
       <div className="mb-3 flex flex-wrap items-stretch gap-2">
         <Kpi label="Leads activos" value={resumen.activos} />
         <Kpi label="Te necesitan" value={resumen.atencion} tone={resumen.atencion ? 'text-amber-400' : 'text-chrome-text-active'}

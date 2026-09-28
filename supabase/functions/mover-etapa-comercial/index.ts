@@ -1,6 +1,7 @@
 // Mueve un lead del pipeline Comercial de Kommo a otra etapa (drag & drop del tablero Kanban
 // del panel) y refleja el cambio al toque en `comercial_leads`, sin esperar al webhook.
-// POST { kommo_lead_id, status_id, etapa_nombre, etapa_position }
+// POST { kommo_lead_id, status_id, etapa_nombre, etapa_position, pipeline_id? }
+// Con pipeline_id de otro embudo (Operacional) solo se mueve en Kommo: el webhook del Receptor registra el caso.
 // Secreto requerido (Supabase → Edge Functions → Secrets): KOMMO_API_TOKEN
 // (el mismo token de larga duración que usa la credencial "Kommo Flujo Migração" en n8n).
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
@@ -8,6 +9,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const ORG_ID = '00000000-0000-0000-0000-000000000001';
 const KOMMO_BASE = 'https://flujomigracao.kommo.com';
+const PIPELINE_COMERCIAL = 14489115;
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -38,6 +40,8 @@ Deno.serve(async (req) => {
   const statusId = Number(body.status_id);
   const etapaNombre = String(body.etapa_nombre || '');
   const etapaPosition = Number(body.etapa_position);
+  const pipelineId = Number(body.pipeline_id) || null;
+  const otroEmbudo = pipelineId !== null && pipelineId !== PIPELINE_COMERCIAL;
   if (!kommoLeadId || !statusId || !etapaNombre) return json({ error: 'Falta kommo_lead_id, status_id o etapa_nombre' }, 400);
 
   const kommoToken = Deno.env.get('KOMMO_API_TOKEN');
@@ -48,12 +52,14 @@ Deno.serve(async (req) => {
   const kommoRes = await fetch(`${KOMMO_BASE}/api/v4/leads/${kommoLeadId}`, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${kommoToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status_id: statusId }),
+    body: JSON.stringify(otroEmbudo ? { pipeline_id: pipelineId, status_id: statusId } : { status_id: statusId }),
   });
   if (!kommoRes.ok) {
     const errText = await kommoRes.text().catch(() => '');
+    if (kommoRes.status === 401) return json({ error: 'Kommo rechazó el token (401): hay que renovar el token de larga duración de Kommo.' }, 502);
     return json({ error: `Kommo ${kommoRes.status}: ${errText.slice(0, 300)}` }, 502);
   }
+  if (otroEmbudo) return json({ ok: true, otro_embudo: true });
 
   const { data, error } = await admin.rpc('mover_etapa_lead_comercial', {
     p_kommo_lead_id: kommoLeadId,
