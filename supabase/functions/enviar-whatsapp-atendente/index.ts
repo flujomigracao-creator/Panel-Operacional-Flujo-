@@ -7,6 +7,7 @@
 //   datos_pago: manda la plantilla de PIX de Kommo con el valor (o monto_pix si se acordó otro, ej. la mitad) y la plantilla de datos.
 //   solo_datos: manda solo la plantilla de datos (plan "empezar y pagar al final") y avisa que se espera la documentación.
 //   idioma: 'pt' | 'es' para los textos fijos.
+//   plantilla_kommo_id: manda como texto una plantilla de Kommo (kommo_plantillas), después del mensaje principal.
 //   plantilla: { nombre, idioma, parametros, texto } → manda una plantilla aprobada de Meta (fuera de la ventana de 24 h).
 //   texto_previo: texto que se manda antes que todo (ej. presentación de Nora si el cliente arrancó pidiendo un trámite).
 //   solo_escribiendo: no manda nada; marca como leído el último mensaje del cliente y muestra "escribiendo…".
@@ -206,6 +207,16 @@ Deno.serve(async (req) => {
       const wamid = await enviar({ type: 'text', text: { body: extra } });
       await registrar(wamid, extra, false);
       enviados.push(wamid);
+    }
+    // Plantilla de Kommo por id (ej. 2644 "Datos Iniciales del Cliente"), tal como la escribió el dueño.
+    if (body.plantilla_kommo_id) {
+      const { data: pk } = await admin.from('kommo_plantillas').select('contenido').eq('id', Number(body.plantilla_kommo_id)).maybeSingle();
+      const texto = pk?.contenido ? completarPlantilla(pk.contenido, '', null) : '';
+      if (texto) {
+        const wamid = await enviar({ type: 'text', text: { body: texto } });
+        await registrar(wamid, texto, false);
+        enviados.push(wamid);
+      }
     }
     // Cierre: plantilla de PIX con el valor (o el monto acordado, ej. la mitad) y, enseguida, la lista de datos del
     // trámite (plantillas de Kommo). Con solo_datos (plan "pagar al final") se manda solo la lista, sin PIX.
