@@ -9,6 +9,7 @@ const must = ({ data, error }) => {
 // del tablero. "Incoming leads" (sin calificar aún) no se muestra como columna
 // propia — son pocos y quedan agrupados con "Bienvenida y Confianza" en la vista.
 export const ETAPA_SUPERVISOR = 112261572;
+export const ETAPA_PRUEBAS = 112263100;
 
 export const ETAPAS_COMERCIAL = [
   { statusId: ETAPA_SUPERVISOR, nombre: 'Espera al Supervisor', position: 15 },
@@ -19,6 +20,7 @@ export const ETAPAS_COMERCIAL = [
   { statusId: 111919159, nombre: 'Pago Confirmado/esperando documentos', position: 60 },
   { statusId: 111919167, nombre: 'Seguimiento (Sin Respuesta)', position: 70 },
   { statusId: 112025771, nombre: 'RECUPERACION INSTANTANEA', position: 80 },
+  { statusId: 112263100, nombre: 'Pruebas (Nora)', position: 90 },
   { statusId: 142, nombre: 'Logrado con éxito', position: 10000 },
   { statusId: 143, nombre: 'Descalificado / Perdido', position: 11000 },
 ];

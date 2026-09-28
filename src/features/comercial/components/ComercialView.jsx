@@ -15,7 +15,7 @@ import { Bot, BotOff, ExternalLink, GraduationCap, MessageSquare, Phone, User, X
 import NoraAprendizajes, { APRENDIZAJES_KEY } from './NoraAprendizajes';
 import NoraEntrenador from './NoraEntrenador';
 import { getAprendizajesNora } from '../services/comercialService';
-import { getComercialLeads, getConversacionLead, getMotivoPausa, moverEtapaLead, setAtendentePausado, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, ETAPA_SUPERVISOR, CONVERSACION_LIMIT } from '../services/comercialService';
+import { getComercialLeads, getConversacionLead, getMotivoPausa, moverEtapaLead, setAtendentePausado, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, ETAPA_SUPERVISOR, ETAPA_PRUEBAS, CONVERSACION_LIMIT } from '../services/comercialService';
 import { useAuth } from '@features/auth/context/AuthContext';
 import { KOMMO_LEAD_URL } from '@features/clients/services/clientsService';
 import { Conversation, ReplyBox } from '@features/clients/components/ClientDetailView';
@@ -379,8 +379,11 @@ export default function ComercialView({ leadAbiertoKommoId = null, onAbrirLead }
       const bucket = porEtapa.get(lead.etapa_status_id);
       if (bucket) bucket.push(lead);
     }
-    return ETAPAS_COMERCIAL.map((e) => ({ etapa: e, leads: porEtapa.get(e.statusId) || [] }));
-  }, [visibles]);
+    // La columna de pruebas solo se muestra cuando se piden ver los clientes simulados.
+    return ETAPAS_COMERCIAL
+      .filter((e) => verPruebas || e.statusId !== ETAPA_PRUEBAS)
+      .map((e) => ({ etapa: e, leads: porEtapa.get(e.statusId) || [] }));
+  }, [visibles, verPruebas]);
 
   const onDragStart = (event) => {
     const lead = (leads || []).find((l) => l.id === event.active.id);
