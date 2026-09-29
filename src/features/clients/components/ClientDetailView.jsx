@@ -262,7 +262,7 @@ function DocumentViewer({ doc, onClose }) {
   );
 }
 
-function Attachment({ attachment }) {
+export function Attachment({ attachment }) {
   const [url, setUrl] = useState(null);
   useEffect(() => {
     let vigente = true;

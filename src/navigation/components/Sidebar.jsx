@@ -1,17 +1,19 @@
 import React from 'react';
 import {
-  Users,
   MessageSquare,
   Shield,
   X,
   LogOut,
-  Zap,
   BookOpen,
   BarChart3,
   ListTodo,
   FlaskConical,
   Landmark,
   Kanban,
+  Home,
+  Inbox,
+  Contact,
+  Target,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '../../features/auth/context/AuthContext';
@@ -26,7 +28,7 @@ const orgInitials = (name) => {
     : clean.substring(0, 2).toUpperCase();
 };
 
-export default function Sidebar({ currentView, isSidebarOpen, setIsSidebarOpen, navigateToHome, navigateToToday, navigateToLab, navigateToFinance, navigateToDashboard, navigateToClientsList, navigateToComercial, navigateToTeamChat, navigateToTeamManagement, navigateToDirectory, isViewReady = () => true }) {
+export default function Sidebar({ currentView, isSidebarOpen, setIsSidebarOpen, navigateToToday, navigateToLab, navigateToFinance, navigateToDashboard, navigateToClientsList, navigateToComercial, navigateToLeads, navigateToFunil, navigateToChats, navigateToTeamChat, navigateToTeamManagement, navigateToDirectory, isViewReady = () => true }) {
   const { userProfile, logout, isAdmin } = useAuth();
   const { organizationName, logoUrl } = useOrganization();
 
@@ -61,27 +63,29 @@ export default function Sidebar({ currentView, isSidebarOpen, setIsSidebarOpen, 
       </div>
 
       {/* Navigation */}
-      <nav className="flex min-w-[76px] flex-1 flex-col items-center gap-2 px-2">
-        <SidebarButton icon={<FlaskConical size={19} />} label="Laboratorio" active={currentView === 'lab'} onClick={navigateToLab} />
-        <SidebarButton icon={<ListTodo size={19} />} label="Hoy" active={currentView === 'today'} onClick={navigateToToday} />
-        <SidebarButton icon={<Landmark size={19} />} label="Finanzas" active={currentView === 'finance'} onClick={navigateToFinance} />
+      <nav className="flex min-w-[76px] flex-1 flex-col items-center gap-1 overflow-y-auto px-2">
+        <SidebarButton icon={<Home size={18} />} label="Inicio" active={currentView === 'lab'} onClick={navigateToLab} />
+        {isViewReady('leads') && <SidebarButton icon={<Target size={18} />} label="Leads" active={currentView === 'leads'} onClick={navigateToLeads} />}
+        {isViewReady('clients') && <SidebarButton icon={<Contact size={18} />} label="Contactos" active={currentView === 'clients' || currentView === 'client'} onClick={navigateToClientsList} />}
+        {isViewReady('chats') && <SidebarButton icon={<Inbox size={18} />} label="Chats" active={currentView === 'chats'} onClick={() => navigateToChats()} />}
+        {isViewReady('funil') && <SidebarButton icon={<Kanban size={18} />} label="Funis" active={currentView === 'funil'} onClick={navigateToFunil} />}
+        <SidebarButton icon={<ListTodo size={18} />} label="Tareas" active={currentView === 'today'} onClick={navigateToToday} />
+        <SidebarButton icon={<Landmark size={18} />} label="Finanzas" active={currentView === 'finance'} onClick={navigateToFinance} />
+        <div className="my-1 h-px w-8 bg-chrome-border" />
         {isViewReady('dashboard') && (
-          <SidebarButton icon={<BarChart3 size={19} />} label="Dashboard" active={currentView === 'dashboard'} onClick={navigateToDashboard} />
-        )}
-        {isViewReady('clients') && (
-          <SidebarButton icon={<Users size={19} />} label="Clientes" active={currentView === 'clients'} onClick={navigateToClientsList} />
+          <SidebarButton icon={<BarChart3 size={18} />} label="Dashboard" active={currentView === 'dashboard'} onClick={navigateToDashboard} />
         )}
         {isViewReady('comercial') && (
-          <SidebarButton icon={<Kanban size={19} />} label="Comercial" active={currentView === 'comercial'} onClick={navigateToComercial} />
+          <SidebarButton icon={<FlaskConical size={18} />} label="Nora" active={currentView === 'comercial'} onClick={navigateToComercial} />
         )}
         {isViewReady('team-chat') && (
-          <SidebarButton icon={<MessageSquare size={19} />} label="Mensajes" active={currentView === 'team-chat'} onClick={navigateToTeamChat} />
+          <SidebarButton icon={<MessageSquare size={18} />} label="Equipo" active={currentView === 'team-chat'} onClick={navigateToTeamChat} />
         )}
         {isViewReady('directory') && (
-          <SidebarButton icon={<BookOpen size={19} />} label="Directorio de Operación" active={currentView === 'directory'} onClick={navigateToDirectory} />
+          <SidebarButton icon={<BookOpen size={18} />} label="Directorio" active={currentView === 'directory'} onClick={navigateToDirectory} />
         )}
         {isAdmin && isViewReady('team-management') && (
-          <SidebarButton icon={<Shield size={19} />} label="Equipo" active={currentView === 'team-management'} onClick={navigateToTeamManagement} />
+          <SidebarButton icon={<Shield size={18} />} label="Admin" active={currentView === 'team-management'} onClick={navigateToTeamManagement} />
         )}
       </nav>
 
@@ -114,11 +118,12 @@ function SidebarButton({ icon, label, active, onClick }) {
       title={label}
       aria-label={label}
       className={cn(
-        'flex w-11 items-center justify-center rounded-lg py-2.5 transition-colors duration-150',
+        'flex w-14 flex-col items-center gap-0.5 rounded-lg py-1.5 transition-colors duration-150',
         active ? 'bg-chrome-bg-active text-chrome-text-active' : 'text-chrome-text hover:bg-chrome-bg-raised hover:text-chrome-text-active'
       )}
     >
       {icon}
+      <span className="text-[9px] leading-none">{label}</span>
     </button>
   );
 }

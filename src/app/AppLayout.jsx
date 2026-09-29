@@ -20,7 +20,7 @@ import FinanceView from '@features/finance/components/FinanceView';
 // Vistas que todavía leen el esquema anterior (clientes, entradas, perfiles…).
 // Se reactivan una por una a medida que se migran al modelo de FLUJO
 // (clients, client_services, documents, messages, tasks).
-export const MIGRATED_VIEWS = new Set(['lab', 'today', 'clients', 'client', 'finance', 'comercial']);
+export const MIGRATED_VIEWS = new Set(['lab', 'today', 'clients', 'client', 'finance', 'comercial', 'leads', 'chats', 'funil']);
 
 // Navigation
 import Sidebar from '../navigation/components/Sidebar';
@@ -48,6 +48,9 @@ import AvisoConexiones from '@features/comercial/components/AvisoConexiones';
 
 const ClientDetailView = lazy(() => import('@features/clients/components/ClientDetailView'));
 const ClientsView = lazy(() => import('@features/clients/components/ClientsView'));
+const LeadsView = lazy(() => import('@features/crm/components/LeadsView'));
+const FunilView = lazy(() => import('@features/crm/components/FunilView'));
+const ChatsView = lazy(() => import('@features/crm/components/ChatsView'));
 const ComercialView = lazy(() => import('@features/comercial/components/ComercialView'));
 const NewClientWizard = lazy(() => import('../components/newClientWizard/NewClientWizard'));
 const TeamChat = lazy(() => import('../components/TeamChat'));
@@ -71,6 +74,10 @@ export default function AppLayout() {
     currentView,
     selectedClientId,
     comercialLeadId,
+    chatClientId,
+    navigateToLeads,
+    navigateToFunil,
+    navigateToChats,
     navigateToClient,
     navigateToHome,
     navigateToToday,
@@ -115,7 +122,7 @@ export default function AppLayout() {
   // Only 'dashboard' and 'clients' filter in place; every other view
   // needs to jump to the client list so the search actually shows results.
   const onSearchStart = useCallback(() => {
-    if (currentView !== 'dashboard' && currentView !== 'clients') {
+    if (currentView !== 'dashboard' && currentView !== 'clients' && currentView !== 'leads') {
       navigateToClientsList();
     }
   }, [currentView, navigateToClientsList]);
@@ -173,6 +180,9 @@ export default function AppLayout() {
           navigateToDashboard={navigateToDashboard}
           navigateToClientsList={navigateToClientsList}
           navigateToComercial={navigateToComercial}
+          navigateToLeads={navigateToLeads}
+          navigateToFunil={navigateToFunil}
+          navigateToChats={navigateToChats}
           navigateToTeamChat={navigateToTeamChat}
           navigateToTeamManagement={navigateToTeamManagement}
           navigateToDirectory={navigateToDirectory}
@@ -213,6 +223,9 @@ export default function AppLayout() {
               {currentView === 'dashboard' && isReady('dashboard') && <DashboardView navigateToClientsList={navigateToClientsList} />}
               {currentView === 'client' && isReady('client') && <ClientDetailView key={selectedClientId} clientId={selectedClientId} onBack={navigateToClientsList} onNavigateToClient={navigateToClientTracked} />}
               {currentView === 'clients' && isReady('clients') && <ClientsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} />}
+              {currentView === 'leads' && <LeadsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} onOpenChat={(lead) => navigateToChats(lead.client_id)} />}
+              {currentView === 'funil' && <FunilView onNavigateToClient={navigateToClientTracked} onOpenChat={(lead) => navigateToChats(lead.client_id)} />}
+              {currentView === 'chats' && <ChatsView key={chatClientId || 'chats'} initialClientId={chatClientId} onNavigateToClient={navigateToClientTracked} />}
               {currentView === 'comercial' && isReady('comercial') && <ComercialView leadAbiertoKommoId={comercialLeadId} onAbrirLead={navigateToComercial} />}
               {currentView === 'team-chat' && isReady('team-chat') && <TeamChat isFullView={true} />}
               {currentView === 'team-management' && isReady('team-management') && <TeamManagement userProfile={userProfile} />}
