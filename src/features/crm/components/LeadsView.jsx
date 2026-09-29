@@ -5,7 +5,7 @@ import { Plus, Search, ArrowUp, ArrowDown, SlidersHorizontal } from 'lucide-reac
 import { useAuth } from '@features/auth/context/AuthContext';
 import { useCrmData, useMoveLead, KEYS } from '../useCrm';
 import { assignLeads, addTagToLeads, createLead } from '../services/crmService';
-import LeadPanel from './LeadPanel';
+import LeadCard from './LeadCard';
 import { StageLabel, Modal, Field, Loading, ErrorText } from '../ui';
 import { money, relTime, normalize, stageColor, inputCls, selectCls, btnCls, btnPrimaryCls } from '../format';
 
@@ -88,7 +88,7 @@ function NewLeadModal({ onClose, stages, team, onCreated }) {
   );
 }
 
-export default function LeadsView({ searchQuery = '', onNavigateToClient, onOpenChat }) {
+export default function LeadsView({ searchQuery = '', onNavigateToClient }) {
   const qc = useQueryClient();
   const { userId } = useAuth();
   const { leads, stages, team, tags, leadTags, teamById, stageById } = useCrmData();
@@ -276,7 +276,7 @@ export default function LeadsView({ searchQuery = '', onNavigateToClient, onOpen
           </table>
         </div>
       </div>
-      {open && <LeadPanel key={open.id} lead={open} onClose={() => setOpenId(null)} onOpenClient={onNavigateToClient} onOpenChat={onOpenChat} />}
+      {open && <LeadCard key={open.id} lead={open} onClose={() => setOpenId(null)} onOpenClient={onNavigateToClient} />}
       {creating && (
         <NewLeadModal onClose={() => setCreating(false)} stages={stages} team={team.data || []}
           onCreated={(id) => { qc.invalidateQueries({ queryKey: KEYS.leads }); setOpenId(id); }} />

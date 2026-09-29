@@ -140,30 +140,14 @@ body {
 }
 
 @media (max-width: 768px) {
-  /* En pantallas chicas el menú lateral queda siempre contraído (solo íconos). */
+  /* En pantallas chicas el menú lateral queda más angosto y sin nombres. */
   .app-layout > aside {
     width: 60px !important;
     min-width: 60px !important;
   }
 
-  .app-layout > aside nav button > span:not(.rounded-full):not(.absolute),
-  .app-layout > aside > div:first-child > div:not(:first-child),
-  .app-layout > aside > div:last-child > span {
+  .app-layout > aside nav button > span:not(.absolute) {
     display: none !important;
-  }
-
-  .app-layout > aside > div:first-child,
-  .app-layout > aside > div:last-child {
-    flex-direction: column;
-    justify-content: center;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-  }
-
-  .app-layout > aside nav button {
-    justify-content: center !important;
-    padding: 0 !important;
-    height: 44px !important;
   }
 
   .app-layout > div > header {

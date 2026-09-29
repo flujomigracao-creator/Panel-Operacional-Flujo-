@@ -1,9 +1,12 @@
 import React, { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core';
 import { Search, CloudOff, SlidersHorizontal } from 'lucide-react';
 import { useAuth } from '@features/auth/context/AuthContext';
-import { useCrmData, useMoveLead, useUnsynced, useRetryUnsynced } from '../useCrm';
-import LeadPanel from './LeadPanel';
+import { useCrmData, useMoveLead, useUnsynced, useRetryUnsynced, KEYS } from '../useCrm';
+import { createLead } from '../services/crmService';
+import LeadCard from './LeadCard';
 import { Loading, ErrorText, Empty } from '../ui';
 import { money, relTime, normalize, stageColor, inputCls, btnCls } from '../format';
 
@@ -34,7 +37,50 @@ function Card({ lead, tagNames, dragging = false, selected = false, onOpen }) {
   );
 }
 
-function Column({ stage, leads, tagsByLead, openId, onOpen }) {
+// "Agregar rápido" de Kommo: alta de un lead directo en la primera columna.
+function QuickAdd({ stage }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState({ name: '', phone: '', value: '' });
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (!f.name.trim()) return;
+    setBusy(true);
+    try {
+      await createLead({ ...f, stageId: stage.id });
+      toast.success('Lead creado');
+      setF({ name: '', phone: '', value: '' });
+      setOpen(false);
+      qc.invalidateQueries({ queryKey: KEYS.leads });
+    } catch (err) {
+      toast.error(err.message || 'No se pudo crear el lead');
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="rounded-md border border-dashed border-border-hover py-2 text-xs text-text-muted hover:border-brand-primary hover:text-brand-primary">
+        + Agregar rápido
+      </button>
+    );
+  }
+  const input = 'w-full rounded border border-border bg-bg-surface px-2 py-1 text-[13px] text-text-primary outline-none focus:border-brand-primary';
+  const key = (e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setOpen(false); };
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md bg-bg-surface p-2 shadow-[0_1px_2px_rgba(15,23,42,0.08)]">
+      <input autoFocus className={input} placeholder="Nombre" value={f.name} onChange={(e) => setF((s) => ({ ...s, name: e.target.value }))} onKeyDown={key} />
+      <input className={input} placeholder="Teléfono" value={f.phone} onChange={(e) => setF((s) => ({ ...s, phone: e.target.value }))} onKeyDown={key} />
+      <input className={input} type="number" placeholder="Valor (R$)" value={f.value} onChange={(e) => setF((s) => ({ ...s, value: e.target.value }))} onKeyDown={key} />
+      <div className="flex gap-1.5">
+        <button className="flex-1 rounded bg-brand-primary py-1 text-xs font-medium text-white disabled:opacity-50" onClick={save} disabled={busy || !f.name.trim()}>Agregar</button>
+        <button className="rounded px-2 text-xs text-text-muted hover:text-text-primary" onClick={() => setOpen(false)}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+function Column({ stage, leads, tagsByLead, openId, onOpen, quickAdd }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
   const total = leads.reduce((s, l) => s + (Number(l.value) || 0), 0);
   const color = stageColor(stage);
@@ -46,13 +92,14 @@ function Column({ stage, leads, tagsByLead, openId, onOpen }) {
         <div className="mt-2 h-[3px] rounded-full" style={{ background: color }} />
       </header>
       <div className="flex min-h-[120px] flex-1 flex-col gap-2 overflow-y-auto px-0.5 pb-3 pt-1">
+        {quickAdd && <QuickAdd stage={stage} />}
         {leads.map((l) => <Card key={l.id} lead={l} tagNames={tagsByLead[l.id] || []} selected={openId === l.id} onOpen={onOpen} />)}
       </div>
     </section>
   );
 }
 
-export default function FunilView({ onNavigateToClient, onOpenChat }) {
+export default function FunilView({ onNavigateToClient }) {
   const { userId } = useAuth();
   const { pipelines, leads, tags, leadTags, stages } = useCrmData();
   const unsynced = useUnsynced();
@@ -89,6 +136,7 @@ export default function FunilView({ onNavigateToClient, onOpenChat }) {
     return m;
   }, [visible]);
 
+  const entryStage = pipeline?.stages.find((st) => st.is_entry) || pipeline?.stages.find((st) => st.kind === 'open');
   const active = visible.find((l) => l.id === activeId);
   const open = (leads.data || []).find((l) => l.id === openId);
   const total = visible.filter((l) => l.stage_kind === 'open').reduce((s, l) => s + (Number(l.value) || 0), 0);
@@ -142,13 +190,13 @@ export default function FunilView({ onNavigateToClient, onOpenChat }) {
         <DndContext sensors={sensors} onDragStart={(e) => setActiveId(e.active.id)} onDragCancel={() => setActiveId(null)} onDragEnd={onDragEnd}>
           <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto px-5 pt-4" onClick={() => showFilters && setShowFilters(false)}>
             {pipeline.stages.map((s) => (
-              <Column key={s.id} stage={s} leads={byStage[s.id] || []} tagsByLead={tagsByLead} openId={openId} onOpen={(l) => setOpenId(l.id)} />
+              <Column key={s.id} stage={s} leads={byStage[s.id] || []} tagsByLead={tagsByLead} openId={openId} onOpen={(l) => setOpenId(l.id)} quickAdd={s.id === entryStage?.id} />
             ))}
           </div>
           <DragOverlay>{active ? <Card lead={active} tagNames={tagsByLead[active.id] || []} dragging /> : null}</DragOverlay>
         </DndContext>
       </div>
-      {open && <LeadPanel key={open.id} lead={open} onClose={() => setOpenId(null)} onOpenClient={onNavigateToClient} onOpenChat={onOpenChat} />}
+      {open && <LeadCard key={open.id} lead={open} onClose={() => setOpenId(null)} onOpenClient={onNavigateToClient} />}
     </div>
   );
 }
