@@ -70,6 +70,8 @@ El número de WhatsApp es propio (Cloud API), así que Kommo no ve las conversac
   n8n reenvía el cuerpo original en base64 con la firma a `kommo-canal`, que la verifica, manda por WhatsApp, lo
   registra con origen `kommo_canal_whatsapp` (no vuelve a Kommo), marca el lead como atendido y avisa a Kommo si
   falló el envío. `kommo_canal_recibidos` evita procesar dos veces un reintento de Kommo.
+- **Sin eco:** el receptor de eventos de Kommo (n8n) también recibe los mensajes del canal; `registrar_mensagem_kommo`
+  ignora el origen `amo.ext.36958507` porque esos mensajes ya están registrados.
 - **Activación:** nada se copia hasta `channel_integrations.kommo_canal_enabled = true` (solo el servidor). El primer
   `flush` conecta el canal a la cuenta y guarda `kommo_scope_id`. Secreto: `KOMMO_CHANNEL_SECRET`.
 
