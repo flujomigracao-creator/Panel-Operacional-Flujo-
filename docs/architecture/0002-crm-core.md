@@ -70,6 +70,9 @@ El número de WhatsApp es propio (Cloud API), así que Kommo no ve las conversac
   n8n reenvía el cuerpo original en base64 con la firma a `kommo-canal`, que la verifica, manda por WhatsApp, lo
   registra con origen `kommo_canal_whatsapp` (no vuelve a Kommo), marca el lead como atendido y avisa a Kommo si
   falló el envío. `kommo_canal_recibidos` evita procesar dos veces un reintento de Kommo.
+- **Rechazos de WhatsApp:** si Meta rechaza un mensaje después (ej. fuera de la ventana de 24 h, código 131047), el
+  trigger `trg_kommo_canal_fallido` lo encola en `kommo_canal_estados` y `kommo-canal` lo marca como fallido en Kommo
+  (`delivery_status = -1`), tanto los copiados desde WhatsApp como los escritos desde Kommo.
 - **Sin eco:** el receptor de eventos de Kommo (n8n) también recibe los mensajes del canal; `registrar_mensagem_kommo`
   ignora el origen `amo.ext.36958507` porque esos mensajes ya están registrados.
 - **Activación:** nada se copia hasta `channel_integrations.kommo_canal_enabled = true` (solo el servidor). El primer

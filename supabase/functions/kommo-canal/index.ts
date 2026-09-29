@@ -226,7 +226,7 @@ async function importarMensaje(admin: SupabaseClient, orgId: string, scopeId: st
 }
 
 async function vaciarCola(admin: SupabaseClient) {
-  const resumen = { enviados: 0, esperando: 0, omitidos: 0, errores: 0 };
+  const resumen: Record<string, number> = { enviados: 0, esperando: 0, omitidos: 0, errores: 0 };
   if (!secreto()) return { ...resumen, error: 'Falta KOMMO_CHANNEL_SECRET' };
 
   const { data: canales } = await admin.from('channel_integrations').select('*').eq('kommo_canal_enabled', true);
@@ -267,7 +267,44 @@ async function vaciarCola(admin: SupabaseClient) {
       }
     }
   }
+  await avisarFallidos(admin, porOrg, resumen);
   return resumen;
+}
+
+// Mensajes que WhatsApp rechazó después de copiarlos a Kommo (o de avisarle a Kommo que salieron bien):
+// se marcan como fallidos en Kommo para que el equipo vea que el cliente no los recibió.
+function motivoFallo(error: string | null): string {
+  if (/131047/.test(error || '')) return 'No enviado: pasaron más de 24 h desde el último mensaje del cliente (WhatsApp solo permite plantillas).';
+  return `No enviado por WhatsApp: ${error || 'rechazado'}`.slice(0, 200);
+}
+
+async function avisarFallidos(admin: SupabaseClient, porOrg: Map<string, string>, resumen: Record<string, number>) {
+  const { data: filas } = await admin.from('kommo_canal_estados').select('id, organization_id, message_id, error, attempts')
+    .eq('status', 'pending').order('created_at').limit(50);
+  for (const f of filas || []) {
+    const scopeId = porOrg.get(f.organization_id);
+    if (!scopeId) continue;
+    const marcar = (status: string, extra: Record<string, unknown> = {}) =>
+      admin.from('kommo_canal_estados').update({ status, ...extra }).eq('id', f.id);
+
+    // Escrito desde Kommo: el id es el del mensaje en Kommo. Copiado desde WhatsApp: el que devolvió Kommo al importarlo.
+    const { data: msg } = await admin.from('messages').select('metadata').eq('id', f.message_id).maybeSingle();
+    let msgid: string | null = msg?.metadata?.raw?.kommo_msgid || null;
+    if (!msgid) {
+      const { data: ob } = await admin.from('kommo_canal_outbox').select('status, kommo_msgid').eq('message_id', f.message_id).maybeSingle();
+      if (!ob || ob.status === 'skipped' || ob.status === 'failed' || (ob.status === 'sent' && !ob.kommo_msgid)) { await marcar('skipped'); continue; }
+      if (ob.status !== 'sent') continue; // todavía no se copió a Kommo: queda para el próximo flush
+      msgid = ob.kommo_msgid;
+    }
+    try {
+      await amojo('POST', `/v2/origin/custom/${scopeId}/${msgid}/delivery_status`, { msgid, delivery_status: -1, error_code: 905, error: motivoFallo(f.error) });
+      await marcar('sent', { sent_at: new Date().toISOString(), last_error: null });
+      resumen.fallidos_avisados = (resumen.fallidos_avisados || 0) + 1;
+    } catch (e) {
+      const intentos = f.attempts + 1;
+      await marcar(intentos >= 5 ? 'failed' : 'pending', { attempts: intentos, last_error: (e as Error).message.slice(0, 500) });
+    }
+  }
 }
 
 // ---------- Entrada: Kommo → WhatsApp ----------
