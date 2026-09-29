@@ -1,13 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Plus, Search, ArrowUp, ArrowDown, UserPlus, Tag as TagIcon, MoveRight, X } from 'lucide-react';
+import { Plus, Search, ArrowUp, ArrowDown, SlidersHorizontal } from 'lucide-react';
 import { useAuth } from '@features/auth/context/AuthContext';
 import { useCrmData, useMoveLead, KEYS } from '../useCrm';
 import { assignLeads, addTagToLeads, createLead } from '../services/crmService';
 import LeadPanel from './LeadPanel';
-import { Avatar, StagePill, Modal, Field, PageHeader, Loading, ErrorText } from '../ui';
-import { money, relTime, normalize, flag, inputCls, selectCls, btnCls, btnPrimaryCls } from '../format';
+import { StageLabel, Modal, Field, Loading, ErrorText } from '../ui';
+import { money, relTime, normalize, stageColor, inputCls, selectCls, btnCls, btnPrimaryCls } from '../format';
 
 const SORTS = {
   name: (l) => normalize(l.name),
@@ -24,7 +24,7 @@ const uniq = (rows, key) => [...new Set(rows.map((r) => r[key]).filter(Boolean))
 
 function Th({ k, sort, onSort, children, className = '' }) {
   return (
-    <th className={`whitespace-nowrap px-2 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-text-muted ${className}`}>
+    <th className={`whitespace-nowrap h-10 px-2 text-left text-[11px] font-medium uppercase tracking-wide text-text-muted ${className}`}>
       {k ? (
         <button className="inline-flex items-center gap-0.5 uppercase hover:text-text-primary" onClick={() => onSort(k)}>
           {children}{sort.key === k && (sort.dir === 'asc' ? <ArrowUp size={10} /> : <ArrowDown size={10} />)}
@@ -100,6 +100,7 @@ export default function LeadsView({ searchQuery = '', onNavigateToClient, onOpen
   const [openId, setOpenId] = useState(null);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
 
   const rows = useMemo(() => leads.data || [], [leads.data]);
   const tagIdsByLead = useMemo(() => {
@@ -173,115 +174,104 @@ export default function LeadsView({ searchQuery = '', onNavigateToClient, onOpen
   if (leads.isLoading) return <Loading />;
   if (leads.error) return <ErrorText error={leads.error} what="los leads" />;
 
+  const activeFilters = Object.values(f).filter(Boolean).length;
+  const setFilter = (key) => (e) => setF((s) => ({ ...s, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
   const sel = (key, label, options) => (
-    <select
-      className={`h-7 max-w-[160px] rounded-md border px-1.5 text-xs outline-none ${f[key] ? 'border-brand-primary bg-brand-primary-light font-medium text-brand-primary' : 'border-border bg-bg-surface text-text-secondary'}`}
-      value={f[key]} onChange={(e) => setF((s) => ({ ...s, [key]: e.target.value }))} aria-label={label}
-    >
-      <option value="">{label}</option>
-      {options.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
-    </select>
-  );
-  const check = (key, label) => (
-    <label className={`inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-xs ${f[key] ? 'border-brand-primary bg-brand-primary-light font-medium text-brand-primary' : 'border-border text-text-secondary'}`}>
-      <input type="checkbox" className="accent-[var(--brand-primary)]" checked={f[key]} onChange={(e) => setF((s) => ({ ...s, [key]: e.target.checked }))} /> {label}
+    <label className="flex flex-col gap-1">
+      <span className="text-[11px] text-text-muted">{label}</span>
+      <select className={selectCls} value={f[key]} onChange={setFilter(key)}>
+        <option value="">Todos</option>
+        {options.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+      </select>
     </label>
   );
 
   return (
     <div className="flex h-full min-h-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col">
-        <PageHeader title="Leads" count={`${filtered.length} de ${rows.length}`}>
-          <button className={btnPrimaryCls} onClick={() => setCreating(true)}><Plus size={14} /> Nuevo lead</button>
-        </PageHeader>
-
-        <div className="flex flex-col gap-2 border-b border-border bg-bg-surface px-4 py-2">
-          <div className="relative w-full max-w-md">
-            <Search size={14} className="absolute left-2.5 top-2 text-text-muted" />
-            <input className={`${inputCls} h-8 !pl-8`} placeholder="Buscar leads por nombre, teléfono, trámite, país…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div className="flex min-w-0 flex-1 flex-col bg-bg-surface">
+        {/* Barra única: título, búsqueda, filtros y alta */}
+        <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
+          <h1 className="text-[15px] font-semibold text-text-primary">Leads</h1>
+          <span className="text-xs text-text-muted">{filtered.length}</span>
+          <div className="relative ml-3 w-72 shrink-0">
+            <Search size={14} className="absolute left-2.5 top-2.5 text-text-muted" />
+            <input className={`${inputCls} h-9 !pl-8`} placeholder="Buscar" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {sel('stage', 'Etapa', stages.map((s) => [s.id, s.name]))}
-            {sel('owner', 'Responsable', [['none', 'Sin asignar'], ...(team.data || []).map((m) => [m.id, m.name])])}
-            {sel('service', 'Trámite', uniq(rows, 'service_label').map((v) => [v, v]))}
-            {sel('country', 'País', uniq(rows, 'country').map((v) => [v, `${flag(v)} ${v}`.trim()]))}
-            {sel('city', 'Ciudad', uniq(rows, 'city').map((v) => [v, v]))}
-            {sel('source', 'Origen', uniq(rows, 'lead_source').map((v) => [v, v]))}
-            {sel('tag', 'Etiquetas', (tags.data || []).map((t) => [t.id, t.name]))}
-            {check('reply', 'Sin responder')}
-            {check('mine', 'Míos')}
-            {Object.values(f).some(Boolean) && (
-              <button className="inline-flex h-7 items-center gap-1 px-1.5 text-xs text-text-muted hover:text-text-primary" onClick={() => setF(EMPTY_FILTERS)}><X size={12} /> Limpiar filtros</button>
-            )}
-          </div>
+          <button className={`${btnCls} h-9 ${activeFilters ? '!border-brand-primary !text-brand-primary' : ''}`} onClick={() => setShowFilters((v) => !v)}>
+            <SlidersHorizontal size={14} /> Filtros{activeFilters ? ` · ${activeFilters}` : ''}
+          </button>
+          <button className={`${btnPrimaryCls} ml-auto h-9`} onClick={() => setCreating(true)}><Plus size={14} /> Nuevo lead</button>
         </div>
 
-        {selected.size > 0 && (
-          <div className="flex flex-wrap items-center gap-2 border-b border-border bg-brand-primary-light px-4 py-1.5 text-xs text-text-primary">
-            <b className="text-brand-primary">{selected.size} seleccionados</b>
-            <span className="mx-1 h-4 w-px bg-border" />
-            <MoveRight size={13} className="text-text-muted" />
-            <select className={`${selectCls} !h-7 !w-auto text-xs`} value="" disabled={busy} onChange={(e) => bulkStage(e.target.value)}>
-              <option value="">Cambiar etapa…</option>
-              {stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-            <UserPlus size={13} className="text-text-muted" />
-            <select className={`${selectCls} !h-7 !w-auto text-xs`} value="" disabled={busy} onChange={(e) => bulkOwner(e.target.value)}>
-              <option value="">Asignar a…</option>
-              <option value="none">Sin asignar</option>
-              {(team.data || []).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-            <TagIcon size={13} className="text-text-muted" />
-            <select className={`${selectCls} !h-7 !w-auto text-xs`} value="" disabled={busy} onChange={(e) => bulkTag(e.target.value)}>
-              <option value="">Agregar etiqueta…</option>
-              {(tags.data || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-            <button className="ml-auto text-text-muted hover:text-text-primary" onClick={() => setSelected(new Set())}>Quitar selección</button>
+        {showFilters && (
+          <div className="grid shrink-0 grid-cols-2 gap-3 border-b border-border bg-bg-base px-5 py-3 md:grid-cols-4 xl:grid-cols-7">
+            {sel('stage', 'Etapa', stages.map((st) => [st.id, st.name]))}
+            {sel('owner', 'Responsable', [['none', 'Sin asignar'], ...(team.data || []).map((m) => [m.id, m.name])])}
+            {sel('service', 'Trámite', uniq(rows, 'service_label').map((v) => [v, v]))}
+            {sel('country', 'País', uniq(rows, 'country').map((v) => [v, v]))}
+            {sel('city', 'Ciudad', uniq(rows, 'city').map((v) => [v, v]))}
+            {sel('source', 'Origen', uniq(rows, 'lead_source').map((v) => [v, v]))}
+            {sel('tag', 'Etiqueta', (tags.data || []).map((t) => [t.id, t.name]))}
+            <div className="col-span-full flex items-center gap-4 text-[13px] text-text-secondary">
+              <label className="inline-flex items-center gap-1.5"><input type="checkbox" checked={f.reply} onChange={setFilter('reply')} /> Sin responder</label>
+              <label className="inline-flex items-center gap-1.5"><input type="checkbox" checked={f.mine} onChange={setFilter('mine')} /> Solo míos</label>
+              {activeFilters > 0 && <button className="ml-auto text-xs text-brand-primary hover:underline" onClick={() => setF(EMPTY_FILTERS)}>Limpiar filtros</button>}
+            </div>
           </div>
         )}
 
-        <div className="min-h-0 flex-1 overflow-auto bg-bg-surface">
+        {selected.size > 0 && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-border bg-brand-primary-light px-5 py-2 text-[13px]">
+            <span className="font-medium text-brand-primary">{selected.size} seleccionados</span>
+            <select className={`${selectCls} ml-3 !w-44`} value="" disabled={busy} onChange={(e) => bulkStage(e.target.value)}>
+              <option value="">Cambiar etapa</option>
+              {stages.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
+            </select>
+            <select className={`${selectCls} !w-44`} value="" disabled={busy} onChange={(e) => bulkOwner(e.target.value)}>
+              <option value="">Asignar responsable</option>
+              <option value="none">Sin asignar</option>
+              {(team.data || []).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <select className={`${selectCls} !w-44`} value="" disabled={busy} onChange={(e) => bulkTag(e.target.value)}>
+              <option value="">Agregar etiqueta</option>
+              {(tags.data || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            <button className="ml-auto text-xs text-text-muted hover:text-text-primary" onClick={() => setSelected(new Set())}>Cancelar</button>
+          </div>
+        )}
+
+        <div className="min-h-0 flex-1 overflow-auto">
           <table className="w-full border-collapse text-[13px]">
-            <thead className="sticky top-0 z-10 bg-bg-base shadow-[inset_0_-1px_0_var(--color-border)]">
+            <thead className="sticky top-0 z-10 bg-bg-surface shadow-[inset_0_-1px_0_var(--color-border)]">
               <tr>
-                <th className="w-9 px-3"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Seleccionar todos" /></th>
+                <th className="w-10 pl-5"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Seleccionar todos" /></th>
                 <Th k="name" sort={sort} onSort={toggleSort}>Nombre</Th>
-                <Th>Trámite</Th>
                 <Th k="stage" sort={sort} onSort={toggleSort}>Etapa</Th>
+                <Th>Trámite</Th>
                 <Th>Responsable</Th>
-                <Th>País</Th>
                 <Th k="value" sort={sort} onSort={toggleSort} className="text-right">Valor</Th>
-                <Th k="inbound" sort={sort} onSort={toggleSort}>Último mensaje</Th>
-                <Th k="updated" sort={sort} onSort={toggleSort}>Actualizado</Th>
+                <Th k="inbound" sort={sort} onSort={toggleSort} className="pr-5 text-right">Último mensaje</Th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((l) => (
                 <tr key={l.id} onClick={() => setOpenId(l.id)}
-                  className={`cursor-pointer border-b border-border hover:bg-bg-base ${openId === l.id ? '!bg-brand-primary-light' : ''} ${selected.has(l.id) ? 'bg-brand-primary-light/60' : ''}`}>
-                  <td className="px-3" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(l.id)} onChange={() => toggle(l.id)} aria-label={`Seleccionar ${l.name}`} /></td>
-                  <td className="px-2 py-1.5">
-                    <div className="flex items-center gap-2">
-                      <Avatar name={l.name} size={26} />
-                      <div className="min-w-0">
-                        <p className="flex items-center gap-1.5 truncate font-medium text-text-primary">
-                          {l.name || 'Sin nombre'}
-                          {l.needs_reply && <span title="Mensaje sin responder" className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />}
-                        </p>
-                        <p className="truncate text-[11px] text-text-muted">{l.phone || '—'}</p>
-                      </div>
-                    </div>
+                  className={`group h-11 cursor-pointer border-b border-border ${openId === l.id || selected.has(l.id) ? 'bg-brand-primary-light' : 'hover:bg-bg-base'}`}>
+                  <td className="pl-5" onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={selected.has(l.id)} onChange={() => toggle(l.id)} aria-label={`Seleccionar ${l.name}`} />
                   </td>
+                  <td className="px-2">
+                    <span className="font-medium text-text-primary">{l.name || 'Sin nombre'}</span>
+                    {l.needs_reply && <span title="Mensaje sin responder" className="ml-2 inline-block h-1.5 w-1.5 rounded-full bg-success align-middle" />}
+                  </td>
+                  <td className="px-2"><StageLabel name={l.stage_name} color={stageColor(stageById[l.stage_id])} /></td>
                   <td className="px-2 text-text-secondary">{l.service_label || '—'}</td>
-                  <td className="px-2"><StagePill name={l.stage_name} kind={l.stage_kind} color={stageById[l.stage_id]?.color} /></td>
-                  <td className="px-2 text-text-secondary">{teamById[l.assigned_to] || <span className="text-text-muted">—</span>}</td>
-                  <td className="whitespace-nowrap px-2 text-text-secondary">{l.country ? `${flag(l.country)} ${l.country}`.trim() : '—'}</td>
-                  <td className="px-2 text-right tabular-nums text-text-primary">{money(l.value) || <span className="text-text-muted">—</span>}</td>
-                  <td className={`whitespace-nowrap px-2 ${l.needs_reply ? 'font-medium text-success' : 'text-text-muted'}`}>{relTime(l.last_inbound_at)}</td>
-                  <td className="whitespace-nowrap px-2 text-text-muted">{relTime(l.updated_at)}</td>
+                  <td className="px-2 text-text-secondary">{teamById[l.assigned_to] || '—'}</td>
+                  <td className="px-2 text-right tabular-nums text-text-primary">{money(l.value) || '—'}</td>
+                  <td className="whitespace-nowrap px-2 pr-5 text-right text-text-muted">{relTime(l.last_inbound_at)}</td>
                 </tr>
               ))}
-              {filtered.length === 0 && <tr><td colSpan={9} className="p-10 text-center text-sm text-text-muted">Ningún lead coincide con los filtros.</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={7} className="p-12 text-center text-sm text-text-muted">No hay leads con estos filtros.</td></tr>}
             </tbody>
           </table>
         </div>

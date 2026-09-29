@@ -54,3 +54,14 @@ export const inputCls = 'w-full rounded-md border border-border bg-bg-surface px
 export const btnCls = 'inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-bg-surface px-2.5 text-[13px] text-text-primary hover:bg-bg-elevated disabled:opacity-50';
 export const btnPrimaryCls = 'inline-flex h-8 items-center gap-1.5 rounded-md bg-brand-primary px-3 text-[13px] font-medium text-white hover:bg-brand-primary-dark disabled:opacity-50';
 export const chipCls = (active) => `inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs ${active ? 'border-brand-primary bg-brand-primary-light font-medium text-brand-primary' : 'border-border bg-bg-surface text-text-secondary hover:bg-bg-elevated'}`;
+
+// Colores de etapa estilo Kommo: si la etapa no tiene uno propio, se asigna uno de esta paleta por su
+// orden. En la interfaz se usan aclarados (ver StageLabel), nunca saturados.
+const STAGE_PALETTE = ['#6aa9ff', '#f5b642', '#e3d34a', '#7ccf6a', '#e57fb0', '#8fb8e8', '#b08be8', '#4fc3c7', '#f08a5d'];
+export function stageColor(stage) {
+  if (!stage) return '#a0a8b5';
+  if (stage.color) return stage.color;
+  if (stage.kind === 'won') return '#3fb46d';
+  if (stage.kind === 'lost') return '#a0a8b5';
+  return STAGE_PALETTE[Math.abs(Math.round((stage.position || 0) / 10)) % STAGE_PALETTE.length];
+}

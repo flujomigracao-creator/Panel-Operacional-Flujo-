@@ -72,3 +72,13 @@ export function Loading() {
 export function ErrorText({ error, what = 'los datos' }) {
   return <p className="p-6 text-sm text-danger">No se pudieron cargar {what}: {error?.message || String(error)}</p>;
 }
+
+// Etapa como etiqueta suave (fondo aclarado del color de la etapa, texto oscuro).
+export function StageLabel({ name, color = '#a0a8b5' }) {
+  return (
+    <span className="inline-block max-w-[180px] truncate rounded px-2 py-0.5 text-xs text-text-primary"
+      style={{ background: `color-mix(in srgb, ${color} 22%, transparent)` }}>
+      {name || '—'}
+    </span>
+  );
+}
