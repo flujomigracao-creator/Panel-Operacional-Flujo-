@@ -1,11 +1,11 @@
 import React, { useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { ArrowRight, Check, FlaskConical, MessageCircle } from 'lucide-react';
+import { ArrowRight, Check, FlaskConical, MessageCircle, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@features/auth/context/AuthContext';
 import { getPendentesHoje, completeTask } from '@features/today/services/todayService';
 import { useCrmData, KEYS } from '../useCrm';
-import { getConversations, getRecentEvents, getTramites } from '../services/crmService';
+import { getConversations, getRecentEvents, getTramites, getChecklist } from '../services/crmService';
 import { Avatar, StagePill } from '../ui';
 import { money, relTime, clock, flag } from '../format';
 
@@ -85,6 +85,31 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient })
   const pendingChats = (convs.data || []).filter((c) => c.unread_count > 0).slice(0, 7);
   const openTramites = (tramites.data || []).filter((t) => ['pending', 'in_progress', 'on_hold'].includes(t.status));
   const todayTasks = (tasks.data || []).slice(0, 8);
+  const checklist = useQuery({
+    queryKey: ['crm', 'checklist', 'activos', openTramites.map((t) => t.id).join(',')],
+    queryFn: () => getChecklist({ clientServiceIds: openTramites.map((t) => t.id) }),
+    enabled: openTramites.length > 0,
+  });
+
+  // Atención inmediata: lo que frena cada trámite en curso, ordenado por gravedad.
+  const attention = useMemo(() => {
+    const by = {};
+    for (const i of checklist.data || []) (by[i.client_service_id] ||= []).push(i);
+    const out = [];
+    for (const t of openTramites) {
+      const items = by[t.id] || [];
+      const rejected = items.filter((i) => i.estado === 'rechazado' || i.estado === 'vencido');
+      const review = items.filter((i) => i.estado === 'revisar');
+      const missing = items.filter((i) => i.required && (i.estado === 'falta' || i.estado === 'reutilizable'));
+      const idleDays = Math.floor((Date.now() - new Date(t.updated_at)) / 86400000);
+      const base = { id: t.id, clientId: t.client_id, name: t.clients?.full_name || 'Sin nombre', service: t.services?.name || 'Trámite' };
+      if (rejected.length) out.push({ ...base, level: 0, text: `${rejected.length} documento(s) rechazado(s): ${rejected[0].label}` });
+      else if (review.length) out.push({ ...base, level: 1, text: `${review.length} documento(s) por revisar` });
+      else if (missing.length) out.push({ ...base, level: 2, text: `Faltan ${missing.length}: ${missing.slice(0, 2).map((i) => i.label).join(', ')}${missing.length > 2 ? '…' : ''}` });
+      else if (idleDays >= 7) out.push({ ...base, level: 3, text: `Sin movimiento hace ${idleDays} días` });
+    }
+    return out.sort((a, b) => a.level - b.level);
+  }, [checklist.data, openTramites]);
 
   const done = async (task) => {
     try {
@@ -120,6 +145,24 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient })
           <Kpi label="Ganados" value={kpis.won} hint="últimos 30 días" tone="text-success" onClick={() => onNavigate('funil')} />
           <Kpi label="Trámites en curso" value={tramites.data ? openTramites.length : '—'} onClick={() => onNavigate('tramites')} />
         </div>
+
+        <Panel title="Atención inmediata" count={attention.length || null} action="Ver trámites" onAction={() => onNavigate('tramites')}>
+          <div className="grid md:grid-cols-2">
+            {attention.slice(0, 10).map((a) => (
+              <Row key={a.id} onClick={() => onNavigateToClient(a.clientId, a.name)}>
+                <span className={`h-2 w-2 shrink-0 rounded-full ${['bg-danger', 'bg-info', 'bg-warning', 'bg-border-hover'][a.level]}`} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-medium text-text-primary">{a.name} <span className="font-normal text-text-muted">· {a.service}</span></p>
+                  <p className="truncate text-xs text-text-secondary">{a.text}</p>
+                </div>
+                <span className="shrink-0 text-xs font-medium text-brand-primary">Resolver</span>
+              </Row>
+            ))}
+          </div>
+          {checklist.data && attention.length === 0 && (
+            <p className="flex items-center gap-2 px-4 py-5 text-[13px] text-text-muted"><AlertTriangle size={14} /> Ningún trámite trabado. Todo al día.</p>
+          )}
+        </Panel>
 
         <div className="grid gap-4 lg:grid-cols-3">
           <Panel title="Conversaciones pendientes" count={pendingChats.length || null} action="Abrir chats" onAction={() => onNavigate('chats')}>

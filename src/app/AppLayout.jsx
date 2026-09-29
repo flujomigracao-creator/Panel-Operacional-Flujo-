@@ -48,7 +48,7 @@ import AvisoConexiones from '@features/comercial/components/AvisoConexiones';
 
 // Views
 
-const ClientDetailView = lazy(() => import('@features/clients/components/ClientDetailView'));
+const ContactView = lazy(() => import('@features/crm/components/ContactView'));
 const ClientsView = lazy(() => import('@features/clients/components/ClientsView'));
 const LeadsView = lazy(() => import('@features/crm/components/LeadsView'));
 const FunilView = lazy(() => import('@features/crm/components/FunilView'));
@@ -125,12 +125,9 @@ export default function AppLayout() {
   const [isGlobalTeamChatOpen, setIsGlobalTeamChatOpen] = useState(false);
 
   // Automatically close sidebar on client view
+  // La barra lateral es angosta (estilo Kommo): queda visible también en la ficha del contacto.
   useEffect(() => {
-    if (currentView === 'client') {
-      setIsSidebarOpen(false);
-    } else {
-      setIsSidebarOpen(true);
-    }
+    setIsSidebarOpen(true);
   }, [currentView]);
 
   // --- Search ---
@@ -226,7 +223,7 @@ export default function AppLayout() {
               )}
               {currentView === 'finance' && isReady('finance') && <FinanceView />}
               {currentView === 'dashboard' && isReady('dashboard') && <DashboardView navigateToClientsList={navigateToClientsList} />}
-              {currentView === 'client' && isReady('client') && <ClientDetailView key={selectedClientId} clientId={selectedClientId} onBack={navigateToClientsList} onNavigateToClient={navigateToClientTracked} onOpenChat={openChat} />}
+              {currentView === 'client' && isReady('client') && <ContactView key={selectedClientId} clientId={selectedClientId} onBack={navigateToClientsList} onNavigateToClient={navigateToClientTracked} onOpenChat={openChat} />}
               {currentView === 'clients' && isReady('clients') && <ClientsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} />}
               {currentView === 'leads' && <LeadsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} onOpenChat={openChat} />}
               {currentView === 'funil' && <FunilView onNavigateToClient={navigateToClientTracked} onOpenChat={openChat} />}

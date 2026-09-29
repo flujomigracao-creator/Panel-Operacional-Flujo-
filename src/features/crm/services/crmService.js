@@ -355,3 +355,13 @@ export async function setOrgSetting(key, value) {
   if (existing[0]) must(await supabase.from('organization_settings').update({ value, updated_at: new Date().toISOString() }).eq('id', existing[0].id));
   else must(await supabase.from('organization_settings').insert({ organization_id, key, value }));
 }
+
+// ── Checklist de trámites (vista crm_tramite_checklist) ─────────────────────────────
+const CHECKLIST_COLUMNS = 'client_service_id, client_id, requirement_id, position, kind, label, required, ask_client, codigo, document_id, document_status, motivo, reuse_document_id, reuse_from, field_value, estado';
+
+export async function getChecklist({ clientId, clientServiceIds } = {}) {
+  let q = supabase.from('crm_tramite_checklist').select(CHECKLIST_COLUMNS).order('position');
+  if (clientId) q = q.eq('client_id', clientId);
+  if (clientServiceIds) q = q.in('client_service_id', clientServiceIds);
+  return must(await q.limit(PAGE_SIZE));
+}
