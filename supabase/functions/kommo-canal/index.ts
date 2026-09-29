@@ -272,11 +272,16 @@ async function vaciarCola(admin: SupabaseClient) {
 
 // ---------- Entrada: Kommo → WhatsApp ----------
 
+// Kommo manda el JSON con un salto de línea al final, pero firma el cuerpo sin él.
 function firmaValida(raw: Uint8Array, firma: string): boolean {
-  const esperada = createHmac('sha1', secreto()).update(raw).digest('hex');
-  const a = new TextEncoder().encode(esperada);
   const b = new TextEncoder().encode(String(firma || '').trim().toLowerCase());
-  return a.length === b.length && timingSafeEqual(a, b);
+  const coincide = (bytes: Uint8Array) => {
+    const a = new TextEncoder().encode(createHmac('sha1', secreto()).update(bytes).digest('hex'));
+    return a.length === b.length && timingSafeEqual(a, b);
+  };
+  let fin = raw.length;
+  while (fin > 0 && (raw[fin - 1] === 10 || raw[fin - 1] === 13)) fin--;
+  return coincide(raw.subarray(0, fin)) || (fin !== raw.length && coincide(raw));
 }
 
 function tipoWhatsapp(tipo: string): 'image' | 'audio' | 'video' | 'document' {
@@ -294,25 +299,26 @@ async function estadoEntrega(scopeId: string, msgid: string, error: string | nul
     .catch((e) => console.error('delivery_status', msgid, (e as Error).message));
 }
 
-async function procesarEntrante(admin: SupabaseClient, scopeId: string, body: any) {
+async function procesarEntrante(admin: SupabaseClient, scopeId: string, body: any): Promise<string> {
   const m = body?.message || {};
   const contenido = m.message || {};
   const msgid = String(contenido.id || '');
-  if (!msgid) return;
+  if (!msgid) return 'sin id de mensaje';
 
   const { data: canal } = await admin.from('channel_integrations').select('organization_id, kommo_canal_enabled, whatsapp_enabled')
     .eq('kommo_scope_id', scopeId).maybeSingle();
-  if (!canal) { console.error('scope desconocido', scopeId); return; }
+  if (!canal) { console.error('scope desconocido', scopeId); return `scope desconocido: ${scopeId}`; }
   const orgId: string = canal.organization_id;
 
   // Una sola vez por mensaje de Kommo (Kommo reintenta si no le contestamos a tiempo).
   const { error: dupErr } = await admin.from('kommo_canal_recibidos').insert({ kommo_msgid: msgid, organization_id: orgId });
-  if (dupErr) return;
+  if (dupErr) return dupErr.code === '23505' ? 'duplicado' : `no se pudo registrar: ${dupErr.message}`;
 
   const fallar = async (motivo: string) => {
     console.error('entrante', msgid, motivo);
     await admin.from('kommo_canal_recibidos').update({ error: motivo }).eq('kommo_msgid', msgid);
     await estadoEntrega(scopeId, msgid, motivo);
+    return motivo;
   };
   if (!canal.kommo_canal_enabled || !canal.whatsapp_enabled) return fallar('El canal de WhatsApp no está activo en el panel.');
 
@@ -381,6 +387,7 @@ async function procesarEntrante(admin: SupabaseClient, scopeId: string, body: an
       .eq('organization_id', orgId).eq('kommo_lead_id', lead.kommo_lead_id);
   }
   await estadoEntrega(scopeId, msgid, null);
+  return 'enviado';
 }
 
 // ---------- HTTP ----------
@@ -405,9 +412,11 @@ Deno.serve(async (req) => {
     if (!firmaValida(raw, firma)) return json({ error: 'Firma inválida' }, 401);
     const evento = directo ? body : JSON.parse(new TextDecoder().decode(raw));
     const scopeId = decodeURIComponent(String(body.scope_id || scopeEnRuta || ''));
-    // Kommo espera respuesta rápida: se contesta ya y se procesa en segundo plano.
-    EdgeRuntime.waitUntil(procesarEntrante(admin, scopeId, evento).catch((e) => console.error('entrante', e)));
-    return json({ ok: true });
+    // Directo desde Kommo: espera respuesta rápida, se contesta ya y se procesa en segundo plano.
+    // Reenviado por n8n (que ya le contestó a Kommo): se procesa y se devuelve el resultado.
+    const tarea = procesarEntrante(admin, scopeId, evento).catch((e) => { console.error('entrante', e); return `error: ${(e as Error).message}`; });
+    if (directo) { EdgeRuntime.waitUntil(tarea); return json({ ok: true }); }
+    return json({ ok: true, resultado: await tarea });
   }
 
   if (body.action === 'flush') {
