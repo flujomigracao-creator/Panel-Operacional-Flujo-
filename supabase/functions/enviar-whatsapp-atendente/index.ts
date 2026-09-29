@@ -279,11 +279,11 @@ Deno.serve(async (req) => {
     // Después de la propuesta: botones para precisar el trámite (agendamiento: para qué es; residencia: por qué vía).
     const SUBMENUS: Record<string, { cuerpo: string; opciones: { id: string; title: string }[] }[]> = {
       agendamiento: [
-        { cuerpo: '¿Para qué es el agendamiento?', opciones: [{ id: 'motivo:165690', title: 'RNM (1ª vía)' }, { id: 'motivo:165692', title: 'RNM (2ª vía)' }] },
-        { cuerpo: '¿O es para refugio?', opciones: [{ id: 'motivo:166572', title: 'Refugio (1ª vez)' }, { id: 'motivo:166574', title: 'Refugio (renovación)' }] },
+        { cuerpo: body.idioma === 'pt' ? 'Para que é o agendamento?' : '¿Para qué es el agendamiento?', opciones: [{ id: 'motivo:165690', title: 'RNM (1ª vía)' }, { id: 'motivo:165692', title: 'RNM (2ª vía)' }] },
+        { cuerpo: body.idioma === 'pt' ? 'Ou é para refúgio?' : '¿O es para refugio?', opciones: [{ id: 'motivo:166572', title: 'Refugio (1ª vez)' }, { id: 'motivo:166574', title: 'Refugio (renovación)' }] },
       ],
       residencia: [
-        { cuerpo: '¿Por qué vía es tu residencia permanente?', opciones: [{ id: 'variante:familiar', title: 'Reunión familiar' }, { id: 'variante:mercosur', title: 'Acuerdo Mercosur' }] },
+        { cuerpo: body.idioma === 'pt' ? 'Por qual via é a sua residência permanente?' : '¿Por qué vía es su residencia permanente?', opciones: [{ id: 'variante:familiar', title: 'Reunión familiar' }, { id: 'variante:mercosur', title: 'Acuerdo Mercosur' }] },
       ],
     };
     if (body.submenu && SUBMENUS[body.submenu]) {
