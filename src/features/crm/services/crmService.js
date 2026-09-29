@@ -261,11 +261,12 @@ export async function getOpenTasks({ clientId } = {}) {
   return must(await q);
 }
 
-export async function createTask({ clientId, conversationId, title, dueAt }) {
+export async function createTask({ clientId, clientServiceId, conversationId, title, dueAt }) {
   const organization_id = await getMyOrganizationId();
   must(await supabase.from('tasks').insert({
     organization_id,
     client_id: clientId || null,
+    client_service_id: clientServiceId || null,
     conversation_id: conversationId || null,
     kind: 'manual',
     title: title.trim(),
@@ -354,4 +355,54 @@ export async function setOrgSetting(key, value) {
   const existing = must(await supabase.from('organization_settings').select('id').eq('key', key).limit(1));
   if (existing[0]) must(await supabase.from('organization_settings').update({ value, updated_at: new Date().toISOString() }).eq('id', existing[0].id));
   else must(await supabase.from('organization_settings').insert({ organization_id, key, value }));
+}
+
+// ── Checklist de trámites (vista crm_tramite_checklist) ─────────────────────────────
+const CHECKLIST_COLUMNS = 'client_service_id, client_id, requirement_id, position, kind, label, required, ask_client, codigo, document_id, document_status, motivo, reuse_document_id, reuse_from, field_value, estado';
+
+export async function getChecklist({ clientId, clientServiceIds } = {}) {
+  let q = supabase.from('crm_tramite_checklist').select(CHECKLIST_COLUMNS).order('position');
+  if (clientId) q = q.eq('client_id', clientId);
+  if (clientServiceIds) q = q.in('client_service_id', clientServiceIds);
+  return must(await q.limit(PAGE_SIZE));
+}
+
+// ── Un trámite completo (detalle de trámite) ──────────────────────────────────────
+export async function getTramite(id) {
+  const t = must(await supabase
+    .from('client_services')
+    .select('id, client_id, service_id, stage_id, status, price, currency, assigned_to, started_at, completed_at, notes, kommo_lead_id, drive_folder_link, created_at, updated_at, services(name), service_stages(name), clients(id, full_name, phone, nationality, country, email)')
+    .eq('id', id)
+    .maybeSingle());
+  if (!t) return null;
+  const [stages, checklist, events, tasks, payments, documents] = await Promise.all([
+    supabase.from('service_stages').select('id, name, position').eq('service_id', t.service_id).order('position').then(must),
+    getChecklist({ clientServiceIds: [id] }),
+    supabase.from('client_service_events').select('id, event_type, from_stage_id, to_stage_id, metadata, created_by, created_at').eq('client_service_id', id).order('created_at', { ascending: false }).limit(50).then(must),
+    supabase.from('tasks').select('id, title, kind, priority, status, due_at, created_at').eq('client_service_id', id).in('status', ['open', 'in_progress']).order('due_at', { ascending: true, nullsFirst: false }).then(must),
+    supabase.from('payments').select('id, amount, currency, status, due_date, paid_at').eq('client_service_id', id).order('created_at').then(must),
+    supabase.from('documents').select('id, status, file_name, created_at, document_types(name)').eq('client_service_id', id).order('created_at', { ascending: false }).then(must),
+  ]);
+  return { ...t, stages, checklist, events, tasks, payments, documents };
+}
+
+export async function updateTramite(id, patch) {
+  must(await supabase.from('client_services').update(patch).eq('id', id));
+}
+
+// ── Sincronización con Kommo (edge function kommo-sync) ────────────────────────────
+// Envía a Kommo los cambios de etapa de trámites que esperan en kommo_outbox.
+export const syncKommoOutbox = () => invoke('kommo-sync', { action: 'outbox' });
+// Trae de Kommo las etapas reales del embudo Comercial (nombre y orden) a crm_stages.
+export const syncKommoPipelines = () => invoke('kommo-sync', { action: 'pipelines' });
+
+// Tras cambiar la etapa de un trámite: la base ya lo encoló (trigger); se envía a Kommo al momento.
+// Devuelve un texto de aviso si algo no llegó, o null si todo bien.
+export async function pushTramiteToKommo() {
+  try {
+    const r = await syncKommoOutbox();
+    return r.failed ? `${r.failed} cambio(s) no llegaron a Kommo; se reintentan solos.` : null;
+  } catch (err) {
+    return `No se pudo avisar a Kommo: ${err.message}`;
+  }
 }

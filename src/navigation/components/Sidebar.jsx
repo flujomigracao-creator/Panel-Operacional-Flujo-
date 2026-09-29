@@ -2,19 +2,17 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Home,
-  Target,
-  Contact,
-  MessagesSquare,
-  Kanban,
-  ListTodo,
   FolderKanban,
+  Contact,
   FileText,
+  ListTodo,
+  MessagesSquare,
   Landmark,
+  Target,
   Bot,
   Users,
   Settings,
   LogOut,
-  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '../../features/auth/context/AuthContext';
@@ -30,59 +28,62 @@ const orgInitials = (name) => {
     : clean.substring(0, 2).toUpperCase();
 };
 
-// Secciones del menú. `views` marca qué vistas dejan activo el ítem (p. ej. la ficha de un contacto).
+// Menú de trabajo: primero la operación, después lo comercial, Nora y la configuración.
+// `views` marca qué vistas dejan activo el ítem (p. ej. la ficha de un contacto o de un trámite).
 const SECTIONS = [
-  [
-    { view: 'home', label: 'Inicio', icon: Home },
-  ],
-  [
-    { view: 'leads', label: 'Leads', icon: Target },
-    { view: 'clients', label: 'Contactos', icon: Contact, views: ['clients', 'client'] },
-    { view: 'chats', label: 'Chats', icon: MessagesSquare, badge: 'chats' },
-    { view: 'funil', label: 'Funis', icon: Kanban },
-    { view: 'today', label: 'Tareas', icon: ListTodo },
-  ],
-  [
-    { view: 'tramites', label: 'Trámites', icon: FolderKanban },
-    { view: 'documentos', label: 'Documentos', icon: FileText },
-    { view: 'finance', label: 'Finanzas', icon: Landmark },
-  ],
-  [
-    { view: 'comercial', label: 'Nora', icon: Bot, views: ['comercial', 'lab'] },
-  ],
-  [
-    { view: 'equipo', label: 'Equipo', icon: Users },
-    { view: 'configuracion', label: 'Ajustes', icon: Settings },
-  ],
+  {
+    items: [
+      { view: 'home', label: 'Inicio', icon: Home },
+      { view: 'tramites', label: 'Trámites', icon: FolderKanban, views: ['tramites', 'tramite'] },
+      { view: 'clients', label: 'Clientes', icon: Contact, views: ['clients', 'client'] },
+      { view: 'documentos', label: 'Documentos', icon: FileText },
+      { view: 'today', label: 'Tareas', icon: ListTodo },
+      { view: 'chats', label: 'Conversaciones', icon: MessagesSquare, badge: 'chats' },
+      { view: 'finance', label: 'Finanzas', icon: Landmark },
+    ],
+  },
+  {
+    title: 'Comercial',
+    items: [
+      { view: 'leads', label: 'Leads', icon: Target },
+    ],
+  },
+  {
+    items: [{ view: 'comercial', label: 'Nora', icon: Bot, views: ['comercial', 'lab'] }],
+  },
+  {
+    items: [
+      { view: 'equipo', label: 'Equipo', icon: Users },
+      { view: 'configuracion', label: 'Configuración', icon: Settings },
+    ],
+  },
 ];
 
-export default function Sidebar({ currentView, isSidebarOpen, setIsSidebarOpen, onNavigate }) {
+export default function Sidebar({ currentView, isSidebarOpen, onNavigate }) {
   const { userProfile, logout } = useAuth();
   const { organizationName, logoUrl } = useOrganization();
   const unread = useQuery({ queryKey: ['crm', 'unread_count'], queryFn: getUnreadConversationsCount, refetchInterval: 30_000 });
   const badges = { chats: unread.data || 0 };
 
-  // Barra estilo Kommo: oscura, angosta, ícono arriba y nombre abajo. Siempre del mismo color (no cambia con el tema).
   return (
     <aside
       className={cn(
-        'flex shrink-0 flex-col overflow-hidden bg-[#1b2a47] text-white transition-[width] duration-200',
-        isSidebarOpen ? 'w-[76px]' : 'w-0'
+        'flex shrink-0 flex-col overflow-hidden border-r border-chrome-border bg-chrome-bg transition-[width] duration-200',
+        isSidebarOpen ? 'w-[200px]' : 'w-0 border-r-0'
       )}
     >
-      <div className="flex shrink-0 flex-col items-center gap-1 pb-2 pt-3">
-        <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-white/15 text-[12px] font-bold" title={organizationName}>
+      <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-chrome-border px-4">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-md bg-brand-primary text-[11px] font-bold text-white" title={organizationName}>
           {logoUrl ? <img src={logoUrl} alt={organizationName} className="h-full w-full object-contain" /> : orgInitials(organizationName)}
         </div>
-        {currentView === 'client' && (
-          <button onClick={() => setIsSidebarOpen(false)} className="rounded p-1 text-white/50 hover:text-white" aria-label="Cerrar menú"><X size={14} /></button>
-        )}
+        <p className="min-w-0 truncate text-[13px] font-semibold text-chrome-text-active">{organizationName}</p>
       </div>
 
-      <nav className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden">
-        {SECTIONS.map((items, i) => (
-          <div key={i} className={cn('flex flex-col', i > 0 && 'mt-1 border-t border-white/10 pt-1')}>
-            {items.map((item) => (
+      <nav className="flex flex-1 flex-col overflow-y-auto px-2 py-2">
+        {SECTIONS.map((section, i) => (
+          <div key={i} className={cn('flex flex-col gap-px', i > 0 && 'mt-2 border-t border-chrome-border pt-2')}>
+            {section.title && <p className="px-2.5 pb-1 text-[10px] font-medium uppercase tracking-wider text-chrome-text-muted">{section.title}</p>}
+            {section.items.map((item) => (
               <NavItem
                 key={item.view}
                 item={item}
@@ -95,12 +96,13 @@ export default function Sidebar({ currentView, isSidebarOpen, setIsSidebarOpen, 
         ))}
       </nav>
 
-      <div className="flex shrink-0 flex-col items-center gap-1.5 border-t border-white/10 py-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 text-[11px] font-semibold" title={userProfile?.nombre || ''}>
+      <div className="flex shrink-0 items-center gap-2 border-t border-chrome-border px-3 py-2.5">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-chrome-bg-raised text-[11px] font-semibold text-chrome-text-active">
           {userProfile?.nombre ? userProfile.nombre.substring(0, 2).toUpperCase() : '··'}
         </div>
-        <button onClick={logout} className="rounded p-1 text-white/50 hover:text-white" title="Cerrar sesión" aria-label="Cerrar sesión">
-          <LogOut size={14} />
+        <span className="min-w-0 flex-1 truncate text-xs text-chrome-text">{userProfile?.nombre}</span>
+        <button onClick={logout} className="rounded p-1.5 text-chrome-text hover:bg-chrome-bg-raised hover:text-chrome-text-active" title="Cerrar sesión" aria-label="Cerrar sesión">
+          <LogOut size={15} />
         </button>
       </div>
     </aside>
@@ -112,21 +114,15 @@ function NavItem({ item, active, badge, onClick }) {
   return (
     <button
       onClick={onClick}
-      aria-label={item.label}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'relative flex w-full flex-col items-center gap-1 py-2 text-[10px] leading-none transition-colors',
-        active ? 'bg-white/12 text-white' : 'text-white/55 hover:bg-white/5 hover:text-white'
+        'flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-[13px] transition-colors',
+        active ? 'bg-brand-primary-light font-medium text-brand-primary' : 'text-chrome-text hover:bg-chrome-bg-raised hover:text-chrome-text-active'
       )}
     >
-      {active && <span className="absolute left-0 top-0 h-full w-[3px] bg-[#4c8dff]" />}
-      <Icon size={20} strokeWidth={1.7} />
-      <span className="max-w-[70px] truncate">{item.label}</span>
-      {badge > 0 && (
-        <span className="absolute right-3 top-1 min-w-[16px] rounded-full bg-[#ff5a5f] px-1 text-center text-[9px] font-semibold leading-4 text-white">
-          {badge > 99 ? '99+' : badge}
-        </span>
-      )}
+      <Icon size={17} strokeWidth={1.8} className="shrink-0" />
+      <span className="flex-1 truncate text-left">{item.label}</span>
+      {badge > 0 && <span className="rounded-full bg-warning px-1.5 text-[10px] font-semibold leading-4 text-white">{badge > 99 ? '99+' : badge}</span>}
     </button>
   );
 }

@@ -28,8 +28,8 @@ export const useNavigation = (isReady = true) => {
         if (hash.startsWith('#comercial')) return 'comercial';
         if (hash === '#dashboard') return 'dashboard';
         if (hash === '#leads') return 'leads';
-        if (hash === '#funis') return 'funil';
         if (hash.startsWith('#chats')) return 'chats';
+        if (hash.startsWith('#tramite/')) return 'tramite';
         if (hash === '#team-chat') return 'team-chat';
         if (hash === '#team-management') return 'team-management';
         if (hash === '#settings') return 'settings';
@@ -49,6 +49,12 @@ export const useNavigation = (isReady = true) => {
     // Conversación abierta al llegar a Chats (client id), p. ej. desde el panel de un lead: #chats/<clientId>.
     const [chatClientId, setChatClientId] = useState(() => {
         const m = window.location.hash.match(/^#chats\/([\w-]+)/);
+        return m ? m[1] : null;
+    });
+
+    // Trámite abierto (client_services.id): #tramite/<id>.
+    const [tramiteId, setTramiteId] = useState(() => {
+        const m = window.location.hash.match(/^#tramite\/([\w-]+)/);
         return m ? m[1] : null;
     });
 
@@ -90,8 +96,8 @@ export const useNavigation = (isReady = true) => {
             window.location.hash = 'dashboard';
         } else if (currentView === 'leads') {
             window.location.hash = 'leads';
-        } else if (currentView === 'funil') {
-            window.location.hash = 'funis';
+        } else if (currentView === 'tramite' && tramiteId) {
+            window.location.hash = `tramite/${tramiteId}`;
         } else if (currentView === 'chats') {
             window.location.hash = chatClientId ? `chats/${chatClientId}` : 'chats';
         } else if (currentView === 'team-chat') {
@@ -105,7 +111,7 @@ export const useNavigation = (isReady = true) => {
         } else {
             window.location.hash = 'inicio';
         }
-    }, [currentView, selectedClientId, comercialLeadId, chatClientId, isReady]);
+    }, [currentView, selectedClientId, comercialLeadId, chatClientId, tramiteId, isReady]);
 
     // Listen to browser Back/Forward buttons and manual hash changes
     useEffect(() => {
@@ -142,8 +148,9 @@ export const useNavigation = (isReady = true) => {
             } else if (hash === '#leads') {
                 setCurrentView('leads');
                 setSelectedClientId(null);
-            } else if (hash === '#funis') {
-                setCurrentView('funil');
+            } else if (hash.startsWith('#tramite/')) {
+                setCurrentView('tramite');
+                setTramiteId(hash.replace('#tramite/', '') || null);
                 setSelectedClientId(null);
             } else if (hash.startsWith('#chats')) {
                 const m = hash.match(/^#chats\/([\w-]+)/);
@@ -224,16 +231,17 @@ export const useNavigation = (isReady = true) => {
         setCurrentView('leads');
     }, []);
 
-    const navigateToFunil = useCallback(() => {
-        setSelectedClientId(null);
-        setCurrentView('funil');
-    }, []);
-
     // clientId (opcional) abre esa conversación al llegar.
     const navigateToChats = useCallback((clientId = null) => {
         setSelectedClientId(null);
         setChatClientId(typeof clientId === 'string' ? clientId : null);
         setCurrentView('chats');
+    }, []);
+
+    const navigateToTramite = useCallback((id) => {
+        setSelectedClientId(null);
+        setTramiteId(id);
+        setCurrentView('tramite');
     }, []);
 
     const navigateToTeamChat = useCallback(() => {
@@ -261,8 +269,9 @@ export const useNavigation = (isReady = true) => {
         selectedClientId,
         comercialLeadId,
         chatClientId,
+        tramiteId,
+        navigateToTramite,
         navigateToLeads,
-        navigateToFunil,
         navigateToChats,
         navigateToClient,
         navigateToHome,

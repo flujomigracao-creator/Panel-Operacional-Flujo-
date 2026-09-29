@@ -31,6 +31,7 @@ import {
   X,
 } from 'lucide-react';
 import ContactLeads from '@features/crm/components/ContactLeads';
+import { pushTramiteToKommo } from '@features/crm/services/crmService';
 import OpusRecorder from 'opus-recorder';
 import opusEncoderPath from 'opus-recorder/dist/encoderWorker.min.js?url';
 import { useAssistant } from '@features/assistant/context/AssistantContext';
@@ -647,6 +648,10 @@ export default function ClientDetailView({ clientId, onBack, onNavigateToClient,
   const onTramiteChange = async (tramite, patch) => {
     try {
       await updateTramite(tramite.id, patch);
+      if (patch.stage_id && tramite.kommo_lead_id) {
+        const aviso = await pushTramiteToKommo();
+        if (aviso) toast.error(aviso);
+      }
       toast.success(patch.stage_id ? 'Etapa actualizada (se refleja en Kommo)' : 'Trámite actualizado');
       refresh();
     } catch (err) {

@@ -64,7 +64,7 @@ function Pipelines() {
       }, 'Etapa creada');
     };
     return (
-      <Card key={p.id} title={`Embudo ${p.name}`} description="Orden, nombre y color de las columnas del Funil. Las etapas marcadas “Kommo” están enlazadas con Kommo y n8n: se pueden renombrar y reordenar, pero no borrar.">
+      <Card key={p.id} title={`Embudo ${p.name}`} description="Etapas de los leads. Las etapas marcadas “Kommo” están enlazadas con Kommo y n8n: se pueden renombrar y reordenar, pero no borrar.">
         <table className="w-full text-[13px]">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-text-muted">
@@ -135,7 +135,7 @@ function Tags() {
   const keys = [KEYS.tags, KEYS.leadTags];
   const add = () => name.trim() && save(async () => { await createTag(name); setName(''); }, 'Etiqueta creada', keys);
   return (
-    <Card title="Etiquetas" description="Se usan en Leads, Funis y Chats para agrupar leads (ej.: RNM, Argentina, Urgente).">
+    <Card title="Etiquetas" description="Se usan en Leads y Conversaciones para agrupar leads (ej.: RNM, Argentina, Urgente).">
       <div className="flex flex-wrap gap-1.5">
         {(tags.data || []).map((t) => (
           <span key={t.id} className="inline-flex items-center gap-1 rounded-md border border-border bg-bg-base pl-2 pr-1 text-[13px]">

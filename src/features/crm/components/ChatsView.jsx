@@ -1,15 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Search, ExternalLink, MessageCircle, UserPlus, MessagesSquare } from 'lucide-react';
+import { Search, MessagesSquare } from 'lucide-react';
 import { useAuth } from '@features/auth/context/AuthContext';
 import { ReplyBox } from '@features/clients/components/ClientDetailView';
 import { useCrmData, KEYS } from '../useCrm';
-import { getConversations, getConversationMessages, getLeadEvents, sendText, sendFile, addNote, createLead, CONVERSATIONS_LIMIT } from '../services/crmService';
-import LeadPanel from './LeadPanel';
+import { getConversations, getConversationMessages, getLeadEvents, sendText, sendFile, addNote, getTramites, CONVERSATIONS_LIMIT } from '../services/crmService';
+import ClientOpsPanel from './ClientOpsPanel';
 import MessageBubble from './MessageBubble';
-import { Avatar, StagePill } from '../ui';
-import { clock, normalize, flag, inputCls, btnPrimaryCls, chipCls } from '../format';
+import { clock, normalize, inputCls, chipCls } from '../format';
 
 const TYPE_LABEL = { image: '📷 Foto', audio: '🎤 Audio', document: '📎 Documento', video: '🎥 Video', location: '📍 Ubicación' };
 
@@ -118,45 +117,22 @@ function Thread({ conv, leads, lead, teamById }) {
   );
 }
 
-function NoLeadPanel({ conv, onCreated }) {
-  const [busy, setBusy] = useState(false);
-  const create = async () => {
-    setBusy(true);
-    try {
-      const res = await createLead({ name: conv.display_name || conv.phone || 'Sin nombre', phone: conv.phone });
-      toast.success('Lead creado y vinculado al contacto');
-      onCreated(res);
-    } catch (err) {
-      toast.error(err.message || 'No se pudo crear el lead');
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <aside className="flex w-[340px] shrink-0 flex-col gap-3 border-l border-border bg-bg-surface p-4">
-      <div className="flex items-center gap-2.5">
-        <Avatar name={conv.display_name} size={36} />
-        <div className="min-w-0">
-          <p className="truncate text-[15px] font-semibold text-text-primary">{conv.display_name || 'Sin nombre'}</p>
-          <p className="text-xs text-text-muted">{conv.phone || '—'}</p>
-        </div>
-      </div>
-      <p className="text-[13px] text-text-secondary">Este contacto todavía no tiene un lead. Créalo para gestionarlo en el embudo (etapa, responsable, etiquetas y tareas).</p>
-      <button className={btnPrimaryCls} onClick={create} disabled={busy}><UserPlus size={14} /> Crear lead</button>
-    </aside>
-  );
-}
-
-export default function ChatsView({ onNavigateToClient, initialClientId = null }) {
-  const qc = useQueryClient();
-  const { leads, teamById, stageById } = useCrmData();
+export default function ChatsView({ onNavigateToClient, onOpenTramite, initialClientId = null }) {
+  const { leads, teamById } = useCrmData();
   const { userId } = useAuth();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all'); // all | unread | mine
   const [selectedId, setSelectedId] = useState(null);
-  const [leadChoice, setLeadChoice] = useState({});
 
   const convs = useQuery({ queryKey: KEYS.conversations, queryFn: getConversations, refetchInterval: 15_000 });
+  const tramites = useQuery({ queryKey: ['crm', 'tramites'], queryFn: getTramites, staleTime: 60_000 });
+  // Trámite que se muestra junto a cada conversación: el trámite en curso del cliente o, si no tiene, el del lead.
+  const tramiteByClient = useMemo(() => {
+    const m = {};
+    for (const t of tramites.data || []) if (['pending', 'in_progress', 'on_hold'].includes(t.status)) m[t.client_id] ||= t.services?.name;
+    return m;
+  }, [tramites.data]);
+  const serviceOf = (c, l) => (c.client_id && tramiteByClient[c.client_id]) || l?.service_label || null;
 
   // Leads de cada conversación: por contacto (client_id) o, si todavía no hay contacto, por el contacto de Kommo.
   const leadsFor = useMemo(() => {
@@ -189,7 +165,7 @@ export default function ChatsView({ onNavigateToClient, initialClientId = null }
   const activeId = selectedId ?? initial?.id ?? null;
   const conv = (convs.data || []).find((c) => c.id === activeId);
   const convLeads = conv ? leadsFor(conv) : [];
-  const activeLead = convLeads.find((l) => l.id === leadChoice[conv?.id]) || convLeads[0] || null;
+  const activeLead = convLeads[0] || null;
   const unreadTotal = (convs.data || []).filter((c) => c.unread_count > 0).length;
 
   return (
@@ -198,7 +174,7 @@ export default function ChatsView({ onNavigateToClient, initialClientId = null }
       <aside className="flex w-[300px] shrink-0 flex-col border-r border-border bg-bg-surface">
         <div className="border-b border-border px-3 pb-2 pt-3">
           <div className="mb-2 flex items-baseline gap-2">
-            <h1 className="text-[15px] font-semibold text-text-primary">Chats</h1>
+            <h1 className="text-[15px] font-semibold text-text-primary">Conversaciones</h1>
             {unreadTotal > 0 && <span className="text-xs text-success">{unreadTotal} sin responder</span>}
           </div>
           <div className="relative">
@@ -218,33 +194,19 @@ export default function ChatsView({ onNavigateToClient, initialClientId = null }
             const ls = leadsFor(c);
             const l = ls[0];
             const unread = c.unread_count > 0;
-            const owner = teamById[l?.assigned_to || c.client_assigned_to];
             return (
               <li key={c.id}>
                 <button onClick={() => setSelectedId(c.id)}
-                  className={`flex w-full items-start gap-2.5 border-b border-border px-3 py-2.5 text-left transition-colors ${activeId === c.id ? 'bg-brand-primary-light' : 'hover:bg-bg-base'}`}>
-                  <span className="relative">
-                    <Avatar name={c.display_name} size={34} />
-                    {c.channel === 'whatsapp' || c.channel === 'kommo' ? (
-                      <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-bg-surface bg-[#25D366]" title="WhatsApp">
-                        <MessageCircle size={7} className="text-white" />
-                      </span>
-                    ) : null}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-1">
-                      <span className={`truncate text-[13px] ${unread ? 'font-semibold' : 'font-medium'} text-text-primary`}>{c.display_name || 'Sin nombre'}</span>
-                      <span className={`ml-auto shrink-0 text-[10px] ${unread ? 'font-medium text-success' : 'text-text-muted'}`}>{clock(c.last_at || c.last_message_at)}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <p className={`min-w-0 flex-1 truncate text-xs ${unread ? 'text-text-primary' : 'text-text-muted'}`}>{preview(c)}</p>
-                      {unread && <span className="shrink-0 rounded-full bg-success px-1.5 text-[10px] font-semibold leading-4 text-white">{c.unread_count}</span>}
-                    </div>
-                    {(l || owner) && (
-                      <p className="mt-0.5 truncate text-[11px] text-text-muted">
-                        {[l?.service_label, l?.stage_name, owner].filter(Boolean).join(' · ')}
-                      </p>
-                    )}
+                  className={`block w-full border-b border-border px-4 py-2.5 text-left transition-colors ${activeId === c.id ? 'bg-brand-primary-light' : 'hover:bg-bg-base'}`}>
+                  <div className="flex items-baseline gap-2">
+                    <span className={`truncate text-[13px] text-text-primary ${unread ? 'font-semibold' : 'font-medium'}`}>{c.display_name || 'Sin nombre'}</span>
+                    <span className="ml-auto shrink-0 text-xs text-text-muted">{serviceOf(c, l) || ''}</span>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-2">
+                    <p className={`min-w-0 flex-1 truncate text-xs ${unread ? 'text-text-primary' : 'text-text-muted'}`}>{preview(c)}</p>
+                    {unread
+                      ? <span className="shrink-0 rounded-full bg-warning px-1.5 text-[10px] font-semibold leading-4 text-white">{c.unread_count}</span>
+                      : <span className="shrink-0 text-[10px] text-text-muted">{clock(c.last_at || c.last_message_at)}</span>}
                   </div>
                 </button>
               </li>
@@ -259,22 +221,11 @@ export default function ChatsView({ onNavigateToClient, initialClientId = null }
       <section className="flex min-w-0 flex-1 flex-col">
         {conv ? (
           <>
-            <header className="flex min-h-[52px] items-center gap-2.5 border-b border-border bg-bg-surface px-4 py-2">
-              <Avatar name={conv.display_name} size={30} />
+            <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-bg-surface px-5">
               <div className="min-w-0">
-                <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-text-primary">
-                  {conv.display_name || 'Sin nombre'} {activeLead?.country && <span title={activeLead.country}>{flag(activeLead.country)}</span>}
-                </p>
-                <p className="truncate text-xs text-text-muted">
-                  {conv.phone || ''}{activeLead?.assigned_to ? ` · ${teamById[activeLead.assigned_to] || ''}` : ''}
-                </p>
+                <p className="truncate text-sm font-semibold text-text-primary">{conv.display_name || 'Sin nombre'}</p>
+                <p className="truncate text-xs text-text-muted">{conv.phone || ''}{serviceOf(conv, activeLead) ? ` · ${serviceOf(conv, activeLead)}` : ''}</p>
               </div>
-              {activeLead && <StagePill name={activeLead.stage_name} kind={activeLead.stage_kind} color={stageById[activeLead.stage_id]?.color} />}
-              {conv.client_id && (
-                <button className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-brand-primary hover:underline" onClick={() => onNavigateToClient?.(conv.client_id, conv.display_name)}>
-                  Ficha del contacto <ExternalLink size={11} />
-                </button>
-              )}
             </header>
             <Thread key={conv.id} conv={conv} leads={convLeads} lead={activeLead} teamById={teamById} />
           </>
@@ -286,26 +237,8 @@ export default function ChatsView({ onNavigateToClient, initialClientId = null }
         )}
       </section>
 
-      {/* Contacto / lead */}
-      {conv && activeLead && (
-        <div className="flex h-full flex-col">
-          {convLeads.length > 1 && (
-            <div className="flex w-[340px] gap-1 overflow-x-auto border-b border-l border-border bg-bg-surface px-3 py-2">
-              {convLeads.map((l) => (
-                <button key={l.id} onClick={() => setLeadChoice((s) => ({ ...s, [conv.id]: l.id }))} className={chipCls(l.id === activeLead.id)}>
-                  {l.service_label || 'Lead'} · {l.stage_name}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="min-h-0 flex-1">
-            <LeadPanel key={activeLead.id} lead={activeLead} onOpenClient={onNavigateToClient} />
-          </div>
-        </div>
-      )}
-      {conv && !activeLead && !leads.isLoading && (
-        <NoLeadPanel conv={conv} onCreated={() => qc.invalidateQueries({ queryKey: KEYS.leads })} />
-      )}
+      {/* Información operativa del cliente */}
+      {conv && <ClientOpsPanel key={conv.id} conv={conv} leads={convLeads} onNavigateToClient={onNavigateToClient} onOpenTramite={onOpenTramite} />}
     </div>
   );
 }

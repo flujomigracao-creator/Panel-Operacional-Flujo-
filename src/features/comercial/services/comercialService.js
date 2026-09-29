@@ -28,6 +28,15 @@ export const ETAPAS_COMERCIAL = [
   { statusId: 143, nombre: 'Descalificado / Perdido', position: 11000 },
 ];
 
+// Etapas del embudo Comercial tal como están en Kommo (crm_stages, que se sincroniza desde Kommo).
+// Misma forma que ETAPAS_COMERCIAL; si todavía no hay nada guardado se usa esa lista.
+export async function getEtapasComercial() {
+  const pipes = must(await supabase.from('crm_pipelines').select('id').eq('code', 'comercial').limit(1));
+  if (!pipes[0]) return ETAPAS_COMERCIAL;
+  const rows = must(await supabase.from('crm_stages').select('name, position, kommo_status_id').eq('pipeline_id', pipes[0].id).not('kommo_status_id', 'is', null).order('position'));
+  return rows.length ? rows.map((r) => ({ statusId: Number(r.kommo_status_id), nombre: r.name, position: r.position })) : ETAPAS_COMERCIAL;
+}
+
 export async function getComercialLeads() {
   return must(await supabase
     .from('comercial_leads')
