@@ -8,6 +8,10 @@
 //    `messages` y lo despierta con pg_net). No recibe datos: solo procesa la cola, así que no necesita sesión.
 //    Si el canal está activado pero todavía no conectado a la cuenta, lo conecta (connect → scope_id).
 // 3. POST { action: 'estado' } (usuario del panel) → si el canal está activo, conectado y cuántos mensajes hay en cola.
+// 4. POST { action: 'sincronizar_plantillas' } → manda a Meta las plantillas en borrador (whatsapp_plantillas), trae
+//    las de Meta y las copia a Kommo como plantillas de chat. También corre sola desde el flush, una vez por hora.
+//    Al mandar desde Kommo fuera de la ventana de 24 h, un texto que coincide con una plantilla aprobada sale como
+//    plantilla de Meta (Kommo no manda plantillas de Meta por un canal personalizado).
 //
 // Secretos: KOMMO_CHANNEL_SECRET (clave del canal), KOMMO_API_TOKEN (vincular el chat al contacto),
 // WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID. Dominio de Kommo: organization_settings.kommo_base_url o KOMMO_BASE_URL.
@@ -268,6 +272,14 @@ async function vaciarCola(admin: SupabaseClient) {
     }
   }
   await avisarFallidos(admin, porOrg, resumen);
+
+  for (const canal of canales || []) {
+    const ultima = canal.plantillas_sincronizadas_at ? new Date(canal.plantillas_sincronizadas_at).getTime() : 0;
+    if (Date.now() - ultima < MINUTOS_ENTRE_SINCRONIZACIONES * 60000) continue;
+    await sincronizarPlantillas(admin, canal.organization_id)
+      .then((r) => { if (r.errores.length) console.error('plantillas', r.errores.join(' | ')); })
+      .catch((e) => console.error('plantillas', (e as Error).message));
+  }
   return resumen;
 }
 
@@ -305,6 +317,179 @@ async function avisarFallidos(admin: SupabaseClient, porOrg: Map<string, string>
       await marcar(intentos >= 5 ? 'failed' : 'pending', { attempts: intentos, last_error: (e as Error).message.slice(0, 500) });
     }
   }
+}
+
+// ---------- Plantillas de WhatsApp (Meta) en Kommo ----------
+
+const MINUTOS_ENTRE_SINCRONIZACIONES = 60;
+const ESTADOS_VISIBLES = ['APPROVED', 'PENDING', 'IN_APPEAL'];
+
+async function graph(path: string, init: RequestInit = {}) {
+  const token = (Deno.env.get('WHATSAPP_TOKEN') || '').trim();
+  const res = await fetch(`${GRAPH}/${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(init.headers || {}) },
+    signal: AbortSignal.timeout(20000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error?.error_user_msg || data?.error?.message || `Meta ${res.status}`);
+  return data;
+}
+
+// Cuenta de WhatsApp Business del número (WHATSAPP_WABA_ID o se busca entre las cuentas visibles para el token,
+// igual que whatsapp-plantillas).
+let wabaCache: string | null = null;
+async function wabaId(): Promise<string> {
+  const fija = (Deno.env.get('WHATSAPP_WABA_ID') || '').trim();
+  if (fija) return fija;
+  if (wabaCache) return wabaCache;
+  const phoneId = (Deno.env.get('WHATSAPP_PHONE_NUMBER_ID') || '').trim();
+  const lista = async (p: string) => ((await graph(p).catch(() => ({})))?.data || []) as any[];
+  const candidatos = new Set<string>();
+  for (const w of await lista('me/assigned_whatsapp_business_accounts?fields=id')) candidatos.add(w.id);
+  const negocios = ['1823208699030623', '1618753399606023', ...(await lista('me/businesses?fields=id')).map((n) => n.id)];
+  for (const negocio of negocios) {
+    for (const tipo of ['owned_whatsapp_business_accounts', 'client_whatsapp_business_accounts']) {
+      for (const w of await lista(`${negocio}/${tipo}?fields=id`)) candidatos.add(w.id);
+    }
+  }
+  for (const id of candidatos) {
+    if ((await lista(`${id}/phone_numbers?fields=id`)).some((n) => n.id === phoneId)) { wabaCache = id; return id; }
+  }
+  throw new Error('No se encontró la cuenta de WhatsApp Business del número (configurá WHATSAPP_WABA_ID)');
+}
+
+// Contenido de la plantilla en Kommo: las variables de Meta ({{1}}…) pasan al dato de Kommo configurado en
+// `variables` o quedan como [1], [2]… para completarlas a mano antes de mandar.
+function contenidoKommo(p: any): string {
+  const cuerpo = String(p.cuerpo).replace(/\{\{\s*(\d+)\s*\}\}/g, (_: string, n: string) => p.variables?.[n] || `[${n}]`);
+  return [p.encabezado, cuerpo, p.pie].filter(Boolean).join('\n\n');
+}
+
+function botonesKommo(p: any) {
+  return (p.botones || []).map((b: any) => b.type === 'URL' ? { type: 'url', text: b.text, url: b.url } : { type: 'inline', text: b.text });
+}
+
+const nombreKommo = (p: any) => `WhatsApp · ${p.nombre}${p.estado === 'APPROVED' ? '' : ' (en aprobación)'}`;
+
+async function sincronizarPlantillas(admin: SupabaseClient, orgId: string) {
+  const r = { enviadas_a_meta: 0, de_meta: 0, creadas_en_kommo: 0, actualizadas_en_kommo: 0, quitadas_de_kommo: 0, errores: [] as string[] };
+  const waba = await wabaId();
+
+  // 1. Borradores → aprobación de Meta.
+  const { data: borradores } = await admin.from('whatsapp_plantillas').select('*').eq('organization_id', orgId).eq('estado', 'BORRADOR');
+  for (const b of borradores || []) {
+    const components: any[] = [];
+    if (b.encabezado) components.push({ type: 'HEADER', format: 'TEXT', text: b.encabezado });
+    components.push({ type: 'BODY', text: b.cuerpo, ...((b.ejemplos || []).length ? { example: { body_text: [b.ejemplos] } } : {}) });
+    if (b.pie) components.push({ type: 'FOOTER', text: b.pie });
+    if ((b.botones || []).length) {
+      components.push({ type: 'BUTTONS', buttons: b.botones.map((x: any) => x.type === 'URL' ? { type: 'URL', text: x.text, url: x.url } : { type: 'QUICK_REPLY', text: x.text }) });
+    }
+    try {
+      const res = await graph(`${waba}/message_templates`, { method: 'POST', body: JSON.stringify({ name: b.nombre, language: b.idioma, category: b.categoria || 'UTILITY', components }) });
+      await admin.from('whatsapp_plantillas').update({ estado: res.status || 'PENDING', error: null, meta_actualizado_at: new Date().toISOString() })
+        .eq('organization_id', orgId).eq('nombre', b.nombre).eq('idioma', b.idioma);
+      r.enviadas_a_meta++;
+    } catch (e) {
+      const msg = (e as Error).message;
+      r.errores.push(`${b.nombre}: ${msg}`);
+      await admin.from('whatsapp_plantillas').update({ error: msg.slice(0, 500) }).eq('organization_id', orgId).eq('nombre', b.nombre).eq('idioma', b.idioma);
+    }
+  }
+
+  // 2. Meta → copia local (no pisa variables ni el id de Kommo).
+  let pagina: string | null = `${waba}/message_templates?fields=name,language,status,category,components&limit=100`;
+  while (pagina) {
+    const res: any = await graph(pagina);
+    for (const t of res.data || []) {
+      const comp = (tipo: string) => (t.components || []).find((c: any) => c.type === tipo);
+      const header = comp('HEADER');
+      await admin.from('whatsapp_plantillas').upsert({
+        organization_id: orgId,
+        nombre: t.name,
+        idioma: t.language,
+        estado: t.status,
+        categoria: t.category,
+        encabezado: header?.format === 'TEXT' ? header.text : null,
+        cuerpo: comp('BODY')?.text || '',
+        pie: comp('FOOTER')?.text || null,
+        botones: (comp('BUTTONS')?.buttons || []).map((b: any) => ({ type: b.type, text: b.text, url: b.url })),
+        error: null,
+        meta_actualizado_at: new Date().toISOString(),
+      }, { onConflict: 'organization_id,nombre,idioma' });
+      r.de_meta++;
+    }
+    pagina = res.paging?.next ? res.paging.next.replace(`${GRAPH}/`, '') : null;
+  }
+
+  // 3. Copia local → plantillas de chat de Kommo.
+  const { data: plantillas } = await admin.from('whatsapp_plantillas').select('*').eq('organization_id', orgId);
+  for (const p of plantillas || []) {
+    const visible = ESTADOS_VISIBLES.includes(p.estado);
+    const clave = `${nombreKommo(p)}\n${contenidoKommo(p)}\n${JSON.stringify(p.botones || [])}`;
+    try {
+      if (!visible) {
+        if (p.kommo_template_id) {
+          await kommoApi(admin, orgId, 'DELETE', `/api/v4/chats/templates/${p.kommo_template_id}`).catch(() => null);
+          await admin.from('whatsapp_plantillas').update({ kommo_template_id: null, kommo_contenido: null }).eq('organization_id', orgId).eq('nombre', p.nombre).eq('idioma', p.idioma);
+          r.quitadas_de_kommo++;
+        }
+        continue;
+      }
+      if (p.kommo_template_id && p.kommo_contenido === clave) continue;
+      const datos: Record<string, unknown> = { name: nombreKommo(p), content: contenidoKommo(p), is_editable: true };
+      const botones = botonesKommo(p);
+      const guardar = async (conBotones: boolean) => {
+        const cuerpo = conBotones && botones.length ? { ...datos, buttons: botones } : datos;
+        return p.kommo_template_id
+          ? await kommoApi(admin, orgId, 'PATCH', `/api/v4/chats/templates/${p.kommo_template_id}`, cuerpo)
+          : await kommoApi(admin, orgId, 'POST', '/api/v4/chats/templates', [cuerpo]);
+      };
+      // Si Kommo no acepta los botones, la plantilla se crea igual sin ellos.
+      const res = await guardar(true).catch(async (e) => {
+        if (!botones.length) throw e;
+        console.error('plantilla con botones', p.nombre, (e as Error).message);
+        return await guardar(false);
+      });
+      const id = p.kommo_template_id || res?._embedded?.chats_templates?.[0]?.id || res?._embedded?.templates?.[0]?.id || res?.id;
+      if (!id) throw new Error(`Kommo no devolvió el id de la plantilla: ${JSON.stringify(res).slice(0, 200)}`);
+      await admin.from('whatsapp_plantillas').update({ kommo_template_id: id, kommo_contenido: clave }).eq('organization_id', orgId).eq('nombre', p.nombre).eq('idioma', p.idioma);
+      p.kommo_template_id ? r.actualizadas_en_kommo++ : r.creadas_en_kommo++;
+    } catch (e) {
+      r.errores.push(`${p.nombre} → Kommo: ${(e as Error).message}`);
+    }
+  }
+  await admin.from('channel_integrations').update({ plantillas_sincronizadas_at: new Date().toISOString() }).eq('organization_id', orgId);
+  return r;
+}
+
+// Texto sin formato para comparar: sin *negrita*/_cursiva_/~tachado~ y con los espacios normalizados.
+const normalizar = (t: string) => String(t || '').replace(/[*_~]/g, '').replace(/\s+/g, ' ').trim();
+const escaparRegex = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Si el texto es una plantilla aprobada con sus variables completadas, devuelve la plantilla y los valores en orden.
+function coincidencia(p: any, texto: string): string[] | null {
+  const cuerpo = normalizar(p.cuerpo);
+  const numeros = [...cuerpo.matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => Number(m[1]));
+  const patronCuerpo = cuerpo.split(/\{\{\s*\d+\s*\}\}/).map(escaparRegex).join('(.+?)');
+  const opcional = (t: string | null) => (t ? `(?:${escaparRegex(normalizar(t))}\\s*)?` : '');
+  const patron = new RegExp(`^${opcional(p.encabezado)}${patronCuerpo}${p.pie ? `(?:\\s*${escaparRegex(normalizar(p.pie))})?` : ''}$`, 's');
+  const m = normalizar(texto).match(patron);
+  if (!m) return null;
+  const valores: Record<number, string> = {};
+  numeros.forEach((n, i) => { valores[n] = m[i + 1].trim(); });
+  return Object.keys(valores).map(Number).sort((a, b) => a - b).map((n) => valores[n]);
+}
+
+// ¿El cliente escribió en las últimas 24 h? (fuera de esa ventana WhatsApp solo acepta plantillas aprobadas)
+async function dentroDeVentana(admin: SupabaseClient, orgId: string, conversationKey: string): Promise<boolean> {
+  const { data: convs } = await admin.from('conversations').select('id').eq('organization_id', orgId).eq('external_conversation_id', conversationKey);
+  const ids = (convs || []).map((c: any) => c.id);
+  if (!ids.length) return false;
+  const { data: ultimo } = await admin.from('messages').select('created_at').in('conversation_id', ids).eq('direction', 'inbound')
+    .order('created_at', { ascending: false }).limit(1).maybeSingle();
+  return !!ultimo && Date.now() - new Date(ultimo.created_at).getTime() < 24 * 3600 * 1000;
 }
 
 // ---------- Entrada: Kommo → WhatsApp ----------
@@ -388,6 +573,31 @@ async function procesarEntrante(admin: SupabaseClient, scopeId: string, body: an
   } else {
     if (!texto) return fallar('Mensaje vacío.');
     envio = { type: 'text', text: { body: texto } };
+    if (!(await dentroDeVentana(admin, orgId, conversationKey))) {
+      // Fuera de las 24 h: solo sale si es una plantilla aprobada (primero la que eligió el operador en Kommo).
+      const { data: plantillas } = await admin.from('whatsapp_plantillas').select('*').eq('organization_id', orgId).in('estado', ESTADOS_VISIBLES);
+      const elegida = (plantillas || []).find((p: any) => p.kommo_template_id && p.kommo_template_id === Number(contenido.template?.id));
+      if (elegida && elegida.estado !== 'APPROVED') return fallar(`La plantilla "${elegida.nombre}" todavía está en aprobación en Meta.`);
+      let usada: any = null;
+      let valores: string[] | null = null;
+      for (const p of [elegida, ...(plantillas || [])].filter((x: any) => x?.estado === 'APPROVED')) {
+        valores = coincidencia(p, texto);
+        if (valores) { usada = p; break; }
+      }
+      if (!usada) {
+        return fallar(elegida
+          ? `El texto no coincide con la plantilla "${elegida.nombre}" (¿quedó alguna variable [1] sin completar?).`
+          : 'Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp solo deja mandar una plantilla aprobada ("WhatsApp · …").');
+      }
+      envio = {
+        type: 'template',
+        template: {
+          name: usada.nombre,
+          language: { code: usada.idioma },
+          components: valores!.length ? [{ type: 'body', parameters: valores!.map((v) => ({ type: 'text', text: v })) }] : [],
+        },
+      };
+    }
   }
 
   const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
@@ -458,6 +668,15 @@ Deno.serve(async (req) => {
 
   if (body.action === 'flush') {
     return json({ ok: true, ...(await vaciarCola(admin)) });
+  }
+
+  if (body.action === 'sincronizar_plantillas') {
+    const { data: canales } = await admin.from('channel_integrations').select('organization_id').eq('kommo_canal_enabled', true);
+    const resultados: Record<string, unknown> = {};
+    for (const c of canales || []) {
+      resultados[c.organization_id] = await sincronizarPlantillas(admin, c.organization_id).catch((e) => ({ error: (e as Error).message }));
+    }
+    return json({ ok: true, resultados });
   }
 
   if (body.action === 'estado') {

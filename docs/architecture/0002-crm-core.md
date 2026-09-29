@@ -73,6 +73,12 @@ El número de WhatsApp es propio (Cloud API), así que Kommo no ve las conversac
 - **Rechazos de WhatsApp:** si Meta rechaza un mensaje después (ej. fuera de la ventana de 24 h, código 131047), el
   trigger `trg_kommo_canal_fallido` lo encola en `kommo_canal_estados` y `kommo-canal` lo marca como fallido en Kommo
   (`delivery_status = -1`), tanto los copiados desde WhatsApp como los escritos desde Kommo.
+- **Plantillas de WhatsApp:** Kommo no manda plantillas de Meta por un canal personalizado (las manda como texto).
+  `kommo-canal` copia a Kommo, como plantillas de chat "WhatsApp · <nombre>", las plantillas aprobadas y en revisión
+  de Meta (tabla `whatsapp_plantillas`, una vez por hora desde el flush o con `action: 'sincronizar_plantillas'`).
+  Fuera de la ventana de 24 h, un texto enviado desde Kommo que coincide con una plantilla aprobada sale como
+  plantilla de Meta con los valores de sus variables; si no coincide, se marca fallido en Kommo. Una fila con estado
+  `BORRADOR` en `whatsapp_plantillas` se manda a aprobación de Meta en la próxima sincronización.
 - **Sin eco:** el receptor de eventos de Kommo (n8n) también recibe los mensajes del canal; `registrar_mensagem_kommo`
   ignora el origen `amo.ext.36958507` porque esos mensajes ya están registrados.
 - **Activación:** nada se copia hasta `channel_integrations.kommo_canal_enabled = true` (solo el servidor). El primer
