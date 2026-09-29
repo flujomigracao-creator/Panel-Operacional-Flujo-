@@ -27,7 +27,10 @@ Meta Marketing API ──(n8n, diario)──► meta_ads_insights ┘  (gasto, c
 
 ## Carga de gasto (n8n → `meta_ads_insights`)
 
-Una fila por anuncio y día; upsert por `(organization_id, fecha, ad_id)`. Fuente sugerida:
+Flujo de n8n **"Meta Ads - Sincronizar Gasto"** (cada 6 horas): lista las cuentas publicitarias que ve el
+token (`me/adaccounts`), trae los insights de cada una con paginación y los manda a la RPC
+`meta_ads_guardar_insights(p_organization_id, p_filas)` (solo `service_role`). Una fila por anuncio y día;
+upsert por `(organization_id, fecha, ad_id)`. Consulta a Meta:
 
 ```
 GET /v23.0/act_<AD_ACCOUNT_ID>/insights
@@ -44,8 +47,9 @@ GET /v23.0/act_<AD_ACCOUNT_ID>/insights
 | `moneda` | `account_currency` |
 | `raw` | la fila completa |
 
-Traer siempre los últimos 7 días (Meta corrige datos de días recientes) y hacer upsert. Token: usuario del
-sistema del Business Manager con permiso `ads_read`, guardado como credencial de n8n (nunca en `VITE_*`).
+Se traen siempre los últimos 7 días (Meta corrige datos de días recientes). Token: usuario del sistema del
+Business Manager con `ads_read`, en la credencial de n8n **Meta Ads (lectura)** (Header Auth,
+`Authorization: Bearer …`); nunca en el repo ni en `VITE_*`.
 
 ## Lectura
 
