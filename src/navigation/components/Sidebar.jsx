@@ -49,7 +49,7 @@ const SECTIONS = [
     ],
   },
   {
-    items: [{ view: 'comercial', label: 'Nora', icon: Bot, views: ['comercial', 'lab'] }],
+    items: [{ view: 'nora', label: 'Nora', icon: Bot, views: ['nora', 'comercial', 'lab'] }],
   },
   {
     items: [

@@ -14,6 +14,7 @@ import {
 import { ArrowRightCircle, UserX, Bot, BotOff, ExternalLink, GraduationCap, MessageSquare, Phone, RefreshCw, User, X } from 'lucide-react';
 import NoraAprendizajes, { APRENDIZAJES_KEY } from './NoraAprendizajes';
 import NoraEntrenador from './NoraEntrenador';
+import NoraFuentesLead from '@features/nora/components/NoraFuentesLead';
 import { getAprendizajesNora, getEtapasComercial } from '../services/comercialService';
 import { syncKommoPipelines } from '@features/crm/services/crmService';
 import { getComercialLeads, getConversacionLead, getMotivoPausa, moverEtapaLead, enviarAOperacional, setAtendentePausado, ETAPA_PERDIDO, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, ETAPA_SUPERVISOR, ETAPA_PRUEBAS, CONVERSACION_LIMIT } from '../services/comercialService';
@@ -394,6 +395,7 @@ function LeadDrawer({ lead, onClose }) {
           </div>
         )}
 
+        <NoraFuentesLead kommoLeadId={lead.kommo_lead_id} />
         <div className="flex items-center gap-2 px-4 pt-3 text-sm font-semibold text-chrome-text-active">
           <MessageSquare size={15} /> Conversación
           {mensajes && <span className="text-xs font-normal text-chrome-text-muted">{mensajes.length}</span>}

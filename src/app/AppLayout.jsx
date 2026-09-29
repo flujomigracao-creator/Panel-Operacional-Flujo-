@@ -22,7 +22,7 @@ import HomeView from '@features/crm/components/HomeView';
 // Vistas que todavía leen el esquema anterior (clientes, entradas, perfiles…).
 // Se reactivan una por una a medida que se migran al modelo de FLUJO
 // (clients, client_services, documents, messages, tasks).
-export const MIGRATED_VIEWS = new Set(['home', 'lab', 'today', 'clients', 'client', 'finance', 'comercial', 'leads', 'chats', 'tramites', 'documentos', 'configuracion', 'equipo', 'tramite']);
+export const MIGRATED_VIEWS = new Set(['home', 'lab', 'today', 'clients', 'client', 'finance', 'comercial', 'leads', 'chats', 'tramites', 'documentos', 'configuracion', 'equipo', 'tramite', 'nora']);
 
 // Navigation
 import Sidebar from '../navigation/components/Sidebar';
@@ -58,7 +58,7 @@ const TramiteView = lazy(() => import('@features/crm/components/TramiteView'));
 const DocumentosView = lazy(() => import('@features/crm/components/DocumentosView'));
 const ConfigView = lazy(() => import('@features/crm/components/ConfigView'));
 const TeamView = lazy(() => import('@features/crm/components/TeamView'));
-const ComercialView = lazy(() => import('@features/comercial/components/ComercialView'));
+const NoraShell = lazy(() => import('@features/nora/components/NoraShell'));
 const NewClientWizard = lazy(() => import('../components/newClientWizard/NewClientWizard'));
 const TeamChat = lazy(() => import('../components/TeamChat'));
 const TeamManagement = lazy(() => import('../components/TeamManagement'));
@@ -83,6 +83,9 @@ export default function AppLayout() {
     comercialLeadId,
     chatClientId,
     tramiteId,
+    noraSection,
+    noraQuery,
+    navigateToNora,
     navigateToTramite,
     navigateToChats,
     navigateToClient,
@@ -111,8 +114,15 @@ export default function AppLayout() {
     if (view === 'clients') navigateToClientsList();
     else if (view === 'chats') navigateToChats();
     else if (view === 'comercial') navigateToComercial();
+    else if (view === 'nora') navigateToNora();
     else navigateTo(view);
-  }, [navigateTo, navigateToClientsList, navigateToChats, navigateToComercial]);
+  }, [navigateTo, navigateToClientsList, navigateToChats, navigateToComercial, navigateToNora]);
+
+  // Centro de Nora: "Conversaciones" es el tablero comercial de siempre (#comercial); el resto, #nora/<sección>.
+  const onNoraSection = useCallback((section, query) => {
+    if (section === 'conversaciones') navigateToComercial();
+    else navigateToNora(section, query);
+  }, [navigateToComercial, navigateToNora]);
 
   // Abre el chat de un lead o de un contacto. Sin contacto todavía, se busca por el contacto de Kommo (k<id>).
   const openChat = useCallback((target) => {
@@ -245,7 +255,17 @@ export default function AppLayout() {
               {currentView === 'documentos' && <DocumentosView onNavigateToClient={navigateToClientTracked} />}
               {currentView === 'configuracion' && <ConfigView />}
               {currentView === 'equipo' && <TeamView />}
-              {currentView === 'comercial' && isReady('comercial') && <ComercialView leadAbiertoKommoId={comercialLeadId} onAbrirLead={navigateToComercial} />}
+              {(currentView === 'nora' || currentView === 'comercial') && (
+                <NoraShell
+                  section={currentView === 'comercial' ? 'conversaciones' : noraSection}
+                  query={noraQuery}
+                  onSection={onNoraSection}
+                  comercialLeadId={comercialLeadId}
+                  onAbrirLead={navigateToComercial}
+                  onNavigate={navigate}
+                  onNavigateToClient={navigateToClientTracked}
+                />
+              )}
               {currentView === 'team-chat' && isReady('team-chat') && <TeamChat isFullView={true} />}
               {currentView === 'team-management' && isReady('team-management') && <TeamManagement userProfile={userProfile} />}
               {currentView === 'settings' && isReady('settings') && <SettingsView userProfile={userProfile} />}

@@ -16,6 +16,14 @@ const SIMPLE_VIEWS = {
 };
 const HASH_OF_VIEW = Object.fromEntries(Object.entries(SIMPLE_VIEWS).map(([h, v]) => [v, h]));
 
+const parseNora = (hash) => {
+    const m = String(hash || '').match(/^#nora(?:\/([\w-]+))?(?:\/(.+))?$/);
+    if (!m) return { section: 'inicio', query: '' };
+    let query = '';
+    try { query = m[2] ? decodeURIComponent(m[2]) : ''; } catch { query = m[2] || ''; }
+    return { section: m[1] || 'inicio', query };
+};
+
 export const useNavigation = (isReady = true) => {
     const [currentView, setCurrentView] = useState(() => {
         const hash = window.location.hash;
@@ -26,6 +34,7 @@ export const useNavigation = (isReady = true) => {
         if (hash === '#finanzas') return 'finance';
         if (hash === '#clients') return 'clients';
         if (hash.startsWith('#comercial')) return 'comercial';
+        if (hash === '#nora' || hash.startsWith('#nora/')) return 'nora';
         if (hash === '#dashboard') return 'dashboard';
         if (hash === '#leads') return 'leads';
         if (hash.startsWith('#chats')) return 'chats';
@@ -45,6 +54,10 @@ export const useNavigation = (isReady = true) => {
         const m = window.location.hash.match(/^#comercial\/(\d+)/);
         return m ? Number(m[1]) : null;
     });
+
+    // Centro de Nora: sección (#nora/<sección>) y búsqueda (#nora/buscar/<texto>).
+    const [noraSection, setNoraSection] = useState(() => parseNora(window.location.hash).section);
+    const [noraQuery, setNoraQuery] = useState(() => parseNora(window.location.hash).query);
 
     // Conversación abierta al llegar a Chats (client id), p. ej. desde el panel de un lead: #chats/<clientId>.
     const [chatClientId, setChatClientId] = useState(() => {
@@ -92,6 +105,10 @@ export const useNavigation = (isReady = true) => {
             window.location.hash = 'clients';
         } else if (currentView === 'comercial') {
             window.location.hash = comercialLeadId ? `comercial/${comercialLeadId}` : 'comercial';
+        } else if (currentView === 'nora') {
+            window.location.hash = noraSection === 'buscar' && noraQuery
+                ? `nora/buscar/${encodeURIComponent(noraQuery)}`
+                : noraSection && noraSection !== 'inicio' ? `nora/${noraSection}` : 'nora';
         } else if (currentView === 'dashboard') {
             window.location.hash = 'dashboard';
         } else if (currentView === 'leads') {
@@ -111,7 +128,7 @@ export const useNavigation = (isReady = true) => {
         } else {
             window.location.hash = 'inicio';
         }
-    }, [currentView, selectedClientId, comercialLeadId, chatClientId, tramiteId, isReady]);
+    }, [currentView, selectedClientId, comercialLeadId, chatClientId, tramiteId, noraSection, noraQuery, isReady]);
 
     // Listen to browser Back/Forward buttons and manual hash changes
     useEffect(() => {
@@ -141,6 +158,12 @@ export const useNavigation = (isReady = true) => {
                 const m = hash.match(/^#comercial\/(\d+)/);
                 setCurrentView('comercial');
                 setComercialLeadId(m ? Number(m[1]) : null);
+                setSelectedClientId(null);
+            } else if (hash === '#nora' || hash.startsWith('#nora/')) {
+                const n = parseNora(hash);
+                setCurrentView('nora');
+                setNoraSection(n.section);
+                setNoraQuery(n.query);
                 setSelectedClientId(null);
             } else if (hash === '#dashboard') {
                 setCurrentView('dashboard');
@@ -226,6 +249,14 @@ export const useNavigation = (isReady = true) => {
         setCurrentView('comercial');
     }, []);
 
+    // Sección del centro de Nora (inicio, respuestas, reglas…); 'buscar' lleva el texto buscado.
+    const navigateToNora = useCallback((section = 'inicio', query = '') => {
+        setSelectedClientId(null);
+        setNoraSection(section || 'inicio');
+        setNoraQuery(section === 'buscar' ? query : '');
+        setCurrentView('nora');
+    }, []);
+
     const navigateToLeads = useCallback(() => {
         setSelectedClientId(null);
         setCurrentView('leads');
@@ -270,6 +301,9 @@ export const useNavigation = (isReady = true) => {
         comercialLeadId,
         chatClientId,
         tramiteId,
+        noraSection,
+        noraQuery,
+        navigateToNora,
         navigateToTramite,
         navigateToLeads,
         navigateToChats,
