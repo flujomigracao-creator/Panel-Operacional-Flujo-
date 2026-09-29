@@ -323,6 +323,7 @@ async function avisarFallidos(admin: SupabaseClient, porOrg: Map<string, string>
 
 const MINUTOS_ENTRE_SINCRONIZACIONES = 60;
 const ESTADOS_VISIBLES = ['APPROVED', 'PENDING', 'IN_APPEAL'];
+const PLANTILLAS_DE_PRUEBA = ['hello_world']; // la de ejemplo que trae Meta: no se copia a Kommo
 
 async function graph(path: string, init: RequestInit = {}) {
   const token = (Deno.env.get('WHATSAPP_TOKEN') || '').trim();
@@ -370,7 +371,9 @@ function botonesKommo(p: any) {
   return (p.botones || []).map((b: any) => b.type === 'URL' ? { type: 'url', text: b.text, url: b.url } : { type: 'inline', text: b.text });
 }
 
-const nombreKommo = (p: any) => `WhatsApp · ${p.nombre}${p.estado === 'APPROVED' ? '' : ' (en aprobación)'}`;
+const IDIOMAS: Record<string, string> = { es: 'ES', pt_BR: 'PT', en_US: 'EN' };
+const nombreKommo = (p: any) =>
+  `WhatsApp · ${p.nombre} (${IDIOMAS[p.idioma] || p.idioma})${p.estado === 'APPROVED' ? '' : ' · en aprobación'}`;
 
 async function sincronizarPlantillas(admin: SupabaseClient, orgId: string) {
   const r = { enviadas_a_meta: 0, de_meta: 0, creadas_en_kommo: 0, actualizadas_en_kommo: 0, quitadas_de_kommo: 0, errores: [] as string[] };
@@ -426,7 +429,7 @@ async function sincronizarPlantillas(admin: SupabaseClient, orgId: string) {
   // 3. Copia local → plantillas de chat de Kommo.
   const { data: plantillas } = await admin.from('whatsapp_plantillas').select('*').eq('organization_id', orgId);
   for (const p of plantillas || []) {
-    const visible = ESTADOS_VISIBLES.includes(p.estado);
+    const visible = ESTADOS_VISIBLES.includes(p.estado) && !PLANTILLAS_DE_PRUEBA.includes(p.nombre);
     const clave = `${nombreKommo(p)}\n${contenidoKommo(p)}\n${JSON.stringify(p.botones || [])}`;
     try {
       if (!visible) {
@@ -452,7 +455,7 @@ async function sincronizarPlantillas(admin: SupabaseClient, orgId: string) {
         console.error('plantilla con botones', p.nombre, (e as Error).message);
         return await guardar(false);
       });
-      const id = p.kommo_template_id || res?._embedded?.chats_templates?.[0]?.id || res?._embedded?.templates?.[0]?.id || res?.id;
+      const id = p.kommo_template_id || res?._embedded?.chat_templates?.[0]?.id || res?._embedded?.templates?.[0]?.id || res?.id;
       if (!id) throw new Error(`Kommo no devolvió el id de la plantilla: ${JSON.stringify(res).slice(0, 200)}`);
       await admin.from('whatsapp_plantillas').update({ kommo_template_id: id, kommo_contenido: clave }).eq('organization_id', orgId).eq('nombre', p.nombre).eq('idioma', p.idioma);
       p.kommo_template_id ? r.actualizadas_en_kommo++ : r.creadas_en_kommo++;
