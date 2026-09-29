@@ -155,8 +155,8 @@
   --color-info-bg:        rgba(29, 78, 216, 0.07);
   --color-info-border:    rgba(29, 78, 216, 0.2);
 
-  --surface-canvas:   #f6f7f9;
-  --surface-base:     #f8f9fb;
+  --surface-canvas:   #f3f4f6;
+  --surface-base:     #f5f6f8;
   --surface-raised:   #ffffff;
   --surface-elevated: #f1f3f6;
   --surface-overlay:  rgba(15, 23, 42, 0.4);
@@ -181,8 +181,8 @@
   --chrome-accent:      var(--brand-primary);
 
   --shadow-sm:    0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-md:    0 2px 8px rgba(15, 23, 42, 0.06);
-  --shadow-lg:    0 8px 24px rgba(15, 23, 42, 0.08);
+  --shadow-md:    0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-lg:    0 4px 12px rgba(15, 23, 42, 0.08);
 }
 
 /* Badges */

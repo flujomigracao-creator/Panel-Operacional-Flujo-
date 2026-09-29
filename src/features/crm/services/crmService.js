@@ -261,11 +261,12 @@ export async function getOpenTasks({ clientId } = {}) {
   return must(await q);
 }
 
-export async function createTask({ clientId, conversationId, title, dueAt }) {
+export async function createTask({ clientId, clientServiceId, conversationId, title, dueAt }) {
   const organization_id = await getMyOrganizationId();
   must(await supabase.from('tasks').insert({
     organization_id,
     client_id: clientId || null,
+    client_service_id: clientServiceId || null,
     conversation_id: conversationId || null,
     kind: 'manual',
     title: title.trim(),
@@ -364,4 +365,27 @@ export async function getChecklist({ clientId, clientServiceIds } = {}) {
   if (clientId) q = q.eq('client_id', clientId);
   if (clientServiceIds) q = q.in('client_service_id', clientServiceIds);
   return must(await q.limit(PAGE_SIZE));
+}
+
+// ── Un trámite completo (detalle de trámite) ──────────────────────────────────────
+export async function getTramite(id) {
+  const t = must(await supabase
+    .from('client_services')
+    .select('id, client_id, service_id, stage_id, status, price, currency, assigned_to, started_at, completed_at, notes, kommo_lead_id, drive_folder_link, created_at, updated_at, services(name), service_stages(name), clients(id, full_name, phone, nationality, country, email)')
+    .eq('id', id)
+    .maybeSingle());
+  if (!t) return null;
+  const [stages, checklist, events, tasks, payments, documents] = await Promise.all([
+    supabase.from('service_stages').select('id, name, position').eq('service_id', t.service_id).order('position').then(must),
+    getChecklist({ clientServiceIds: [id] }),
+    supabase.from('client_service_events').select('id, event_type, from_stage_id, to_stage_id, metadata, created_by, created_at').eq('client_service_id', id).order('created_at', { ascending: false }).limit(50).then(must),
+    supabase.from('tasks').select('id, title, kind, priority, status, due_at, created_at').eq('client_service_id', id).in('status', ['open', 'in_progress']).order('due_at', { ascending: true, nullsFirst: false }).then(must),
+    supabase.from('payments').select('id, amount, currency, status, due_date, paid_at').eq('client_service_id', id).order('created_at').then(must),
+    supabase.from('documents').select('id, status, file_name, created_at, document_types(name)').eq('client_service_id', id).order('created_at', { ascending: false }).then(must),
+  ]);
+  return { ...t, stages, checklist, events, tasks, payments, documents };
+}
+
+export async function updateTramite(id, patch) {
+  must(await supabase.from('client_services').update(patch).eq('id', id));
 }

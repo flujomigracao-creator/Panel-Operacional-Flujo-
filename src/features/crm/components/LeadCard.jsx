@@ -142,30 +142,30 @@ export default function LeadCard({ lead, onClose, onOpenClient }) {
     <div className="fixed inset-0 z-[250] flex bg-bg-base">
       {/* Columna izquierda: datos del lead */}
       <aside className="flex w-[380px] shrink-0 flex-col border-r border-border bg-bg-surface">
-        <div className="bg-[#1b2a47] px-5 pb-4 pt-3 text-white">
-          <div className="flex items-center gap-2 text-xs text-white/60">
-            <button onClick={onClose} className="-ml-1 rounded p-1 hover:bg-white/10 hover:text-white" aria-label="Volver"><ArrowLeft size={16} /></button>
+        <div className="border-b border-border px-5 pb-4 pt-3">
+          <div className="flex items-center gap-2 text-xs text-text-muted">
+            <button onClick={onClose} className="-ml-1 rounded p-1 hover:bg-bg-elevated hover:text-text-primary" aria-label="Volver"><ArrowLeft size={16} /></button>
             <span>{pipeline?.name || 'Lead'}{lead.external_id ? ` · #${lead.external_id}` : ''}</span>
-            {kommoLink && <a href={kommoLink} target="_blank" rel="noreferrer" className="ml-auto rounded p-1 hover:bg-white/10 hover:text-white" title="Ver en Kommo"><ExternalLink size={14} /></a>}
+            {kommoLink && <a href={kommoLink} target="_blank" rel="noreferrer" className="ml-auto rounded p-1 hover:bg-bg-elevated hover:text-text-primary" title="Ver en Kommo"><ExternalLink size={14} /></a>}
           </div>
-          <h2 className="mt-2 truncate text-lg font-semibold">{lead.name || 'Sin nombre'}</h2>
+          <h2 className="mt-2 truncate text-lg font-semibold text-text-primary">{lead.name || 'Sin nombre'}</h2>
 
           <div className="mt-2 flex flex-wrap items-center gap-1">
             {myTags.map((t) => (
-              <span key={t.id} className="inline-flex items-center gap-0.5 rounded bg-white/15 px-1.5 py-0.5 text-[11px]">
+              <span key={t.id} className="inline-flex items-center gap-0.5 rounded bg-bg-elevated px-1.5 py-0.5 text-[11px] text-text-secondary">
                 #{t.name}
-                <button aria-label={`Quitar ${t.name}`} className="text-white/60 hover:text-white" onClick={() => run(() => removeTagFromLead(lead.id, t.id))}><X size={10} /></button>
+                <button aria-label={`Quitar ${t.name}`} className="text-text-muted hover:text-text-primary" onClick={() => run(() => removeTagFromLead(lead.id, t.id))}><X size={10} /></button>
               </span>
             ))}
             {newTag === null ? (
-              <select className="h-5 rounded bg-transparent text-[11px] text-white/70 outline-none [&>option]:text-black" value=""
+              <select className="h-5 rounded bg-transparent text-[11px] text-brand-primary outline-none" value=""
                 onChange={(e) => (e.target.value === '__new' ? setNewTag('') : e.target.value && run(() => addTagToLeads([lead.id], e.target.value)))}>
                 <option value="">+ etiqueta</option>
                 {otherTags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 <option value="__new">Nueva…</option>
               </select>
             ) : (
-              <input autoFocus className="h-5 w-24 rounded bg-white/15 px-1.5 text-[11px] text-white outline-none placeholder:text-white/50" placeholder="Nombre y Enter"
+              <input autoFocus className="h-5 w-24 rounded bg-bg-elevated px-1.5 text-[11px] text-text-primary outline-none placeholder:text-text-muted" placeholder="Nombre y Enter"
                 value={newTag} onChange={(e) => setNewTag(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addNewTag(); if (e.key === 'Escape') setNewTag(null); }} onBlur={addNewTag} />
             )}
           </div>
@@ -175,16 +175,16 @@ export default function LeadCard({ lead, onClose, onOpenClient }) {
             {openStages.map((s, i) => (
               <button key={s.id} title={s.name} onClick={() => move(lead, s.id)} disabled={busy}
                 className="h-1.5 flex-1 rounded-sm transition-opacity hover:opacity-80"
-                style={{ background: currentIdx >= 0 && i <= currentIdx ? color : 'rgba(255,255,255,0.18)' }} />
+                style={{ background: currentIdx >= 0 && i <= currentIdx ? color : 'var(--color-bg-elevated)' }} />
             ))}
           </div>
-          <select className="mt-2 -ml-1 max-w-full rounded bg-transparent px-1 py-0.5 text-[13px] font-medium text-white outline-none hover:bg-white/10 [&>option]:text-black"
+          <select className="mt-2 -ml-1 max-w-full rounded bg-transparent px-1 py-0.5 text-[13px] font-medium text-text-primary outline-none hover:bg-bg-elevated"
             value={lead.stage_id || ''} onChange={(e) => move(lead, e.target.value)} disabled={busy} aria-label="Etapa">
             {!lead.stage_id && <option value="">{lead.stage_name || 'Sin etapa'}</option>}
             {pipelineStages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           {unsyncedMove && (
-            <p className="mt-1 text-[11px] text-[#fcd34d]">
+            <p className="mt-1 text-[11px] text-warning">
               Cambio {SYNC_LABEL[unsyncedMove.sync_status]} · <button className="underline" onClick={() => retry([unsyncedMove.id])}>reintentar</button>
             </p>
           )}

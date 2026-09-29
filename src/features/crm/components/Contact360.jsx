@@ -51,7 +51,7 @@ function Box({ title, count, action, children }) {
   );
 }
 
-function Checklist({ items }) {
+export function Checklist({ items }) {
   if (!items.length) return <p className="px-4 py-3 text-xs text-text-muted">Este servicio todavía no tiene checklist configurado.</p>;
   const groups = [['foto', 'Documentos'], ['dado', 'Datos']];
   return (
@@ -86,7 +86,7 @@ function Checklist({ items }) {
   );
 }
 
-function TramiteCard({ t, items, payments, onAskMissing, onStage, busy }) {
+function TramiteCard({ t, items, payments, onAskMissing, onStage, onOpen, busy }) {
   const [label, cls] = TRAMITE_STATUS[t.status] || [t.status, 'bg-bg-elevated text-text-muted'];
   const stages = t.stages || [];
   const idx = stages.findIndex((s) => s.id === t.stage_id);
@@ -100,7 +100,7 @@ function TramiteCard({ t, items, payments, onAskMissing, onStage, busy }) {
   return (
     <section className="rounded-lg border border-border bg-bg-surface">
       <header className="flex flex-wrap items-center gap-2 px-4 pt-3">
-        <h3 className="text-sm font-semibold text-text-primary">{t.servicio || 'Trámite'}</h3>
+        <button className="text-sm font-semibold text-text-primary hover:text-brand-primary hover:underline" onClick={() => onOpen?.(t.id)}>{t.servicio || 'Trámite'}</button>
         <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${cls}`}>{label}</span>
         {!t.esTitular && <span className="text-[11px] text-text-muted">· {t.rol || 'participante'} de {t.titular?.full_name}</span>}
         <span className="ml-auto text-xs text-text-muted">
@@ -146,7 +146,7 @@ function TramiteCard({ t, items, payments, onAskMissing, onStage, busy }) {
 // Ficha 360° del contacto: todo lo de la persona en una pantalla (leads, trámites con su checklist,
 // documentos y en qué trámite se usan, pagos, tareas y actividad). La vista detallada anterior sigue
 // disponible para editar campos, subir y revisar documentos.
-export default function Contact360({ clientId, onBack, onOpenChat, onDetailed }) {
+export default function Contact360({ clientId, onBack, onOpenChat, onDetailed, onOpenTramite }) {
   const qc = useQueryClient();
   const { leads, teamById } = useCrmData();
   const [busy, setBusy] = useState(false);
@@ -253,10 +253,10 @@ export default function Contact360({ clientId, onBack, onOpenChat, onDetailed })
     <div className="flex h-full min-h-0 flex-1">
       {/* Columna izquierda: la persona */}
       <aside className="flex w-[300px] shrink-0 flex-col border-r border-border bg-bg-surface">
-        <div className="bg-[#1b2a47] px-5 pb-5 pt-3 text-white">
-          <button onClick={onBack} className="-ml-1 rounded p-1 text-white/60 hover:bg-white/10 hover:text-white" aria-label="Volver"><ArrowLeft size={16} /></button>
-          <h1 className="mt-2 text-lg font-semibold leading-tight">{client.full_name && client.full_name !== client.phone ? client.full_name : 'Sin nombre'}</h1>
-          <span className="mt-2 inline-block rounded bg-white/15 px-1.5 py-0.5 text-[11px]">{status.label}</span>
+        <div className="border-b border-border px-5 pb-4 pt-3">
+          <button onClick={onBack} className="-ml-1 rounded p-1 text-text-muted hover:bg-bg-elevated hover:text-text-primary" aria-label="Volver"><ArrowLeft size={16} /></button>
+          <h1 className="mt-2 text-lg font-semibold leading-tight text-text-primary">{client.full_name && client.full_name !== client.phone ? client.full_name : 'Sin nombre'}</h1>
+          <span className="mt-2 inline-block rounded bg-bg-elevated px-1.5 py-0.5 text-[11px] text-text-secondary">{status.label}</span>
         </div>
         <div className="flex flex-col gap-2.5 px-5 py-4 text-[13px] text-text-secondary">
           {country && <p className="flex items-center gap-2"><span className="w-4 text-center">{flag(country) || '🌎'}</span>{country}</p>}
@@ -299,10 +299,10 @@ export default function Contact360({ clientId, onBack, onOpenChat, onDetailed })
           <div className="flex flex-col gap-3">
             <h2 className="text-[13px] font-semibold uppercase tracking-wide text-text-muted">Trámites</h2>
             {activeTramites.map((t) => (
-              <TramiteCard key={t.id} t={t} items={itemsBy[t.id] || []} payments={payments.filter((p) => p.client_service_id === t.id)} onAskMissing={onAskMissing} onStage={onStage} busy={busy} />
+              <TramiteCard key={t.id} t={t} items={itemsBy[t.id] || []} payments={payments.filter((p) => p.client_service_id === t.id)} onAskMissing={onAskMissing} onStage={onStage} onOpen={onOpenTramite} busy={busy} />
             ))}
             {otherTramites.map((t) => (
-              <TramiteCard key={t.id} t={t} items={itemsBy[t.id] || []} payments={payments.filter((p) => p.client_service_id === t.id)} onAskMissing={onAskMissing} onStage={onStage} busy={busy} />
+              <TramiteCard key={t.id} t={t} items={itemsBy[t.id] || []} payments={payments.filter((p) => p.client_service_id === t.id)} onAskMissing={onAskMissing} onStage={onStage} onOpen={onOpenTramite} busy={busy} />
             ))}
             {tramites.length === 0 && <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">Este contacto todavía no tiene trámites. Se crean cuando un lead pasa a Operacional (o desde la vista detallada).</p>}
           </div>

@@ -19,7 +19,7 @@ function Card({ lead, tagNames, dragging = false, selected = false, onOpen }) {
       {...listeners}
       {...attributes}
       onClick={() => onOpen?.(lead)}
-      className={`cursor-grab select-none rounded-md bg-bg-surface px-3 py-2.5 text-[13px] shadow-[0_1px_2px_rgba(15,23,42,0.08)] ring-1 transition active:cursor-grabbing ${selected ? 'ring-brand-primary' : 'ring-transparent hover:ring-border-hover'} ${isDragging ? 'opacity-30' : ''} ${dragging ? 'rotate-1 shadow-lg' : ''}`}
+      className={`cursor-grab select-none rounded-md border bg-bg-surface px-3 py-2.5 text-[13px] transition-colors active:cursor-grabbing ${selected ? 'border-brand-primary' : 'border-border hover:border-border-hover'} ${isDragging ? 'opacity-30' : ''} ${dragging ? 'shadow-md' : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
         <span className="truncate font-medium text-text-primary">{lead.name || 'Sin nombre'}</span>
@@ -32,7 +32,7 @@ function Card({ lead, tagNames, dragging = false, selected = false, onOpen }) {
           {lead.needs_reply && <span title="Mensaje sin responder" className="h-2 w-2 rounded-full bg-success" />}
         </span>
       </div>
-      {tagNames.length > 0 && <p className="mt-1 truncate text-[11px] text-brand-primary">{tagNames.map((t) => `#${t}`).join('  ')}</p>}
+      {tagNames.length > 0 && <p className="mt-1 truncate text-[11px] text-text-muted">{tagNames.map((t) => `#${t}`).join('  ')}</p>}
     </div>
   );
 }
@@ -68,7 +68,7 @@ function QuickAdd({ stage }) {
   const input = 'w-full rounded border border-border bg-bg-surface px-2 py-1 text-[13px] text-text-primary outline-none focus:border-brand-primary';
   const key = (e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setOpen(false); };
   return (
-    <div className="flex flex-col gap-1.5 rounded-md bg-bg-surface p-2 shadow-[0_1px_2px_rgba(15,23,42,0.08)]">
+    <div className="flex flex-col gap-1.5 rounded-md border border-border bg-bg-surface p-2">
       <input autoFocus className={input} placeholder="Nombre" value={f.name} onChange={(e) => setF((s) => ({ ...s, name: e.target.value }))} onKeyDown={key} />
       <input className={input} placeholder="Teléfono" value={f.phone} onChange={(e) => setF((s) => ({ ...s, phone: e.target.value }))} onKeyDown={key} />
       <input className={input} type="number" placeholder="Valor (R$)" value={f.value} onChange={(e) => setF((s) => ({ ...s, value: e.target.value }))} onKeyDown={key} />

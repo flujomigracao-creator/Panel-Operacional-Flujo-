@@ -27,10 +27,6 @@
 [data-theme="light"] .text-yellow-200 { color: oklch(47.6% 0.114 61.907); }
 [data-theme="light"] .text-yellow-300 { color: oklch(55.4% 0.135 66.442); }
 [data-theme="light"] .text-yellow-400 { color: oklch(68.1% 0.162 75.834); }
-[data-theme="light"] .text-violet-100 { color: oklch(43.2% 0.232 292.759); }
-[data-theme="light"] .text-violet-200 { color: oklch(43.2% 0.232 292.759); }
-[data-theme="light"] .text-violet-300 { color: oklch(49.1% 0.27 292.581); }
-[data-theme="light"] .text-violet-400 { color: oklch(54.1% 0.281 293.009); }
 [data-theme="light"] .text-blue-100 { color: oklch(42.4% 0.199 265.638); }
 [data-theme="light"] .text-blue-200 { color: oklch(42.4% 0.199 265.638); }
 [data-theme="light"] .text-blue-300 { color: oklch(48.8% 0.243 264.376); }
@@ -43,10 +39,6 @@
 [data-theme="light"] .text-rose-200 { color: oklch(45.5% 0.188 13.697); }
 [data-theme="light"] .text-rose-300 { color: oklch(51.4% 0.222 16.935); }
 [data-theme="light"] .text-rose-400 { color: oklch(58.6% 0.253 17.585); }
-[data-theme="light"] .text-purple-100 { color: oklch(43.8% 0.218 303.724); }
-[data-theme="light"] .text-purple-200 { color: oklch(43.8% 0.218 303.724); }
-[data-theme="light"] .text-purple-300 { color: oklch(49.6% 0.265 301.924); }
-[data-theme="light"] .text-purple-400 { color: oklch(55.8% 0.288 302.321); }
 [data-theme="light"] .text-cyan-100 { color: oklch(45% 0.085 224.283); }
 [data-theme="light"] .text-cyan-200 { color: oklch(45% 0.085 224.283); }
 [data-theme="light"] .text-cyan-300 { color: oklch(52% 0.105 223.128); }
@@ -59,3 +51,8 @@
 [data-theme="light"] .text-indigo-200 { color: oklch(39.8% 0.195 277.366); }
 [data-theme="light"] .text-indigo-300 { color: oklch(45.7% 0.24 277.023); }
 [data-theme="light"] .text-indigo-400 { color: oklch(51.1% 0.262 276.966); }
+
+/* Regla de la interfaz: nada de morado. Lo que en las vistas antiguas era violeta/púrpura pasa al azul. */
+[data-theme="light"] [class*="text-violet-"], [data-theme="light"] [class*="text-purple-"] { color: #1e3a8a; }
+[data-theme="light"] [class*="bg-violet-"], [data-theme="light"] [class*="bg-purple-"] { background-color: rgba(30, 58, 138, 0.08); }
+[data-theme="light"] [class*="border-violet-"], [data-theme="light"] [class*="border-purple-"] { border-color: rgba(30, 58, 138, 0.2); }
