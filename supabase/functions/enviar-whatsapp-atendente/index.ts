@@ -210,8 +210,10 @@ Deno.serve(async (req) => {
     }
     // Plantilla de Kommo por id (ej. 2644 "Datos Iniciales del Cliente"), tal como la escribió el dueño.
     if (body.plantilla_kommo_id) {
-      const { data: pk } = await admin.from('kommo_plantillas').select('contenido').eq('id', Number(body.plantilla_kommo_id)).maybeSingle();
-      const texto = pk?.contenido ? completarPlantilla(pk.contenido, '', null) : '';
+      // contenido_local(_pt): texto que el dueño ajustó en el panel; la sincronización con Kommo no lo pisa.
+      const { data: pk } = await admin.from('kommo_plantillas').select('contenido, contenido_local, contenido_local_pt').eq('id', Number(body.plantilla_kommo_id)).maybeSingle();
+      const original = (body.idioma === 'pt' && pk?.contenido_local_pt) || pk?.contenido_local || pk?.contenido;
+      const texto = original ? completarPlantilla(original, '', null) : '';
       if (texto) {
         const wamid = await enviar({ type: 'text', text: { body: texto } });
         await registrar(wamid, texto, false);
@@ -226,7 +228,7 @@ Deno.serve(async (req) => {
       if (!body.solo_datos) {
         const pix = d?.pix
           ? completarPlantilla(d.pix, d?.nombre, monto)
-          : `Para realizar el pago, la clave PIX (CNPJ) es 69.093.014/0001-01${monto ? ` — valor ${reales(monto)}` : ''}. Después de pagar, mandame el comprobante por acá.`;
+          : `Para realizar el pago, la clave PIX (CNPJ) es 69.093.014/0001-01${monto ? ` — valor ${reales(monto)}` : ''}. Después de pagar, envíanos el comprobante por aquí.`;
         const w1 = await enviar({ type: 'text', text: { body: pix } });
         await registrar(w1, pix, false);
         enviados.push(w1);
@@ -261,7 +263,7 @@ Deno.serve(async (req) => {
       const grupos: { id: string; title: string }[][] = [];
       for (let i = 0; i < botones.length; i += 3) grupos.push(botones.slice(i, i + 3));
       for (let i = 0; i < grupos.length; i++) {
-        const cuerpo = i === 0 ? 'Tocá el trámite que necesitás:' : 'O:';
+        const cuerpo = i === 0 ? (body.idioma === 'pt' ? 'Escolha o serviço que você precisa:' : 'Elija el trámite que necesita:') : (body.idioma === 'pt' ? 'Ou:' : 'O:');
         const wamid = await enviar({
           type: 'interactive',
           interactive: {
