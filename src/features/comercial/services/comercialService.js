@@ -182,9 +182,11 @@ export function enviarAOperacional(kommoLeadId) {
   return invocarMover({ kommo_lead_id: kommoLeadId, pipeline_id: PIPELINE_OPERACIONAL, status_id: ETAPA_OPERACIONAL_INICIAL, etapa_nombre: 'Operacional' });
 }
 
-// ¿El token de Kommo sigue funcionando? Si no, Nora no puede mover etapas ni se registran los pagos.
-export async function getEstadoKommo() {
-  const { data, error } = await supabase.functions.invoke('estado-kommo', { body: {} });
-  if (error) return { ok: true }; // si falla el chequeo en sí, no se alarma
+// Salud de lo que necesita Nora (Kommo, n8n, WhatsApp) y clientes esperando respuesta.
+export async function getEstadoConexiones() {
+  const { data, error } = await supabase.functions.invoke('estado-conexiones', { body: {} });
+  if (error) return { ok: true, problemas: [] }; // si falla el chequeo en sí, no se alarma
   return data;
 }
+
+export const ETAPA_PERDIDO = { statusId: 143, nombre: 'Descalificado / Perdido', position: 11000 };

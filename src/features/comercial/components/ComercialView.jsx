@@ -11,11 +11,11 @@ import {
   useDroppable,
   useDraggable,
 } from '@dnd-kit/core';
-import { AlertTriangle, ArrowRightCircle, Bot, BotOff, ExternalLink, GraduationCap, MessageSquare, Phone, User, X } from 'lucide-react';
+import { ArrowRightCircle, UserX, Bot, BotOff, ExternalLink, GraduationCap, MessageSquare, Phone, User, X } from 'lucide-react';
 import NoraAprendizajes, { APRENDIZAJES_KEY } from './NoraAprendizajes';
 import NoraEntrenador from './NoraEntrenador';
 import { getAprendizajesNora } from '../services/comercialService';
-import { getComercialLeads, getConversacionLead, getMotivoPausa, moverEtapaLead, enviarAOperacional, getEstadoKommo, setAtendentePausado, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, ETAPA_SUPERVISOR, ETAPA_PRUEBAS, CONVERSACION_LIMIT } from '../services/comercialService';
+import { getComercialLeads, getConversacionLead, getMotivoPausa, moverEtapaLead, enviarAOperacional, setAtendentePausado, ETAPA_PERDIDO, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, ETAPA_SUPERVISOR, ETAPA_PRUEBAS, CONVERSACION_LIMIT } from '../services/comercialService';
 import { useAuth } from '@features/auth/context/AuthContext';
 import { KOMMO_LEAD_URL } from '@features/clients/services/clientsService';
 import { Conversation, ReplyBox } from '@features/clients/components/ClientDetailView';
@@ -68,22 +68,6 @@ function MotivoPausa({ kommoLeadId }) {
   return (
     <div className="border-b border-chrome-border bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
       <b>Por qué paró Nora:</b> {data.detalhes || data.titulo}
-    </div>
-  );
-}
-
-// Si el token de Kommo vence, Nora no puede mover etapas y los pagos no se registran en Operacional.
-function AvisoKommo() {
-  const { data } = useQuery({ queryKey: ['estado_kommo'], queryFn: getEstadoKommo, refetchInterval: 5 * 60 * 1000, staleTime: 60 * 1000 });
-  if (!data || data.ok) return null;
-  return (
-    <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-      <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-400" />
-      <div>
-        <b>Kommo está desconectado:</b> {data.motivo} Nora sigue contestando por WhatsApp, pero no puede mover etapas ni se registran
-        los pagos en Operacional. Generá un token nuevo de larga duración en Kommo y pegalo en n8n (credencial «Kommo Flujo Migração»)
-        y en Supabase (secreto KOMMO_API_TOKEN).
-      </div>
     </div>
   );
 }
@@ -198,6 +182,7 @@ function LeadDrawer({ lead, onClose }) {
   const [cambiandoIA, setCambiandoIA] = useState(false);
   const [entrenando, setEntrenando] = useState(false);
   const [enviandoOp, setEnviandoOp] = useState(false);
+  const [moviendo, setMoviendo] = useState(false);
   const conversacionKey = ['comercial_conversacion', lead.kommo_lead_id];
 
   const refrescar = () => {
@@ -242,6 +227,23 @@ function LeadDrawer({ lead, onClose }) {
       toast.error(err.message || 'No se pudo pasar a Operacional.');
     } finally {
       setEnviandoOp(false);
+    }
+  };
+
+  // Solo el dueño pasa un lead a Perdido (Nora nunca lo hace: lo deja en Espera al Supervisor).
+  const pasarAPerdido = async () => {
+    if (!window.confirm(`¿Pasar a ${lead.nombre || 'este cliente'} a Perdido? Nora no le va a escribir más.`)) return;
+    setMoviendo(true);
+    try {
+      await moverEtapaLead(lead.kommo_lead_id, ETAPA_PERDIDO);
+      if (!lead.atendente_pausado) await setAtendentePausado(lead.id, true);
+      toast.success('Movido a Perdido');
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'No se pudo mover a Perdido.');
+    } finally {
+      setMoviendo(false);
     }
   };
 
@@ -350,6 +352,25 @@ function LeadDrawer({ lead, onClose }) {
           </button>
         </div>
         {lead.atendente_pausado && <MotivoPausa kommoLeadId={lead.kommo_lead_id} />}
+        {lead.etapa_status_id === ETAPA_SUPERVISOR && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-chrome-border px-4 py-2.5">
+            <span className="mr-auto text-xs text-chrome-text-muted">Nora espera tu decisión:</span>
+            <button
+              onClick={() => toggleAtendente(false)}
+              disabled={cambiandoIA || moviendo}
+              className="inline-flex items-center gap-1.5 rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-500 disabled:opacity-50"
+            >
+              <Bot size={14} /> Que Nora siga{lead.etapa_previa_nombre ? ` (vuelve a ${lead.etapa_previa_nombre})` : ''}
+            </button>
+            <button
+              onClick={pasarAPerdido}
+              disabled={cambiandoIA || moviendo}
+              className="inline-flex items-center gap-1.5 rounded-md border border-red-500/50 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+            >
+              <UserX size={14} /> {moviendo ? 'Moviendo…' : 'Pasar a Perdido'}
+            </button>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 px-4 pt-3 text-sm font-semibold text-chrome-text-active">
           <MessageSquare size={15} /> Conversación
@@ -501,7 +522,6 @@ export default function ComercialView({ leadAbiertoKommoId = null, onAbrirLead }
           {porRevisar > 0 && <span className="rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-black">{porRevisar}</span>}
         </button>
       </div>
-      <AvisoKommo />
       <div className="mb-3 flex flex-wrap items-stretch gap-2">
         <Kpi label="Leads activos" value={resumen.activos} />
         <Kpi label="Te necesitan" value={resumen.atencion} tone={resumen.atencion ? 'text-amber-400' : 'text-chrome-text-active'}

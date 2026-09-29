@@ -42,6 +42,7 @@ import AssistantChat from '@features/assistant/components/AssistantChat';
 import { GlobalBotListener } from '../components/GlobalBotListener';
 import { GlobalAgendamientoListener } from '../components/GlobalAgendamientoListener';
 import { GlobalDocumentoUnicoListener } from '../components/GlobalDocumentoUnicoListener';
+import AvisoConexiones from '@features/comercial/components/AvisoConexiones';
 
 // Views
 
@@ -195,6 +196,8 @@ export default function AppLayout() {
             recentClients={recentClients}
             onNewClient={isReady('new-client') ? () => setIsNewClientModalOpen(true) : undefined}
           />
+
+          <AvisoConexiones onVerComercial={isReady('comercial') ? () => navigateToComercial() : undefined} />
 
           {/* Main Content */}
           <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: currentView === 'client' ? 'hidden' : 'auto' }}>
