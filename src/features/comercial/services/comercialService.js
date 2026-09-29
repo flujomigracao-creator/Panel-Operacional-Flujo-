@@ -28,7 +28,7 @@ export const ETAPAS_COMERCIAL = [
 export async function getComercialLeads() {
   return must(await supabase
     .from('comercial_leads')
-    .select('id, kommo_lead_id, kommo_contact_id, client_id, nombre, telefono, tramite_texto, precio, etapa_status_id, etapa_nombre, etapa_position, updated_at, last_inbound_at, last_atendido_at, bienvenida_enviada, propuesta_enviada, atendente_pausado, plan_pago, monto_ahora, datos_pago_at, comprobante_at, comprobante_monto, recordatorio_pago_at, enviado_operacional_at, etapa_previa_status_id, etapa_previa_nombre, etapa_previa_position, seguimiento_intentos, seguimiento_ultimo_at, nombre_completo, nacionalidad, ciudad_brasil, personas')
+    .select('id, kommo_lead_id, kommo_contact_id, client_id, nombre, telefono, tramite_texto, precio, etapa_status_id, etapa_nombre, etapa_position, updated_at, last_inbound_at, last_atendido_at, bienvenida_enviada, propuesta_enviada, atendente_pausado, plan_pago, monto_ahora, datos_pago_at, comprobante_at, comprobante_monto, recordatorio_pago_at, enviado_operacional_at, etapa_previa_status_id, etapa_previa_nombre, etapa_previa_position, seguimiento_intentos, seguimiento_ultimo_at, nombre_completo, nacionalidad, ciudad_brasil, personas, temperatura, necesidad, ritmo_cliente_seg')
     .order('etapa_position', { ascending: true })
     .order('updated_at', { ascending: false }));
 }
@@ -105,6 +105,25 @@ export async function ensenarANora(texto, tipo, userId, origen = 'manual', kommo
     revisado_at: new Date().toISOString(),
     revisado_por: userId || null,
   }));
+}
+
+// Base de dudas: lo que preguntan los clientes y la mejor respuesta (sale del análisis diario de conversaciones).
+// Al aprobar una, pasa sola a la memoria de Nora (trigger en la base).
+export async function getDudasNora() {
+  return must(await supabase
+    .from('nora_dudas')
+    .select('id, pregunta, respuesta, tramite, veces, en_ventas, estado, ultima_vez')
+    .neq('estado', 'descartada')
+    .order('veces', { ascending: false })
+    .order('ultima_vez', { ascending: false })
+    .limit(200));
+}
+
+export async function actualizarDudaNora(id, cambios, userId) {
+  must(await supabase
+    .from('nora_dudas')
+    .update({ ...cambios, revisado_at: new Date().toISOString(), revisado_por: userId || null })
+    .eq('id', id));
 }
 
 // Reglas fijas del negocio que Nora respeta siempre (documentos, requisitos, políticas).

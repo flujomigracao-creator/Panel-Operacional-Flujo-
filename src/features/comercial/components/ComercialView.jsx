@@ -79,9 +79,25 @@ function fechaHora(v) {
 
 const PLANES = { mitad: 'Mitad ahora', al_final: 'Paga al final' };
 
+// Cómo ve Nora al cliente en su última respuesta.
+const TEMPERATURA = {
+  caliente: ['bg-orange-500/15 text-orange-300', 'Caliente'],
+  tibia: ['bg-yellow-500/15 text-yellow-200', 'Tibio'],
+  fria: ['bg-sky-500/15 text-sky-300', 'Frío'],
+};
+
+function ritmoTexto(seg) {
+  if (seg === null || seg === undefined) return null;
+  if (seg < 60) return 'contesta al toque';
+  if (seg < 600) return 'contesta en ~' + Math.round(seg / 60) + ' min';
+  if (seg < 3600) return 'contesta lento';
+  return 'contesta muy lento';
+}
+
 // Cómo va el cobro de un lead que ya recibió los datos de pago.
 function EstadoPago({ lead }) {
   const chips = [];
+  if (TEMPERATURA[lead.temperatura] && !ETAPAS_CERRADAS.has(lead.etapa_status_id)) chips.push(TEMPERATURA[lead.temperatura]);
   if (PLANES[lead.plan_pago]) chips.push(['bg-violet-500/15 text-violet-300', PLANES[lead.plan_pago]]);
   if (lead.enviado_operacional_at) chips.push(['bg-green-500/15 text-green-300', 'En Operacional']);
   else if (lead.comprobante_at) chips.push(['bg-green-500/15 text-green-300', `Comprobante${lead.comprobante_monto ? ` R$ ${Number(lead.comprobante_monto).toFixed(0)}` : ''} · verificar`]);
@@ -315,6 +331,11 @@ function LeadDrawer({ lead, onClose }) {
             </>
           )}
           {lead.personas > 1 && <Dato label="Personas">{lead.personas}</Dato>}
+          {lead.temperatura && (
+            <Dato label="Lectura de Nora">
+              {[TEMPERATURA[lead.temperatura]?.[1], lead.necesidad, ritmoTexto(lead.ritmo_cliente_seg)].filter(Boolean).join(' · ')}
+            </Dato>
+          )}
           {PLANES[lead.plan_pago] && <Dato label="Plan de pago">{PLANES[lead.plan_pago]}{money(lead.monto_ahora) ? ` · ahora ${money(lead.monto_ahora)}` : ''}</Dato>}
           {lead.comprobante_at && <Dato label="Comprobante">{fechaHora(lead.comprobante_at)}{money(lead.comprobante_monto) ? ` · ${money(lead.comprobante_monto)}` : ''}</Dato>}
         </div>

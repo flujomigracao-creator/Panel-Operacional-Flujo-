@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Check, GraduationCap, MessageSquare, Trash2, X } from 'lucide-react';
 import { useAuth } from '@features/auth/context/AuthContext';
-import { getAprendizajesNora, actualizarAprendizajeNora, ensenarANora, getResultadosConfianza, getReglasNora, actualizarReglaNora } from '../services/comercialService';
+import { getAprendizajesNora, actualizarAprendizajeNora, ensenarANora, getResultadosConfianza, getReglasNora, actualizarReglaNora, getDudasNora, actualizarDudaNora } from '../services/comercialService';
 import NoraEntrenador, { REGLAS_KEY } from './NoraEntrenador';
 
 export const APRENDIZAJES_KEY = ['nora_aprendizajes'];
@@ -103,6 +103,104 @@ function ResultadosConfianza() {
   );
 }
 
+const DUDAS_KEY = ['nora_dudas'];
+
+function Duda({ duda, userId, onCambio }) {
+  const [pregunta, setPregunta] = useState(duda.pregunta);
+  const [respuesta, setRespuesta] = useState(duda.respuesta);
+  const [ocupado, setOcupado] = useState(false);
+  const cambiado = pregunta.trim() !== duda.pregunta || respuesta.trim() !== duda.respuesta;
+  const valido = pregunta.trim().length >= 5 && respuesta.trim().length >= 10;
+  const textos = { pregunta: pregunta.trim(), respuesta: respuesta.trim() };
+
+  const guardar = async (cambios, ok) => {
+    setOcupado(true);
+    try {
+      await actualizarDudaNora(duda.id, cambios, userId);
+      toast.success(ok);
+      onCambio();
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'No se pudo guardar.');
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-chrome-border bg-chrome-bg-raised p-3">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1 text-[11px] text-chrome-text-muted">
+        <span>
+          Preguntada {duda.veces} {duda.veces === 1 ? 'vez' : 'veces'}
+          {duda.en_ventas > 0 && <span className="text-green-400"> · {duda.en_ventas} en ventas</span>}
+          {duda.tramite && <> · {duda.tramite}</>}
+        </span>
+        {duda.estado === 'aprobada' && <span className="text-green-400">Nora ya la usa</span>}
+      </div>
+      <input
+        value={pregunta}
+        onChange={(e) => setPregunta(e.target.value)}
+        className="mb-1.5 w-full rounded-md border border-chrome-border bg-chrome-bg px-2 py-1.5 text-sm font-medium text-chrome-text-active outline-none focus:border-brand-primary"
+      />
+      <textarea
+        value={respuesta}
+        onChange={(e) => setRespuesta(e.target.value)}
+        rows={Math.min(6, Math.max(2, Math.ceil(respuesta.length / 70)))}
+        className="w-full resize-y rounded-md border border-chrome-border bg-chrome-bg p-2 text-sm text-chrome-text-active outline-none focus:border-brand-primary"
+      />
+      <div className="mt-2 flex flex-wrap justify-end gap-2">
+        {duda.estado === 'aprobada' && cambiado && (
+          <button disabled={ocupado || !valido} onClick={() => guardar(textos, 'Cambios guardados: Nora ya responde así')}
+            className="rounded-md bg-chrome-bg-active px-2.5 py-1.5 text-xs text-chrome-text-active disabled:opacity-50">Guardar cambios</button>
+        )}
+        <button disabled={ocupado} onClick={() => guardar({ estado: 'descartada' }, duda.estado === 'aprobada' ? 'Nora la olvidó' : 'Descartada')}
+          className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50">
+          <Trash2 size={12} /> {duda.estado === 'aprobada' ? 'Olvidar' : 'Descartar'}
+        </button>
+        {duda.estado === 'pendiente' && (
+          <button disabled={ocupado || !valido} onClick={() => guardar({ ...textos, estado: 'aprobada' }, 'Aprobada: Nora ya responde así')}
+            className="inline-flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-50">
+            <Check size={12} /> Aprobar
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Lo que preguntan los clientes en las conversaciones reales, ordenado por cuántas veces aparece.
+function DudasFrecuentes({ userId }) {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({ queryKey: DUDAS_KEY, queryFn: getDudasNora });
+  const [verAprobadas, setVerAprobadas] = useState(false);
+  if (!data) return null;
+  const pendientes = data.filter((d) => d.estado === 'pendiente');
+  const aprobadas = data.filter((d) => d.estado === 'aprobada');
+  const lista = verAprobadas ? aprobadas : pendientes;
+  const refrescar = () => {
+    queryClient.invalidateQueries({ queryKey: DUDAS_KEY });
+    queryClient.invalidateQueries({ queryKey: APRENDIZAJES_KEY });
+  };
+  return (
+    <section>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-chrome-text-active">
+          Dudas de los clientes <span className="text-xs font-normal text-chrome-text-muted">{pendientes.length} por revisar · {aprobadas.length} aprobadas</span>
+        </h3>
+        <button onClick={() => setVerAprobadas((v) => !v)} className="shrink-0 text-xs text-brand-primary hover:underline">
+          {verAprobadas ? 'Ver por revisar' : 'Ver aprobadas'}
+        </button>
+      </div>
+      <p className="mb-2 text-xs text-chrome-text-muted">
+        Salen de las conversaciones reales (cada madrugada). Corregí la respuesta si hace falta y aprobala: Nora responde así la próxima vez que alguien pregunte lo mismo.
+      </p>
+      {lista.length === 0
+        ? <p className="text-xs text-chrome-text-muted">{verAprobadas ? 'Todavía no aprobaste dudas.' : 'No hay dudas nuevas por revisar.'}</p>
+        : <div className="space-y-2">{lista.map((d) => <Duda key={d.id} duda={d} userId={userId} onCambio={refrescar} />)}</div>}
+    </section>
+  );
+}
+
 const ORIGEN = {
   venta: 'De una venta',
   perdido: 'De un lead perdido',
@@ -111,6 +209,7 @@ const ORIGEN = {
   entrenador: 'Enseñada en el chat',
   cierre: 'De un cliente que confirmó',
   silencio: 'De un cliente que dejó de responder',
+  duda: 'De la base de dudas',
 };
 
 function Tarjeta({ item, onGuardar, onAprobar, onDescartar }) {
@@ -253,6 +352,8 @@ export default function NoraAprendizajes({ onClose }) {
           </section>
 
           <ReglasFijas />
+
+          <DudasFrecuentes userId={userId} />
 
           <ResultadosConfianza />
 
