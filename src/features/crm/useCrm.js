@@ -17,7 +17,7 @@ export const KEYS = {
   kommoUrl: ['crm', 'kommo_url'],
 };
 
-// Datos base del CRM, compartidos (y cacheados) entre Inicio, Leads, Funis, Chats y Contactos.
+// Datos base del CRM, compartidos (y cacheados) entre Inicio, Leads, Conversaciones y Clientes.
 export function useCrmData() {
   const pipelines = useQuery({ queryKey: KEYS.pipelines, queryFn: getPipelines, staleTime: 5 * 60_000 });
   const leads = useQuery({ queryKey: KEYS.leads, queryFn: getLeads, refetchInterval: 30_000 });

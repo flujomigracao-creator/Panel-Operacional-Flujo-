@@ -22,7 +22,7 @@ import HomeView from '@features/crm/components/HomeView';
 // Vistas que todavía leen el esquema anterior (clientes, entradas, perfiles…).
 // Se reactivan una por una a medida que se migran al modelo de FLUJO
 // (clients, client_services, documents, messages, tasks).
-export const MIGRATED_VIEWS = new Set(['home', 'lab', 'today', 'clients', 'client', 'finance', 'comercial', 'leads', 'chats', 'funil', 'tramites', 'documentos', 'configuracion', 'equipo', 'tramite']);
+export const MIGRATED_VIEWS = new Set(['home', 'lab', 'today', 'clients', 'client', 'finance', 'comercial', 'leads', 'chats', 'tramites', 'documentos', 'configuracion', 'equipo', 'tramite']);
 
 // Navigation
 import Sidebar from '../navigation/components/Sidebar';
@@ -51,7 +51,6 @@ import AvisoConexiones from '@features/comercial/components/AvisoConexiones';
 const ContactView = lazy(() => import('@features/crm/components/ContactView'));
 const ClientsView = lazy(() => import('@features/clients/components/ClientsView'));
 const LeadsView = lazy(() => import('@features/crm/components/LeadsView'));
-const FunilView = lazy(() => import('@features/crm/components/FunilView'));
 const ChatsView = lazy(() => import('@features/crm/components/ChatsView'));
 const TramitesView = lazy(() => import('@features/crm/components/TramitesView'));
 const TramiteView = lazy(() => import('@features/crm/components/TramiteView'));
@@ -229,7 +228,6 @@ export default function AppLayout() {
               {currentView === 'client' && isReady('client') && <ContactView key={selectedClientId} clientId={selectedClientId} onBack={navigateToClientsList} onNavigateToClient={navigateToClientTracked} onOpenChat={openChat} onOpenTramite={navigateToTramite} />}
               {currentView === 'clients' && isReady('clients') && <ClientsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} />}
               {currentView === 'leads' && <LeadsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} onOpenChat={openChat} />}
-              {currentView === 'funil' && <FunilView onNavigateToClient={navigateToClientTracked} onOpenChat={openChat} />}
               {currentView === 'chats' && <ChatsView key={chatClientId || 'chats'} initialClientId={chatClientId} onNavigateToClient={navigateToClientTracked} onOpenTramite={navigateToTramite} />}
               {currentView === 'tramites' && <TramitesView onOpenTramite={navigateToTramite} />}
               {currentView === 'tramite' && <TramiteView key={tramiteId} tramiteId={tramiteId} onBack={() => navigate('tramites')} onNavigateToClient={navigateToClientTracked} onOpenChat={openChat} />}

@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Plus, Search, ArrowUp, ArrowDown, SlidersHorizontal } from 'lucide-react';
+import { Plus, Search, ArrowUp, ArrowDown, SlidersHorizontal, CloudOff } from 'lucide-react';
 import { useAuth } from '@features/auth/context/AuthContext';
-import { useCrmData, useMoveLead, KEYS } from '../useCrm';
+import { useCrmData, useMoveLead, useUnsynced, useRetryUnsynced, KEYS } from '../useCrm';
 import { assignLeads, addTagToLeads, createLead } from '../services/crmService';
 import LeadCard from './LeadCard';
 import { StageLabel, Modal, Field, Loading, ErrorText } from '../ui';
@@ -93,6 +93,8 @@ export default function LeadsView({ searchQuery = '', onNavigateToClient }) {
   const { userId } = useAuth();
   const { leads, stages, team, tags, leadTags, teamById, stageById } = useCrmData();
   const move = useMoveLead(stages);
+  const unsynced = useUnsynced();
+  const retry = useRetryUnsynced();
   const [search, setSearch] = useState('');
   const [f, setF] = useState(EMPTY_FILTERS);
   const [sort, setSort] = useState({ key: 'updated', dir: 'desc' });
@@ -200,7 +202,12 @@ export default function LeadsView({ searchQuery = '', onNavigateToClient }) {
           <button className={`${btnCls} h-9 ${activeFilters ? '!border-brand-primary !text-brand-primary' : ''}`} onClick={() => setShowFilters((v) => !v)}>
             <SlidersHorizontal size={14} /> Filtros{activeFilters ? ` · ${activeFilters}` : ''}
           </button>
-          <button className={`${btnPrimaryCls} ml-auto h-9`} onClick={() => setCreating(true)}><Plus size={14} /> Nuevo lead</button>
+          {unsynced.data?.length > 0 && (
+            <button className="ml-auto inline-flex items-center gap-1.5 text-xs text-warning hover:underline" onClick={() => retry()} title="Cambios de etapa guardados que todavía no llegaron a Kommo. Clic para reintentar.">
+              <CloudOff size={13} /> {unsynced.data.length} sin sincronizar con Kommo
+            </button>
+          )}
+          <button className={`${btnPrimaryCls} h-9 ${unsynced.data?.length ? '' : 'ml-auto'}`} onClick={() => setCreating(true)}><Plus size={14} /> Nuevo lead</button>
         </div>
 
         {showFilters && (

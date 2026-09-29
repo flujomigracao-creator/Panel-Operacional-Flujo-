@@ -9,7 +9,6 @@ import {
   MessagesSquare,
   Landmark,
   Target,
-  Kanban,
   Bot,
   Users,
   Settings,
@@ -47,7 +46,6 @@ const SECTIONS = [
     title: 'Comercial',
     items: [
       { view: 'leads', label: 'Leads', icon: Target },
-      { view: 'funil', label: 'Funis', icon: Kanban },
     ],
   },
   {

@@ -28,7 +28,6 @@ export const useNavigation = (isReady = true) => {
         if (hash.startsWith('#comercial')) return 'comercial';
         if (hash === '#dashboard') return 'dashboard';
         if (hash === '#leads') return 'leads';
-        if (hash === '#funis') return 'funil';
         if (hash.startsWith('#chats')) return 'chats';
         if (hash.startsWith('#tramite/')) return 'tramite';
         if (hash === '#team-chat') return 'team-chat';
@@ -97,8 +96,6 @@ export const useNavigation = (isReady = true) => {
             window.location.hash = 'dashboard';
         } else if (currentView === 'leads') {
             window.location.hash = 'leads';
-        } else if (currentView === 'funil') {
-            window.location.hash = 'funis';
         } else if (currentView === 'tramite' && tramiteId) {
             window.location.hash = `tramite/${tramiteId}`;
         } else if (currentView === 'chats') {
@@ -150,9 +147,6 @@ export const useNavigation = (isReady = true) => {
                 setSelectedClientId(null);
             } else if (hash === '#leads') {
                 setCurrentView('leads');
-                setSelectedClientId(null);
-            } else if (hash === '#funis') {
-                setCurrentView('funil');
                 setSelectedClientId(null);
             } else if (hash.startsWith('#tramite/')) {
                 setCurrentView('tramite');
@@ -237,11 +231,6 @@ export const useNavigation = (isReady = true) => {
         setCurrentView('leads');
     }, []);
 
-    const navigateToFunil = useCallback(() => {
-        setSelectedClientId(null);
-        setCurrentView('funil');
-    }, []);
-
     // clientId (opcional) abre esa conversación al llegar.
     const navigateToChats = useCallback((clientId = null) => {
         setSelectedClientId(null);
@@ -283,7 +272,6 @@ export const useNavigation = (isReady = true) => {
         tramiteId,
         navigateToTramite,
         navigateToLeads,
-        navigateToFunil,
         navigateToChats,
         navigateToClient,
         navigateToHome,
