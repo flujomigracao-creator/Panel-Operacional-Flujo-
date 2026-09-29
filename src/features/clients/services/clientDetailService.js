@@ -24,8 +24,8 @@ const must = ({ data, error }) => {
 };
 
 // Envía un mensaje directo por WhatsApp Cloud API (edge function `enviar-whatsapp-cliente`)
-// y lo deja registrado en `messages`, para responder al cliente sin salir del panel
-// mientras se conecta el canal personalizado de Kommo.
+// y lo deja registrado en `messages`, para responder al cliente sin salir del panel.
+// El mensaje también se copia al chat de Kommo (canal personalizado, edge function `kommo-canal`).
 export async function sendReply(clientId, mensaje) {
   const { data, error } = await supabase.functions.invoke('enviar-whatsapp-cliente', {
     body: { client_id: clientId, mensaje },

@@ -1,0 +1,430 @@
+// Canal personalizado de Kommo (Chats API / amoJo) para el número propio de WhatsApp.
+//
+// 1. Webhook de Kommo: un operador escribió en el chat del canal dentro de Kommo → se manda por WhatsApp Cloud API
+//    y se registra en `messages` (origen 'kommo_canal_whatsapp', así no vuelve a Kommo).
+//    - Directo: POST /kommo-canal/<scope_id> con la firma de Kommo en X-Signature (HMAC-SHA1 del cuerpo).
+//    - Reenviado por n8n (la URL registrada en el canal es la de n8n): POST { kommo_raw_b64, signature }.
+// 2. POST { action: 'flush' } → copia a Kommo los mensajes encolados en kommo_canal_outbox (los encola un trigger de
+//    `messages` y lo despierta con pg_net). No recibe datos: solo procesa la cola, así que no necesita sesión.
+//    Si el canal está activado pero todavía no conectado a la cuenta, lo conecta (connect → scope_id).
+// 3. POST { action: 'estado' } (usuario del panel) → si el canal está activo, conectado y cuántos mensajes hay en cola.
+//
+// Secretos: KOMMO_CHANNEL_SECRET (clave del canal), KOMMO_API_TOKEN (vincular el chat al contacto),
+// WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID. Dominio de Kommo: organization_settings.kommo_base_url o KOMMO_BASE_URL.
+import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
+import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+
+// Datos públicos del canal "Flujo Migracao WhatsApp" (amo.ext.36958507) que registró Kommo.
+const CHANNEL_ID = '8856937f-1606-4eb9-b381-f890f60df34f';
+const CHANNEL_BOT_ID = '77518540-345b-4f53-a50e-504285057607';
+const CHANNEL_TITLE = 'Flujo Migracao WhatsApp';
+const AMOJO = 'https://amojo.kommo.com';
+const GRAPH = 'https://graph.facebook.com/v23.0';
+const BUCKET = 'chat-media';
+const MAX_INTENTOS = 8;
+const ESPERA_CONTACTO_MIN = 30; // minutos que un número nuevo espera a que n8n cree su contacto en Kommo
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
+
+const secreto = () => (Deno.env.get('KOMMO_CHANNEL_SECRET') || '').trim();
+const soloDigitos = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+
+// ---------- amoJo ----------
+
+// Firma de la Chats API: HMAC-SHA1 (clave del canal) de "MÉTODO\nContent-MD5\nContent-Type\nDate\nruta".
+async function amojo(method: string, path: string, body?: unknown) {
+  const raw = body === undefined ? '' : JSON.stringify(body);
+  const md5 = createHash('md5').update(raw).digest('hex');
+  const date = new Date().toUTCString().replace('GMT', '+0000');
+  const type = 'application/json';
+  const signature = createHmac('sha1', secreto()).update([method, md5, type, date, path].join('\n')).digest('hex');
+  const res = await fetch(AMOJO + path, {
+    method,
+    headers: { Date: date, 'Content-Type': type, 'Content-MD5': md5, 'X-Signature': signature },
+    body: raw || undefined,
+    signal: AbortSignal.timeout(15000),
+  });
+  const text = await res.text();
+  let data: any = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) throw new Error(`amoJo ${res.status}: ${String(text).slice(0, 300)}`);
+  return data;
+}
+
+async function kommoBase(admin: SupabaseClient, orgId: string) {
+  const { data } = await admin.from('organization_settings').select('value').eq('organization_id', orgId).eq('key', 'kommo_base_url').maybeSingle();
+  return String(data?.value ?? Deno.env.get('KOMMO_BASE_URL') ?? 'https://flujomigracao.kommo.com').replace(/^"|"$/g, '').replace(/\/+$/, '');
+}
+
+async function kommoApi(admin: SupabaseClient, orgId: string, method: string, path: string, body?: unknown) {
+  const token = Deno.env.get('KOMMO_API_TOKEN');
+  if (!token) throw new Error('Falta KOMMO_API_TOKEN');
+  const res = await fetch((await kommoBase(admin, orgId)) + path, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(res.status === 401 ? 'Kommo rechazó el token (401)' : `Kommo ${res.status}: ${text.slice(0, 300)}`);
+  try { return text ? JSON.parse(text) : null; } catch { return text; }
+}
+
+// Conecta el canal a la cuenta de Kommo de la organización (una vez) y guarda el scope_id.
+async function asegurarConexion(admin: SupabaseClient, canal: any): Promise<string> {
+  if (canal.kommo_scope_id) return canal.kommo_scope_id;
+  let accountId = canal.kommo_amojo_account_id;
+  if (!accountId) {
+    const cuenta = await kommoApi(admin, canal.organization_id, 'GET', '/api/v4/account?with=amojo_id');
+    accountId = cuenta?.amojo_id;
+    if (!accountId) throw new Error('Kommo no devolvió el amojo_id de la cuenta');
+  }
+  const r = await amojo('POST', `/v2/origin/custom/${CHANNEL_ID}/connect`, { account_id: accountId, title: CHANNEL_TITLE, hook_api_version: 'v2' });
+  const scopeId = r?.scope_id;
+  if (!scopeId) throw new Error('Kommo no devolvió scope_id al conectar el canal');
+  await admin.from('channel_integrations')
+    .update({ kommo_amojo_account_id: accountId, kommo_scope_id: scopeId, updated_at: new Date().toISOString() })
+    .eq('organization_id', canal.organization_id);
+  return scopeId;
+}
+
+// ---------- Salida: WhatsApp → Kommo ----------
+
+const idUsuario = (key: string) => `wa-${key.replace(/^wa:/, '')}`;
+
+function usuarioCliente(dest: any) {
+  return {
+    id: idUsuario(dest.conversation_key),
+    name: dest.nombre || `+${dest.telefono}`,
+    profile: { phone: `+${dest.telefono}` },
+  };
+}
+
+// Crea el chat en amoJo y lo vincula al contacto de Kommo (así los mensajes caen en su lead y no en uno nuevo).
+async function asegurarChat(admin: SupabaseClient, orgId: string, scopeId: string, dest: any) {
+  const { data: chat } = await admin.from('kommo_canal_chats').select('*')
+    .eq('organization_id', orgId).eq('conversation_key', dest.conversation_key).maybeSingle();
+  if (chat?.kommo_chat_id && (chat.vinculado_at || !dest.kommo_contact_id)) {
+    if (chat.telefono !== dest.telefono && dest.telefono) {
+      await admin.from('kommo_canal_chats').update({ telefono: dest.telefono, updated_at: new Date().toISOString() })
+        .eq('organization_id', orgId).eq('conversation_key', dest.conversation_key);
+    }
+    return chat;
+  }
+
+  let chatId = chat?.kommo_chat_id;
+  if (!chatId) {
+    const r = await amojo('POST', `/v2/origin/custom/${scopeId}/chats`, {
+      conversation_id: dest.conversation_key,
+      user: usuarioCliente(dest),
+    });
+    chatId = r?.id;
+    if (!chatId) throw new Error('amoJo no devolvió el id del chat');
+  }
+
+  let vinculado: string | null = null;
+  if (dest.kommo_contact_id) {
+    await kommoApi(admin, orgId, 'POST', '/api/v4/contacts/chats', [{ chat_id: chatId, contact_id: Number(dest.kommo_contact_id) }]);
+    vinculado = new Date().toISOString();
+  }
+
+  const fila = {
+    organization_id: orgId,
+    conversation_key: dest.conversation_key,
+    telefono: dest.telefono,
+    nombre: dest.nombre,
+    kommo_chat_id: chatId,
+    kommo_contact_id: dest.kommo_contact_id ?? null,
+    vinculado_at: vinculado,
+    updated_at: new Date().toISOString(),
+  };
+  await admin.from('kommo_canal_chats').upsert(fila, { onConflict: 'organization_id,conversation_key' });
+  return fila;
+}
+
+function tipoAmojo(kind: string | null, mime: string | null): string {
+  const k = `${kind || ''} ${mime || ''}`;
+  if (/image|picture|photo|sticker/.test(k)) return 'picture';
+  if (/audio|voice/.test(k)) return 'voice';
+  if (/video/.test(k)) return 'video';
+  return 'file';
+}
+
+async function contenidoMensaje(admin: SupabaseClient, msg: any) {
+  const adj = msg.message_attachments?.[0];
+  if (!adj) {
+    return { type: 'text', text: msg.content || (msg.message_type === 'text' ? '' : `[${msg.message_type}]`) };
+  }
+  let url: string | null = adj.source_url || null;
+  if (adj.storage_path && !/^https?:\/\//.test(adj.storage_path)) {
+    const { data } = await admin.storage.from(BUCKET).createSignedUrl(adj.storage_path, 7 * 24 * 3600);
+    url = data?.signedUrl || url;
+  } else if (/^https?:\/\//.test(adj.storage_path || '')) {
+    url = adj.storage_path;
+  }
+  if (!url) return { type: 'text', text: msg.content || `[${adj.kind || 'archivo'} sin enlace]` };
+
+  let size = Number(adj.size_bytes) || 0;
+  if (!size) {
+    const head = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(8000) }).catch(() => null);
+    size = Number(head?.headers.get('content-length')) || 0;
+  }
+  const type = tipoAmojo(adj.kind, adj.mime_type);
+  return {
+    type,
+    media: url,
+    file_name: adj.file_name || `${type}-${msg.id}`,
+    file_size: size,
+    ...(msg.content ? { text: msg.content } : {}),
+  };
+}
+
+async function importarMensaje(admin: SupabaseClient, orgId: string, scopeId: string, fila: any): Promise<'sent' | 'waiting_contact' | 'skipped'> {
+  const { data: msg } = await admin.from('messages')
+    .select('id, direction, sender_type, message_type, content, author_name, created_at, message_attachments(storage_path, source_url, file_name, mime_type, kind, size_bytes)')
+    .eq('id', fila.message_id).maybeSingle();
+  if (!msg) return 'skipped';
+
+  const { data: dest, error: dErr } = await admin.rpc('kommo_canal_destino', { p_message_id: fila.message_id });
+  if (dErr) throw new Error(dErr.message);
+  if (!dest || dest.error || dest.simulado) return 'skipped';
+
+  // Número nuevo: n8n crea su lead en Kommo en un minuto; hasta entonces se espera para no crear un contacto duplicado.
+  const edadMin = (Date.now() - new Date(fila.created_at).getTime()) / 60000;
+  const { data: chatPrevio } = await admin.from('kommo_canal_chats').select('kommo_chat_id')
+    .eq('organization_id', orgId).eq('conversation_key', dest.conversation_key).maybeSingle();
+  if (!dest.kommo_contact_id && !chatPrevio?.kommo_chat_id && edadMin < ESPERA_CONTACTO_MIN) return 'waiting_contact';
+
+  await asegurarChat(admin, orgId, scopeId, dest);
+  const ms = new Date(msg.created_at).getTime();
+  const cliente = usuarioCliente(dest);
+  const saliente = msg.direction === 'outbound';
+  const payload: Record<string, unknown> = {
+    timestamp: Math.floor(ms / 1000),
+    msec_timestamp: ms,
+    msgid: msg.id,
+    conversation_id: dest.conversation_key,
+    message: await contenidoMensaje(admin, msg),
+    silent: saliente, // lo que ya mandamos nosotros no genera aviso de mensaje nuevo en Kommo
+  };
+  if (saliente) {
+    payload.sender = { id: `flujo-${msg.sender_type || 'agent'}`, ref_id: CHANNEL_BOT_ID, name: msg.author_name || 'Flujo Migração' };
+    payload.receiver = cliente;
+  } else {
+    payload.sender = cliente;
+  }
+  const r = await amojo('POST', `/v2/origin/custom/${scopeId}`, { event_type: 'new_message', payload });
+  await admin.from('kommo_canal_outbox').update({ kommo_msgid: r?.new_message?.msgid ?? null }).eq('id', fila.id);
+  return 'sent';
+}
+
+async function vaciarCola(admin: SupabaseClient) {
+  const resumen = { enviados: 0, esperando: 0, omitidos: 0, errores: 0 };
+  if (!secreto()) return { ...resumen, error: 'Falta KOMMO_CHANNEL_SECRET' };
+
+  const { data: canales } = await admin.from('channel_integrations').select('*').eq('kommo_canal_enabled', true);
+  const porOrg = new Map<string, string>();
+  for (const canal of canales || []) {
+    try { porOrg.set(canal.organization_id, await asegurarConexion(admin, canal)); }
+    catch (e) { console.error('conectar', canal.organization_id, (e as Error).message); }
+  }
+
+  for (let vuelta = 0; vuelta < 10; vuelta++) {
+    const { data: filas, error } = await admin.rpc('kommo_canal_tomar', { p_limite: 20 });
+    if (error) { console.error('tomar', error.message); break; }
+    if (!filas?.length) break;
+    for (const fila of filas) {
+      const scopeId = porOrg.get(fila.organization_id);
+      try {
+        if (!scopeId) throw new Error('El canal de Kommo no está conectado para esta organización');
+        const estado = await importarMensaje(admin, fila.organization_id, scopeId, fila);
+        const ahora = new Date().toISOString();
+        if (estado === 'waiting_contact') {
+          resumen.esperando++;
+          await admin.from('kommo_canal_outbox').update({ status: 'waiting_contact', attempts: fila.attempts - 1, locked_at: null, next_attempt_at: new Date(Date.now() + 60000).toISOString() }).eq('id', fila.id);
+        } else {
+          estado === 'sent' ? resumen.enviados++ : resumen.omitidos++;
+          await admin.from('kommo_canal_outbox').update({ status: estado, locked_at: null, last_error: null, sent_at: estado === 'sent' ? ahora : null }).eq('id', fila.id);
+        }
+      } catch (e) {
+        resumen.errores++;
+        const msg = (e as Error).message;
+        console.error('importar', fila.message_id, msg);
+        const final = fila.attempts >= MAX_INTENTOS;
+        await admin.from('kommo_canal_outbox').update({
+          status: final ? 'failed' : 'pending',
+          locked_at: null,
+          last_error: msg.slice(0, 500),
+          next_attempt_at: new Date(Date.now() + Math.min(2 ** fila.attempts, 60) * 60000).toISOString(),
+        }).eq('id', fila.id);
+      }
+    }
+  }
+  return resumen;
+}
+
+// ---------- Entrada: Kommo → WhatsApp ----------
+
+function firmaValida(raw: Uint8Array, firma: string): boolean {
+  const esperada = createHmac('sha1', secreto()).update(raw).digest('hex');
+  const a = new TextEncoder().encode(esperada);
+  const b = new TextEncoder().encode(String(firma || '').trim().toLowerCase());
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function tipoWhatsapp(tipo: string): 'image' | 'audio' | 'video' | 'document' {
+  if (tipo === 'picture' || tipo === 'sticker') return 'image';
+  if (tipo === 'voice' || tipo === 'audio') return 'audio';
+  if (tipo === 'video') return 'video';
+  return 'document';
+}
+
+async function estadoEntrega(scopeId: string, msgid: string, error: string | null) {
+  const body = error
+    ? { msgid, delivery_status: -1, error_code: 905, error: error.slice(0, 200) }
+    : { msgid, delivery_status: 1 };
+  await amojo('POST', `/v2/origin/custom/${scopeId}/${msgid}/delivery_status`, body)
+    .catch((e) => console.error('delivery_status', msgid, (e as Error).message));
+}
+
+async function procesarEntrante(admin: SupabaseClient, scopeId: string, body: any) {
+  const m = body?.message || {};
+  const contenido = m.message || {};
+  const msgid = String(contenido.id || '');
+  if (!msgid) return;
+
+  const { data: canal } = await admin.from('channel_integrations').select('organization_id, kommo_canal_enabled, whatsapp_enabled')
+    .eq('kommo_scope_id', scopeId).maybeSingle();
+  if (!canal) { console.error('scope desconocido', scopeId); return; }
+  const orgId: string = canal.organization_id;
+
+  // Una sola vez por mensaje de Kommo (Kommo reintenta si no le contestamos a tiempo).
+  const { error: dupErr } = await admin.from('kommo_canal_recibidos').insert({ kommo_msgid: msgid, organization_id: orgId });
+  if (dupErr) return;
+
+  const fallar = async (motivo: string) => {
+    console.error('entrante', msgid, motivo);
+    await admin.from('kommo_canal_recibidos').update({ error: motivo }).eq('kommo_msgid', msgid);
+    await estadoEntrega(scopeId, msgid, motivo);
+  };
+  if (!canal.kommo_canal_enabled || !canal.whatsapp_enabled) return fallar('El canal de WhatsApp no está activo en el panel.');
+
+  const key = String(m.conversation?.client_id || '');
+  const { data: chat } = key
+    ? await admin.from('kommo_canal_chats').select('*').eq('organization_id', orgId).eq('conversation_key', key).maybeSingle()
+    : { data: null };
+  const telefono = soloDigitos(chat?.telefono || m.receiver?.phone || (key.startsWith('wa:') ? key.slice(3) : ''));
+  if (!telefono) return fallar('No se encontró el número de WhatsApp de este chat.');
+  if (telefono.startsWith('5500')) return fallar('Cliente simulado: no existe en WhatsApp.');
+  const conversationKey = key.startsWith('wa:') ? key : `wa:${telefono}`;
+
+  const phoneNumberId = (Deno.env.get('WHATSAPP_PHONE_NUMBER_ID') || '').trim();
+  const token = (Deno.env.get('WHATSAPP_TOKEN') || '').trim();
+  if (!phoneNumberId || !token) return fallar('Faltan WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID en Supabase.');
+
+  const tipo = String(contenido.type || 'text');
+  const texto = String(contenido.text || '').trim();
+  let envio: Record<string, unknown>;
+  let adjunto: string | null = null;
+  if (contenido.media && tipo !== 'text') {
+    const t = tipoWhatsapp(tipo);
+    adjunto = t;
+    const media: Record<string, unknown> = { link: contenido.media };
+    if (texto && t !== 'audio') media.caption = texto;
+    if (t === 'document' && contenido.file_name) media.filename = contenido.file_name;
+    envio = { type: t, [t]: media };
+  } else if (tipo === 'location' && contenido.location) {
+    envio = { type: 'location', location: { latitude: contenido.location.lat, longitude: contenido.location.lon } };
+  } else {
+    if (!texto) return fallar('Mensaje vacío.');
+    envio = { type: 'text', text: { body: texto } };
+  }
+
+  const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to: telefono, ...envio }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return fallar(data?.error?.message || `WhatsApp Cloud API ${res.status}`);
+  const wamid: string | null = data?.messages?.[0]?.id || null;
+  await admin.from('kommo_canal_recibidos').update({ wamid }).eq('kommo_msgid', msgid);
+
+  const { data: lead } = await admin.rpc('whatsapp_resolver_lead', { p_telefono: telefono });
+  const { error: regErr } = await admin.rpc('registrar_mensagem_kommo', {
+    p_message_id: wamid || `kommo-${msgid}`,
+    p_direction: 'outbound',
+    p_chat_id: conversationKey,
+    p_contact_id: lead?.kommo_contact_id ?? chat?.kommo_contact_id ?? null,
+    p_lead_id: lead?.kommo_lead_id ?? null,
+    p_text: texto || null,
+    p_origin: 'kommo_canal_whatsapp',
+    p_author_name: m.sender?.name || 'Operador (Kommo)',
+    p_author_type: 'agent',
+    p_attachment_type: adjunto,
+    p_attachment_url: adjunto ? contenido.media : null,
+    p_attachment_name: adjunto ? (contenido.file_name || null) : null,
+    p_raw: { kommo_msgid: msgid, kommo: body },
+  });
+  if (regErr) console.error('registrar', msgid, regErr.message);
+
+  // Un humano respondió: el atendente automático no vuelve a contestar ese mismo mensaje.
+  if (lead?.kommo_lead_id) {
+    await admin.from('comercial_leads').update({ last_atendido_at: new Date().toISOString() })
+      .eq('organization_id', orgId).eq('kommo_lead_id', lead.kommo_lead_id);
+  }
+  await estadoEntrega(scopeId, msgid, null);
+}
+
+// ---------- HTTP ----------
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  if (req.method !== 'POST') return json({ error: 'Método no permitido' }, 405);
+
+  const url = Deno.env.get('SUPABASE_URL')!;
+  const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const rawBytes = new Uint8Array(await req.arrayBuffer());
+  let body: any = {};
+  try { body = JSON.parse(new TextDecoder().decode(rawBytes) || '{}'); } catch { return json({ error: 'JSON inválido' }, 400); }
+
+  // Webhook de Kommo, directo o reenviado por n8n con el cuerpo original en base64.
+  const scopeEnRuta = new URL(req.url).pathname.split('/kommo-canal/')[1]?.split('/')[0] || '';
+  const directo = !!req.headers.get('x-signature');
+  if (directo || body.kommo_raw_b64) {
+    if (!secreto()) return json({ error: 'Falta KOMMO_CHANNEL_SECRET' }, 500);
+    const raw = directo ? rawBytes : Uint8Array.from(atob(String(body.kommo_raw_b64)), (c) => c.charCodeAt(0));
+    const firma = directo ? req.headers.get('x-signature')! : String(body.signature || '');
+    if (!firmaValida(raw, firma)) return json({ error: 'Firma inválida' }, 401);
+    const evento = directo ? body : JSON.parse(new TextDecoder().decode(raw));
+    const scopeId = decodeURIComponent(String(body.scope_id || scopeEnRuta || ''));
+    // Kommo espera respuesta rápida: se contesta ya y se procesa en segundo plano.
+    EdgeRuntime.waitUntil(procesarEntrante(admin, scopeId, evento).catch((e) => console.error('entrante', e)));
+    return json({ ok: true });
+  }
+
+  if (body.action === 'flush') {
+    return json({ ok: true, ...(await vaciarCola(admin)) });
+  }
+
+  if (body.action === 'estado') {
+    const auth = req.headers.get('Authorization') || '';
+    const user = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: auth } } });
+    const { data: { user: u } } = await user.auth.getUser(auth.replace(/^Bearer\s+/i, ''));
+    if (!u) return json({ error: 'No autenticado' }, 401);
+    const { data: canal } = await user.from('channel_integrations').select('organization_id, kommo_canal_enabled, kommo_scope_id').maybeSingle();
+    if (!canal) return json({ activo: false, conectado: false });
+    const { count: enCola } = await user.from('kommo_canal_outbox').select('id', { count: 'exact', head: true }).in('status', ['pending', 'processing', 'waiting_contact']);
+    const { count: fallidos } = await user.from('kommo_canal_outbox').select('id', { count: 'exact', head: true }).eq('status', 'failed');
+    return json({ activo: canal.kommo_canal_enabled, conectado: !!canal.kommo_scope_id, secreto: !!secreto(), en_cola: enCola || 0, fallidos: fallidos || 0 });
+  }
+
+  return json({ error: 'Acción desconocida' }, 400);
+});

@@ -50,8 +50,28 @@ contrato no cambió. Lo que tiene que pasar **siempre**, escriba quien escriba, 
 | Responsable, etiquetas, notas, actividad del lead | Supabase | no se envía |
 | Etapa del lead | Supabase | se sincroniza hacia Kommo (`crm-sync-kommo`) y llega desde Kommo (n8n) |
 | Embudos y etapas | Supabase; `kommo_pipeline_id` / `kommo_status_id` son solo el mapeo | referencia |
-| Mensajes entrantes de WhatsApp | llegan por webhook a `messages` | origen mientras exista el canal |
-| Mensajes salientes | `enviar-whatsapp-cliente` (WhatsApp Cloud API directo) | no participa |
+| Mensajes entrantes de WhatsApp | llegan por webhook (`whatsapp-webhook`) a `messages` | se copian al chat del canal personalizado |
+| Mensajes salientes (panel, Nora) | `enviar-whatsapp-cliente` / `enviar-whatsapp-atendente` (WhatsApp Cloud API directo) | se copian al chat del canal personalizado |
+| Mensajes que un operador escribe en Kommo | canal personalizado → n8n → `kommo-canal` → WhatsApp Cloud API → `messages` | origen |
+
+## Canal personalizado de Kommo (Chats API)
+
+El número de WhatsApp es propio (Cloud API), así que Kommo no ve las conversaciones por sí solo. El canal
+"Flujo Migracao WhatsApp" (`amo.ext.36958507`) las copia a Kommo y deja responder desde ahí:
+
+- **Hacia Kommo:** el trigger `trg_kommo_canal_encolar` encola en `kommo_canal_outbox` cada mensaje con origen
+  `whatsapp_cloud_api` (cliente, Nora, panel) y despierta a `kommo-canal { action: 'flush' }` con pg_net. La función
+  crea el chat en amoJo (uno por número: `wa:<telefone_chave>`, en `kommo_canal_chats`), lo vincula al contacto de
+  Kommo (`/api/v4/contacts/chats`, así el mensaje cae en su lead) e importa el mensaje. Un número nuevo espera hasta
+  30 min a que n8n cree su lead (para no duplicar el contacto); los errores se reintentan con espera creciente.
+  Los clientes simulados (`+55 00…`) no se copian.
+- **Desde Kommo:** Kommo manda el webhook a la URL registrada en el canal, que es de n8n
+  (`/webhook/kommo-canal-personalizado/<scope_id>`, workflow "Kommo Canal Personalizado - Webhook Saliente").
+  n8n reenvía el cuerpo original en base64 con la firma a `kommo-canal`, que la verifica, manda por WhatsApp, lo
+  registra con origen `kommo_canal_whatsapp` (no vuelve a Kommo), marca el lead como atendido y avisa a Kommo si
+  falló el envío. `kommo_canal_recibidos` evita procesar dos veces un reintento de Kommo.
+- **Activación:** nada se copia hasta `channel_integrations.kommo_canal_enabled = true` (solo el servidor). El primer
+  `flush` conecta el canal a la cuenta y guarda `kommo_scope_id`. Secreto: `KOMMO_CHANNEL_SECRET`.
 
 ## Cambio de etapa (Funil, panel del lead, acciones masivas)
 
