@@ -5,7 +5,7 @@ import { ArrowLeft, MessageSquare, LayoutList, Phone, Mail, Check, X, Clock, Rot
 import { getClientDetail, updateTramite, sendReply } from '@features/clients/services/clientDetailService';
 import { CLIENT_STATUS } from '@features/clients/services/clientsService';
 import { useCrmData, KEYS } from '../useCrm';
-import { getChecklist, getOpenTasks, completeTask, getLeadEvents } from '../services/crmService';
+import { getChecklist, getOpenTasks, completeTask, getLeadEvents, pushTramiteToKommo } from '../services/crmService';
 import ContactLeads from './ContactLeads';
 import { Loading, ErrorText } from '../ui';
 import { money, relTime, flag, stageColor } from '../format';
@@ -213,6 +213,10 @@ export default function Contact360({ clientId, onBack, onOpenChat, onDetailed, o
     try {
       await updateTramite(t.id, { stage_id: stageId });
       toast.success('Etapa del trámite actualizada');
+      if (t.kommo_lead_id) {
+        const aviso = await pushTramiteToKommo();
+        if (aviso) toast.error(aviso);
+      }
       refresh();
     } catch (err) {
       toast.error(err.message || 'No se pudo cambiar la etapa');

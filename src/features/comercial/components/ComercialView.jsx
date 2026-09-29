@@ -11,10 +11,11 @@ import {
   useDroppable,
   useDraggable,
 } from '@dnd-kit/core';
-import { ArrowRightCircle, UserX, Bot, BotOff, ExternalLink, GraduationCap, MessageSquare, Phone, User, X } from 'lucide-react';
+import { ArrowRightCircle, UserX, Bot, BotOff, ExternalLink, GraduationCap, MessageSquare, Phone, RefreshCw, User, X } from 'lucide-react';
 import NoraAprendizajes, { APRENDIZAJES_KEY } from './NoraAprendizajes';
 import NoraEntrenador from './NoraEntrenador';
-import { getAprendizajesNora } from '../services/comercialService';
+import { getAprendizajesNora, getEtapasComercial } from '../services/comercialService';
+import { syncKommoPipelines } from '@features/crm/services/crmService';
 import { getComercialLeads, getConversacionLead, getMotivoPausa, moverEtapaLead, enviarAOperacional, setAtendentePausado, ETAPA_PERDIDO, enviarMensajeLead, enviarArchivoLead, ETAPAS_COMERCIAL, ETAPA_SUPERVISOR, ETAPA_PRUEBAS, CONVERSACION_LIMIT } from '../services/comercialService';
 import { useAuth } from '@features/auth/context/AuthContext';
 import { KOMMO_LEAD_URL } from '@features/clients/services/clientsService';
@@ -431,6 +432,24 @@ function LeadDrawer({ lead, onClose }) {
 
 export default function ComercialView({ leadAbiertoKommoId = null, onAbrirLead }) {
   const queryClient = useQueryClient();
+  // Etapas reales del embudo Comercial de Kommo: se sincronizan al abrir la vista y con el botón.
+  const etapasQ = useQuery({ queryKey: ['comercial_etapas'], queryFn: getEtapasComercial, staleTime: 5 * 60_000 });
+  const etapas = etapasQ.data || ETAPAS_COMERCIAL;
+  const [sincronizando, setSincronizando] = useState(false);
+  const sincronizarEtapas = async (silencioso = false) => {
+    setSincronizando(true);
+    try {
+      const r = await syncKommoPipelines();
+      await queryClient.invalidateQueries({ queryKey: ['comercial_etapas'] });
+      await queryClient.invalidateQueries({ queryKey: ['crm'] });
+      if (!silencioso) toast.success(r.updated || r.created ? `Etapas actualizadas desde Kommo (${r.updated + r.created})` : 'Las etapas ya coinciden con Kommo');
+    } catch (err) {
+      if (!silencioso) toast.error(err.message || 'No se pudo leer el embudo de Kommo');
+    } finally {
+      setSincronizando(false);
+    }
+  };
+  useEffect(() => { sincronizarEtapas(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const { data: leads, isLoading, error } = useQuery({ queryKey: QUERY_KEY, queryFn: getComercialLeads, refetchInterval: 30000 });
   const [activeLead, setActiveLead] = useState(null);
   // El lead abierto vive en la URL (#comercial/<kommo_lead_id>) para poder llegar directo desde Hoy.
@@ -477,16 +496,16 @@ export default function ComercialView({ leadAbiertoKommoId = null, onAbrirLead }
   }, [leads]);
 
   const columnas = useMemo(() => {
-    const porEtapa = new Map(ETAPAS_COMERCIAL.map((e) => [e.statusId, []]));
+    const porEtapa = new Map(etapas.map((e) => [e.statusId, []]));
     for (const lead of visibles) {
       const bucket = porEtapa.get(lead.etapa_status_id);
       if (bucket) bucket.push(lead);
     }
     // La columna de pruebas solo se muestra cuando se piden ver los clientes simulados.
-    return ETAPAS_COMERCIAL
+    return etapas
       .filter((e) => verPruebas || e.statusId !== ETAPA_PRUEBAS)
       .map((e) => ({ etapa: e, leads: porEtapa.get(e.statusId) || [] }));
-  }, [visibles, verPruebas]);
+  }, [visibles, verPruebas, etapas]);
 
   const onDragStart = (event) => {
     const lead = (leads || []).find((l) => l.id === event.active.id);
@@ -499,7 +518,7 @@ export default function ComercialView({ leadAbiertoKommoId = null, onAbrirLead }
     if (!over) return;
     const lead = (leads || []).find((l) => l.id === active.id);
     if (!lead) return;
-    const nuevaEtapa = ETAPAS_COMERCIAL.find((e) => String(e.statusId) === over.id);
+    const nuevaEtapa = etapas.find((e) => String(e.statusId) === over.id);
     if (!nuevaEtapa || nuevaEtapa.statusId === lead.etapa_status_id) return;
 
     const anterior = queryClient.getQueryData(QUERY_KEY);
@@ -535,6 +554,14 @@ export default function ComercialView({ leadAbiertoKommoId = null, onAbrirLead }
           placeholder="Buscar nombre, teléfono o trámite…"
           className="ml-auto w-64 max-w-full rounded-lg border border-chrome-border bg-chrome-bg-raised px-3 py-1.5 text-sm text-chrome-text-active outline-none placeholder:text-chrome-text-muted focus:border-brand-primary"
         />
+        <button
+          onClick={() => sincronizarEtapas(false)}
+          disabled={sincronizando}
+          title="Trae de Kommo las etapas reales del embudo Comercial"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-chrome-border bg-chrome-bg-raised px-3 py-1.5 text-sm text-chrome-text-active hover:border-brand-primary/60 disabled:opacity-50"
+        >
+          <RefreshCw size={14} className={sincronizando ? 'animate-spin' : ''} /> Sincronizar con Kommo
+        </button>
         <button
           onClick={() => setVerAprendizajes(true)}
           className="inline-flex items-center gap-1.5 rounded-lg border border-chrome-border bg-chrome-bg-raised px-3 py-1.5 text-sm text-chrome-text-active hover:border-brand-primary/60"

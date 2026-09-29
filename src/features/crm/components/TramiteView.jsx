@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { ArrowLeft, Check, Send, MessageSquare, User } from 'lucide-react';
 import { sendReply } from '@features/clients/services/clientDetailService';
 import { useCrmData, KEYS } from '../useCrm';
-import { getTramite, updateTramite, createTask, completeTask } from '../services/crmService';
+import { getTramite, updateTramite, createTask, completeTask, pushTramiteToKommo } from '../services/crmService';
 import { Checklist } from './Contact360';
 import { Loading, ErrorText } from '../ui';
 import { money, relTime, flag, inputCls, selectCls, btnPrimaryCls } from '../format';
@@ -75,7 +75,14 @@ export default function TramiteView({ tramiteId, onBack, onNavigateToClient, onO
       setBusy(false);
     }
   };
-  const save = (patch, ok) => run(() => updateTramite(t.id, patch), ok);
+  const save = (patch, ok) => run(async () => {
+    await updateTramite(t.id, patch);
+    // Si cambió la etapa, se refleja en el lead de Kommo al momento.
+    if (patch.stage_id && t.kommo_lead_id) {
+      const aviso = await pushTramiteToKommo();
+      if (aviso) toast.error(aviso);
+    }
+  }, ok);
 
   const askMissing = () => {
     const nombre = (client.full_name || '').split(' ')[0];

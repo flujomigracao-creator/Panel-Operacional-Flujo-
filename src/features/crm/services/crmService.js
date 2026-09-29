@@ -389,3 +389,20 @@ export async function getTramite(id) {
 export async function updateTramite(id, patch) {
   must(await supabase.from('client_services').update(patch).eq('id', id));
 }
+
+// ── Sincronización con Kommo (edge function kommo-sync) ────────────────────────────
+// Envía a Kommo los cambios de etapa de trámites que esperan en kommo_outbox.
+export const syncKommoOutbox = () => invoke('kommo-sync', { action: 'outbox' });
+// Trae de Kommo las etapas reales del embudo Comercial (nombre y orden) a crm_stages.
+export const syncKommoPipelines = () => invoke('kommo-sync', { action: 'pipelines' });
+
+// Tras cambiar la etapa de un trámite: la base ya lo encoló (trigger); se envía a Kommo al momento.
+// Devuelve un texto de aviso si algo no llegó, o null si todo bien.
+export async function pushTramiteToKommo() {
+  try {
+    const r = await syncKommoOutbox();
+    return r.failed ? `${r.failed} cambio(s) no llegaron a Kommo; se reintentan solos.` : null;
+  } catch (err) {
+    return `No se pudo avisar a Kommo: ${err.message}`;
+  }
+}

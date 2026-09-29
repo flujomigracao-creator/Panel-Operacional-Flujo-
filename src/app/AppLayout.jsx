@@ -31,6 +31,7 @@ import { useNavigation } from '../hooks/useNavigation';
 import { useSearch } from '../hooks/useSearch';
 import useRecentClients from '../hooks/useRecentClients';
 import { supabase } from '../supabaseClient';
+import { syncKommoOutbox } from '@features/crm/services/crmService';
 
 // Auth
 import { useAuth } from '../features/auth/context/AuthContext';
@@ -121,6 +122,16 @@ export default function AppLayout() {
       navigateToChats(target || null);
     }
   }, [navigateToChats]);
+
+  // Cambios de etapa de trámites hechos por automatizaciones (n8n, pagos): mientras el panel está
+  // abierto se envían a Kommo cada minuto. Los del propio panel se envían al momento.
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+    const tick = () => { if (document.visibilityState === 'visible') syncKommoOutbox().catch(() => {}); };
+    tick();
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, [isAuthenticated]);
 
   // --- Sidebar ---
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
