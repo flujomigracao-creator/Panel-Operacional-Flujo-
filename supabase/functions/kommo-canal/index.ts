@@ -434,7 +434,8 @@ async function sincronizarPlantillas(admin: SupabaseClient, orgId: string) {
     try {
       if (!visible) {
         if (p.kommo_template_id) {
-          await kommoApi(admin, orgId, 'DELETE', `/api/v4/chats/templates/${p.kommo_template_id}`).catch(() => null);
+          // Kommo solo acepta cambios por la colección (la ruta /templates/{id} es privada).
+          await kommoApi(admin, orgId, 'DELETE', '/api/v4/chats/templates', [{ id: p.kommo_template_id }]);
           await admin.from('whatsapp_plantillas').update({ kommo_template_id: null, kommo_contenido: null }).eq('organization_id', orgId).eq('nombre', p.nombre).eq('idioma', p.idioma);
           r.quitadas_de_kommo++;
         }
@@ -446,7 +447,7 @@ async function sincronizarPlantillas(admin: SupabaseClient, orgId: string) {
       const guardar = async (conBotones: boolean) => {
         const cuerpo = conBotones && botones.length ? { ...datos, buttons: botones } : datos;
         return p.kommo_template_id
-          ? await kommoApi(admin, orgId, 'PATCH', `/api/v4/chats/templates/${p.kommo_template_id}`, cuerpo)
+          ? await kommoApi(admin, orgId, 'PATCH', '/api/v4/chats/templates', [{ id: p.kommo_template_id, ...cuerpo }])
           : await kommoApi(admin, orgId, 'POST', '/api/v4/chats/templates', [cuerpo]);
       };
       // Si Kommo no acepta los botones, la plantilla se crea igual sin ellos.
