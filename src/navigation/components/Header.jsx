@@ -22,7 +22,7 @@ export default function Header({ currentView, isSidebarOpen, setIsSidebarOpen, n
   const showRecents = isSearchFocused && !globalSearch && recentClients.length > 0;
 
   return (
-    <header className="flex h-[70px] shrink-0 items-center justify-between gap-4 bg-chrome-bg px-6" style={{ zIndex: 10 }}>
+    <header className="flex h-[52px] shrink-0 items-center justify-between gap-4 border-b border-chrome-border bg-chrome-bg px-4" style={{ zIndex: 10 }}>
       {/* Left: Back button (when in client view) */}
       <div className="flex flex-1 items-center gap-3">
         {currentView === 'client' && !isSidebarOpen && (
@@ -39,11 +39,11 @@ export default function Header({ currentView, isSidebarOpen, setIsSidebarOpen, n
 
       {/* Center: Search */}
       <div className="relative flex flex-1 justify-center">
-        <div className="flex w-full max-w-[400px] items-center gap-2 rounded-full border border-chrome-border bg-chrome-bg-raised px-4 py-2">
-          <Search size={18} className="shrink-0 text-chrome-text" />
+        <div className="flex w-full max-w-[440px] items-center gap-2 rounded-md border border-chrome-border bg-chrome-bg-raised px-3 py-1.5 focus-within:border-brand-primary">
+          <Search size={15} className="shrink-0 text-chrome-text" />
           <input
             type="text"
-            placeholder="Buscar por cliente, CPF, email..."
+            placeholder="Buscar contactos y leads por nombre, teléfono, CPF, email…"
             value={globalSearch}
             onChange={handleSearchChange}
             onFocus={() => setIsSearchFocused(true)}

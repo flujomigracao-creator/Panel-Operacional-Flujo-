@@ -6,10 +6,21 @@ import { useState, useEffect, useCallback } from 'react';
  * escucha back/forward del navegador.
  * @param {boolean} isReady  Si es false no sincroniza (p.ej. si no hay sesión).
  */
+// Vistas sin parámetros: hash ↔ vista.
+const SIMPLE_VIEWS = {
+    inicio: 'home',
+    tramites: 'tramites',
+    documentos: 'documentos',
+    configuracion: 'configuracion',
+    equipo: 'equipo',
+};
+const HASH_OF_VIEW = Object.fromEntries(Object.entries(SIMPLE_VIEWS).map(([h, v]) => [v, h]));
+
 export const useNavigation = (isReady = true) => {
     const [currentView, setCurrentView] = useState(() => {
         const hash = window.location.hash;
         if (hash.startsWith('#client/')) return 'client';
+        if (SIMPLE_VIEWS[hash.slice(1)]) return SIMPLE_VIEWS[hash.slice(1)];
         if (hash === '#hoy') return 'today';
         if (hash === '#laboratorio') return 'lab';
         if (hash === '#finanzas') return 'finance';
@@ -26,7 +37,7 @@ export const useNavigation = (isReady = true) => {
         
         const saved = localStorage.getItem('app_currentView');
         if (saved) return saved;
-        return 'lab'; // Default view
+        return 'home'; // Default view
     });
 
     // Lead de Comercial abierto (kommo_lead_id), para poder llegar directo desde Hoy: #comercial/<id>.
@@ -63,6 +74,8 @@ export const useNavigation = (isReady = true) => {
 
         if (currentView === 'client' && selectedClientId) {
             window.location.hash = `client/${selectedClientId}`;
+        } else if (HASH_OF_VIEW[currentView]) {
+            window.location.hash = HASH_OF_VIEW[currentView];
         } else if (currentView === 'today') {
             window.location.hash = 'hoy';
         } else if (currentView === 'lab') {
@@ -90,7 +103,7 @@ export const useNavigation = (isReady = true) => {
         } else if (currentView === 'directory') {
             window.location.hash = 'directory';
         } else {
-            window.location.hash = 'laboratorio';
+            window.location.hash = 'inicio';
         }
     }, [currentView, selectedClientId, comercialLeadId, chatClientId, isReady]);
 
@@ -103,6 +116,9 @@ export const useNavigation = (isReady = true) => {
                 setCurrentView('client');
                 const idStr = hash.replace('#client/', '');
                 setSelectedClientId(idStr || null);
+            } else if (SIMPLE_VIEWS[hash.slice(1)]) {
+                setCurrentView(SIMPLE_VIEWS[hash.slice(1)]);
+                setSelectedClientId(null);
             } else if (hash === '#hoy') {
                 setCurrentView('today');
                 setSelectedClientId(null);
@@ -147,7 +163,7 @@ export const useNavigation = (isReady = true) => {
                 setCurrentView('directory');
                 setSelectedClientId(null);
             } else {
-                setCurrentView('lab');
+                setCurrentView('home');
                 setSelectedClientId(null);
             }
         };
@@ -162,7 +178,13 @@ export const useNavigation = (isReady = true) => {
 
     const navigateToHome = useCallback(() => {
         setSelectedClientId(null);
-        setCurrentView('lab');
+        setCurrentView('home');
+    }, []);
+
+    // Navegación genérica para las vistas sin parámetros (Inicio, Trámites, Documentos…).
+    const navigateTo = useCallback((view) => {
+        setSelectedClientId(null);
+        setCurrentView(view);
     }, []);
 
     const navigateToLab = useCallback(() => {
@@ -244,6 +266,7 @@ export const useNavigation = (isReady = true) => {
         navigateToChats,
         navigateToClient,
         navigateToHome,
+        navigateTo,
         navigateToToday,
         navigateToLab,
         navigateToFinance,

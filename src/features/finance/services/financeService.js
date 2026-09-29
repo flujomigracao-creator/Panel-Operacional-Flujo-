@@ -1,4 +1,5 @@
 import { supabase } from '@shared/config/supabaseClient';
+import { getMyOrganizationId } from '@features/crm/services/crmService';
 
 const must = ({ data, error }) => { if (error) throw error; return data; };
 
@@ -65,7 +66,8 @@ export async function getCuentas() {
 }
 
 export async function crearCuenta({ name, type = 'digital_wallet', currency = 'BRL', initial_balance = 0 }) {
-  return must(await supabase.from('financial_accounts').insert({ name, type, currency, initial_balance }).select().single());
+  const organization_id = await getMyOrganizationId();
+  return must(await supabase.from('financial_accounts').insert({ organization_id, name, type, currency, initial_balance }).select().single());
 }
 
 export async function getCategorias(kind) {
@@ -75,7 +77,8 @@ export async function getCategorias(kind) {
 }
 
 export async function crearCategoria({ name, kind, parent_id = null }) {
-  return must(await supabase.from('financial_categories').insert({ name, kind, parent_id }).select().single());
+  const organization_id = await getMyOrganizationId();
+  return must(await supabase.from('financial_categories').insert({ organization_id, name, kind, parent_id }).select().single());
 }
 
 /** Gastos recientes, con el nombre de su categoría (si tiene). */
@@ -87,8 +90,9 @@ export async function getGastosRecientes(limit = 30) {
 }
 
 export async function crearGasto({ amount, description, supplier = null, category_id = null, expense_date, status = 'paid' }) {
+  const organization_id = await getMyOrganizationId();
   return must(await supabase.from('expenses')
-    .insert({ amount, description, supplier, category_id, expense_date: expense_date || hoyLocal(), status, currency: 'BRL' })
+    .insert({ organization_id, amount, description, supplier, category_id, expense_date: expense_date || hoyLocal(), status, currency: 'BRL' })
     .select().single());
 }
 

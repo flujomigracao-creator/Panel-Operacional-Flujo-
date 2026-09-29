@@ -53,6 +53,13 @@ Deno.serve(async (req) => {
     .eq('lead_id', ev.lead_id).eq('event_type', 'stage_changed').gt('created_at', ev.created_at);
   if (newer) { await fin('skipped', 'reemplazado por un cambio posterior'); return json({ ok: true, superseded: true }); }
 
+  // El token de Kommo es de una cuenta: solo la organización habilitada en channel_integrations puede usarlo.
+  const { data: canal } = await admin.from('channel_integrations').select('kommo_enabled').eq('organization_id', ev.organization_id).maybeSingle();
+  if (!canal?.kommo_enabled) {
+    await fin('skipped', 'Kommo no está habilitado para esta organización');
+    return json({ ok: true, skipped: true });
+  }
+
   const { data: pipe } = await user.from('crm_pipelines').select('kommo_pipeline_id').eq('id', stage.pipeline_id).maybeSingle();
   const { data: setting } = await admin.from('organization_settings').select('value').eq('organization_id', ev.organization_id).eq('key', 'kommo_base_url').maybeSingle();
   const base = String(setting?.value ?? Deno.env.get('KOMMO_BASE_URL') ?? '').replace(/\/+$/, '');

@@ -4,15 +4,20 @@ const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
     const [theme, setTheme] = useState(() => {
-        // Check localStorage first, then default to 'dark'
-        return localStorage.getItem('theme') || 'dark';
+        // El CRM se diseñó en claro: es el tema por defecto. 'theme_v2' ignora la preferencia vieja
+        // (que se guardaba siempre como 'dark' aunque nadie la hubiera elegido).
+        try {
+            return localStorage.getItem('theme_v2') || 'light';
+        } catch {
+            return 'light';
+        }
     });
 
     useEffect(() => {
         // Apply theme to document element
         document.documentElement.setAttribute('data-theme', theme);
         // Save to localStorage
-        localStorage.setItem('theme', theme);
+        try { localStorage.setItem('theme_v2', theme); } catch { /* sin storage */ }
     }, [theme]);
 
     const toggleTheme = () => {

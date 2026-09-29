@@ -1,5 +1,6 @@
 ﻿@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
 @import "./styles/tokens.css";
+@import "./styles/light-remap.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -76,6 +77,8 @@
   --color-chrome-text: var(--chrome-text);
   --color-chrome-text-active: var(--chrome-text-active);
   --color-chrome-accent: var(--chrome-accent);
+  --color-chrome-text-muted: var(--chrome-text-muted);
+  --color-brand-accent: var(--brand-accent);
 
   /* Radius — same key names as tokens.css, overrides Tailwind's default scale */
   --radius-xs: var(--radius-xs);
@@ -137,27 +140,29 @@ body {
 }
 
 @media (max-width: 768px) {
+  /* En pantallas chicas el menú lateral queda siempre contraído (solo íconos). */
   .app-layout > aside {
-    width: 72px !important;
-    min-width: 72px !important;
+    width: 60px !important;
+    min-width: 60px !important;
   }
 
-  .app-layout > aside h1,
-  .app-layout > aside nav button > :not(svg),
-  .app-layout > aside > div:last-child > button,
-  .app-layout > aside > div:last-child > div > div:last-child {
+  .app-layout > aside nav button > span:not(.rounded-full):not(.absolute),
+  .app-layout > aside > div:first-child > div:not(:first-child),
+  .app-layout > aside > div:last-child > span {
     display: none !important;
   }
 
-  .app-layout > aside nav {
-    padding: 0 var(--gap-sm, 8px) !important;
-    align-items: center;
+  .app-layout > aside > div:first-child,
+  .app-layout > aside > div:last-child {
+    flex-direction: column;
+    justify-content: center;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
   }
 
   .app-layout > aside nav button {
     justify-content: center !important;
     padding: 0 !important;
-    width: 44px !important;
     height: 44px !important;
   }
 

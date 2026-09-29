@@ -8,7 +8,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-const ORG_ID = '00000000-0000-0000-0000-000000000001';
 const BUCKET = 'chat-media';
 
 const CORS = {
@@ -42,8 +41,14 @@ Deno.serve(async (req) => {
 
   const { data: { user: u } } = await user.auth.getUser(auth.replace(/^Bearer\s+/i, ''));
   if (!u) return json({ error: 'No autenticado' }, 401);
-  const { data: member } = await admin.from('organization_members').select('role').eq('user_id', u.id).eq('organization_id', ORG_ID).maybeSingle();
+  // La organización es la del usuario que envía (sin ORG_ID fijo): solo puede escribirle a sus propios clientes/leads.
+  const { data: member } = await admin.from('organization_members').select('organization_id, role').eq('user_id', u.id).limit(1).maybeSingle();
   if (!member) return json({ error: 'Sin acceso a la organización' }, 403);
+  const ORG_ID: string = member.organization_id;
+  // El número de WhatsApp (secretos de abajo) es de una organización: solo la habilitada en
+  // channel_integrations puede usarlo. Esa tabla solo la modifica el servidor, no los usuarios.
+  const { data: canal } = await admin.from('channel_integrations').select('whatsapp_enabled').eq('organization_id', ORG_ID).maybeSingle();
+  if (!canal?.whatsapp_enabled) return json({ error: 'WhatsApp no está habilitado para tu organización.' }, 403);
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: 'JSON inválido' }, 400); }
@@ -96,7 +101,10 @@ Deno.serve(async (req) => {
 
   // Si un humano respondió a un lead de Comercial, el atendente automático no vuelve a contestar ese mismo mensaje.
   const marcarLeadAtendido = async () => {
-    if (kommoLeadId) await admin.from('comercial_leads').update({ last_atendido_at: new Date().toISOString() }).eq('kommo_lead_id', kommoLeadId);
+    const ahora = new Date().toISOString();
+    if (kommoLeadId) await admin.from('comercial_leads').update({ last_atendido_at: ahora }).eq('organization_id', ORG_ID).eq('kommo_lead_id', kommoLeadId);
+    // Respondiendo desde la ficha del contacto: cuenta como atendido para todos sus leads.
+    else if (clientId) await admin.from('comercial_leads').update({ last_atendido_at: ahora }).eq('organization_id', ORG_ID).eq('client_id', clientId);
   };
 
   const { data: userProfile } = await admin.from('profiles').select('full_name').eq('id', u.id).maybeSingle();

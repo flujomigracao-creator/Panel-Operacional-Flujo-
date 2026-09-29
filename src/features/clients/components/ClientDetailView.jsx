@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
@@ -22,12 +22,15 @@ import {
   Paperclip,
   Pencil,
   Send,
+  Smile,
   Square,
+  Target,
   Upload,
   User,
   Users,
   X,
 } from 'lucide-react';
+import ContactLeads from '@features/crm/components/ContactLeads';
 import OpusRecorder from 'opus-recorder';
 import opusEncoderPath from 'opus-recorder/dist/encoderWorker.min.js?url';
 import { useAssistant } from '@features/assistant/context/AssistantContext';
@@ -345,8 +348,12 @@ export function Conversation({ messages, truncated, emptyText }) {
 // Meta lo acepta al subirlo pero después no lo entrega.
 const AUDIO_MIME_CANDIDATES = ['audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 
-export function ReplyBox({ onSend, onSendFile }) {
+// El selector de emojis pesa bastante: se descarga recién cuando alguien lo abre.
+const EmojiPicker = lazy(() => import('emoji-picker-react'));
+
+export function ReplyBox({ onSend, onSendFile, placeholder }) {
   const [texto, setTexto] = useState('');
+  const [showEmoji, setShowEmoji] = useState(false);
   const [sending, setSending] = useState(false);
   const [recording, setRecording] = useState(false);
   const fileInputRef = useRef(null);
@@ -474,11 +481,37 @@ export function ReplyBox({ onSend, onSendFile }) {
       >
         {recording ? <Square size={15} /> : <Mic size={16} />}
       </button>
+      <div className="relative">
+        <button
+          onClick={() => setShowEmoji((v) => !v)}
+          disabled={sending || recording}
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-chrome-text-muted hover:bg-chrome-bg-raised disabled:opacity-40"
+          title="Emojis"
+          aria-label="Emojis"
+        >
+          <Smile size={16} />
+        </button>
+        {showEmoji && (
+          <div className="absolute bottom-11 left-0 z-50">
+            <Suspense fallback={<div className="rounded-md border border-chrome-border bg-chrome-bg p-3 text-xs text-chrome-text-muted">Cargando…</div>}>
+              <EmojiPicker
+                lazyLoadEmojis
+                searchPlaceholder="Buscar"
+                previewConfig={{ showPreview: false }}
+                width={300}
+                height={360}
+                onEmojiClick={(e) => setTexto((t) => t + e.emoji)}
+              />
+            </Suspense>
+          </div>
+        )}
+      </div>
       <textarea
         value={texto}
         onChange={(e) => setTexto(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
-        placeholder={recording ? 'Grabando audio…' : 'Escribir una respuesta… (el texto se usa como pie si adjuntás un archivo)'}
+        onFocus={() => setShowEmoji(false)}
+        placeholder={recording ? 'Grabando audio…' : placeholder || 'Escribir una respuesta… (el texto se usa como pie si adjuntás un archivo)'}
         rows={2}
         disabled={sending || recording}
         className="flex-1 resize-none rounded-md border border-chrome-border bg-chrome-bg px-3 py-2 text-sm text-chrome-text-active placeholder:text-chrome-text-muted focus:border-brand-primary focus:outline-none disabled:opacity-60"
@@ -555,7 +588,7 @@ function DetailSkeleton() {
  * Kommo) con sus etapas y campos, documentos, pagos, historial y la
  * conversación completa de Kommo.
  */
-export default function ClientDetailView({ clientId, onBack, onNavigateToClient }) {
+export default function ClientDetailView({ clientId, onBack, onNavigateToClient, onOpenChat }) {
   const { userId, userProfile } = useAuth();
   const assistant = useAssistant();
   const queryClient = useQueryClient();
@@ -692,6 +725,14 @@ export default function ClientDetailView({ clientId, onBack, onNavigateToClient 
           >
             <Bot size={13} /> Asistente
           </button>
+          {onOpenChat && (
+            <button
+              onClick={() => onOpenChat(client.id)}
+              className="inline-flex items-center gap-1 rounded-md border border-chrome-border px-3 py-1.5 font-medium text-chrome-text-active hover:bg-chrome-bg-raised"
+            >
+              <MessageSquare size={13} /> Abrir chat
+            </button>
+          )}
           {client.kommo_contact_id && (
             <a href={KOMMO_CONTACT_URL(client.kommo_contact_id)} target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-1 rounded-md bg-chrome-accent px-3 py-1.5 font-medium text-white hover:bg-chrome-accent-hover">
@@ -705,6 +746,10 @@ export default function ClientDetailView({ clientId, onBack, onNavigateToClient 
       <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto pb-1">
         {/* Columna 1: datos + historial */}
         <div className="flex min-w-[360px] flex-1 flex-col gap-4 overflow-y-auto pr-1">
+          <Section icon={Target} title="Leads">
+            <ContactLeads client={client} onOpenChat={onOpenChat} />
+          </Section>
+
           <Section icon={User} title="Datos personales">
             <EditableRow label="Nombre completo" value={client.full_name === client.phone ? '' : client.full_name} onSave={v => saveClient('full_name')(v || client.phone)} />
             <EditableRow label="Nombre preferido" value={client.preferred_name} onSave={saveClient('preferred_name')} />

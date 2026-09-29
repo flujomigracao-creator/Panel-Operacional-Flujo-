@@ -9,6 +9,7 @@
   --brand-primary-dark:  #1e3a8a; /* Blue 900 */
   --brand-primary-light: rgba(30, 64, 175, 0.1);
   --brand-primary-glow:  rgba(30, 64, 175, 0.2);
+  --brand-accent:        #d4a72c;
 
   /* Semantic */
   --color-success:       #10b981;
@@ -51,6 +52,7 @@
   --chrome-border:      rgba(255, 255, 255, 0.06);
   --chrome-text:        #8b93a7;
   --chrome-text-active: #ffffff;
+  --chrome-text-muted:  #6b7388;
   --chrome-accent:      var(--brand-primary);
 
   /* Surface (Dark Mode - Default) — Figma Make theme values (2026-07-13) */
@@ -132,28 +134,55 @@
 }
 
 [data-theme="light"] {
-  --brand-primary:       #1e3a8a; /* Blue 900 */
-  --brand-primary-dark:  #172554; /* Blue 950 */
+  /* Identidad FLUJO: azul confianza como color principal, verde para éxito y dorado solo como acento.
+     La mayor parte de la interfaz es blanco, gris muy claro y texto oscuro. */
+  --brand-primary:       #1e3a8a;
+  --brand-primary-dark:  #172554;
+  --brand-primary-light: rgba(30, 58, 138, 0.07);
+  --brand-primary-glow:  rgba(30, 58, 138, 0.14);
+  --brand-accent:        #b8860b;
 
-  /* Light counterpart derived from the Figma Make dark theme (2026-07-13) — same violet-tinted neutrals, inverted */
-  --surface-canvas:   #fdfcff;
-  --surface-base:     #f7f5fc;
+  --color-success:        #15803d;
+  --color-success-bg:     rgba(21, 128, 61, 0.08);
+  --color-success-border: rgba(21, 128, 61, 0.2);
+  --color-warning:        #b45309;
+  --color-warning-bg:     rgba(217, 119, 6, 0.08);
+  --color-warning-border: rgba(217, 119, 6, 0.22);
+  --color-danger:         #dc2626;
+  --color-danger-bg:      rgba(220, 38, 38, 0.07);
+  --color-danger-border:  rgba(220, 38, 38, 0.2);
+  --color-info:           #1d4ed8;
+  --color-info-bg:        rgba(29, 78, 216, 0.07);
+  --color-info-border:    rgba(29, 78, 216, 0.2);
+
+  --surface-canvas:   #f6f7f9;
+  --surface-base:     #f8f9fb;
   --surface-raised:   #ffffff;
-  --surface-elevated: #ffffff;
-  --surface-overlay:  rgba(255, 255, 255, 0.8);
+  --surface-elevated: #f1f3f6;
+  --surface-overlay:  rgba(15, 23, 42, 0.4);
 
-  --border-subtle:    rgba(23, 19, 33, 0.08);
-  --border-default:   rgba(23, 19, 33, 0.08);
-  --border-strong:    rgba(23, 19, 33, 0.16);
+  --border-subtle:    #eceef2;
+  --border-default:   #e4e7ec;
+  --border-strong:    #cfd4dc;
 
-  --text-primary:   #14121c;
-  --text-secondary: #5b5570;
-  --text-muted:     #8b84a3;
-  --text-disabled:  #c3bdd6;
+  --text-primary:   #0f172a;
+  --text-secondary: #475569;
+  --text-muted:     #8a94a6;
+  --text-disabled:  #c4cad4;
 
-  --shadow-sm:    0 1px 2px rgba(0,0,0,0.05);
-  --shadow-md:    0 4px 6px rgba(0,0,0,0.05);
-  --shadow-lg:    0 10px 15px rgba(0,0,0,0.05);
+  /* La barra lateral y el encabezado también son claros en este tema. */
+  --chrome-bg:          #ffffff;
+  --chrome-bg-raised:   #f3f5f8;
+  --chrome-bg-active:   rgba(30, 58, 138, 0.08);
+  --chrome-border:      #e4e7ec;
+  --chrome-text:        #5b6577;
+  --chrome-text-muted:  #8a94a6;
+  --chrome-text-active: #0f172a;
+  --chrome-accent:      var(--brand-primary);
+
+  --shadow-sm:    0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md:    0 2px 8px rgba(15, 23, 42, 0.06);
+  --shadow-lg:    0 8px 24px rgba(15, 23, 42, 0.08);
 }
 
 /* Badges */

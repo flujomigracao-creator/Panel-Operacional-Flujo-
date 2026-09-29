@@ -16,11 +16,13 @@ import TodayView from '@features/today/components/TodayView';
 import LabView from '@features/lab/components/LabView';
 // Finanzas: no es lazy porque el objetivo es que el usuario la revise a diario.
 import FinanceView from '@features/finance/components/FinanceView';
+// Inicio del CRM (centro de operaciones): es la vista con la que arranca la sesión.
+import HomeView from '@features/crm/components/HomeView';
 
 // Vistas que todavía leen el esquema anterior (clientes, entradas, perfiles…).
 // Se reactivan una por una a medida que se migran al modelo de FLUJO
 // (clients, client_services, documents, messages, tasks).
-export const MIGRATED_VIEWS = new Set(['lab', 'today', 'clients', 'client', 'finance', 'comercial', 'leads', 'chats', 'funil']);
+export const MIGRATED_VIEWS = new Set(['home', 'lab', 'today', 'clients', 'client', 'finance', 'comercial', 'leads', 'chats', 'funil', 'tramites', 'documentos', 'configuracion', 'equipo']);
 
 // Navigation
 import Sidebar from '../navigation/components/Sidebar';
@@ -51,6 +53,10 @@ const ClientsView = lazy(() => import('@features/clients/components/ClientsView'
 const LeadsView = lazy(() => import('@features/crm/components/LeadsView'));
 const FunilView = lazy(() => import('@features/crm/components/FunilView'));
 const ChatsView = lazy(() => import('@features/crm/components/ChatsView'));
+const TramitesView = lazy(() => import('@features/crm/components/TramitesView'));
+const DocumentosView = lazy(() => import('@features/crm/components/DocumentosView'));
+const ConfigView = lazy(() => import('@features/crm/components/ConfigView'));
+const TeamView = lazy(() => import('@features/crm/components/TeamView'));
 const ComercialView = lazy(() => import('@features/comercial/components/ComercialView'));
 const NewClientWizard = lazy(() => import('../components/newClientWizard/NewClientWizard'));
 const TeamChat = lazy(() => import('../components/TeamChat'));
@@ -75,21 +81,13 @@ export default function AppLayout() {
     selectedClientId,
     comercialLeadId,
     chatClientId,
-    navigateToLeads,
-    navigateToFunil,
     navigateToChats,
     navigateToClient,
     navigateToHome,
+    navigateTo,
     navigateToToday,
-    navigateToLab,
-    navigateToFinance,
-    navigateToDashboard,
     navigateToClientsList,
     navigateToComercial,
-    navigateToTeamChat,
-    navigateToTeamManagement,
-    navigateToSettings,
-    navigateToDirectory,
   } = useNavigation(isAuthenticated);
   const isReady = (view) => MIGRATED_VIEWS.has(view);
 
@@ -104,6 +102,23 @@ export default function AppLayout() {
         .then(({ data }) => { if (data?.full_name) addRecentClient({ id: data.id, nombre: data.full_name }); });
     }
   }, [navigateToClient, addRecentClient]);
+
+  // Navegación del menú: las vistas con parámetros se abren "limpias" (sin lead/conversación elegidos).
+  const navigate = useCallback((view) => {
+    if (view === 'clients') navigateToClientsList();
+    else if (view === 'chats') navigateToChats();
+    else if (view === 'comercial') navigateToComercial();
+    else navigateTo(view);
+  }, [navigateTo, navigateToClientsList, navigateToChats, navigateToComercial]);
+
+  // Abre el chat de un lead o de un contacto. Sin contacto todavía, se busca por el contacto de Kommo (k<id>).
+  const openChat = useCallback((target) => {
+    if (target && typeof target === 'object') {
+      navigateToChats(target.client_id || (target.external_contact_id ? `k${target.external_contact_id}` : null));
+    } else {
+      navigateToChats(target || null);
+    }
+  }, [navigateToChats]);
 
   // --- Sidebar ---
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -173,20 +188,7 @@ export default function AppLayout() {
           currentView={currentView}
           isSidebarOpen={isSidebarOpen}
           setIsSidebarOpen={setIsSidebarOpen}
-          navigateToHome={navigateToHome}
-          navigateToToday={navigateToToday}
-          navigateToLab={navigateToLab}
-          navigateToFinance={navigateToFinance}
-          navigateToDashboard={navigateToDashboard}
-          navigateToClientsList={navigateToClientsList}
-          navigateToComercial={navigateToComercial}
-          navigateToLeads={navigateToLeads}
-          navigateToFunil={navigateToFunil}
-          navigateToChats={navigateToChats}
-          navigateToTeamChat={navigateToTeamChat}
-          navigateToTeamManagement={navigateToTeamManagement}
-          navigateToDirectory={navigateToDirectory}
-          isViewReady={isReady}
+          onNavigate={navigate}
         />
 
         {/* Main Content Area */}
@@ -198,7 +200,7 @@ export default function AppLayout() {
             isSidebarOpen={isSidebarOpen}
             setIsSidebarOpen={setIsSidebarOpen}
             navigateToHome={navigateToHome}
-            navigateToSettings={navigateToSettings}
+            navigateToSettings={() => navigateTo('configuracion')}
             globalSearch={globalSearch}
             handleSearchChange={handleSearchChange}
             onClearSearch={() => setGlobalSearch('')}
@@ -213,7 +215,10 @@ export default function AppLayout() {
           <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: currentView === 'client' ? 'hidden' : 'auto' }}>
             <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><LoadingSpinner size="lg" /></div>}>
 
-              {(currentView === 'lab' || !isReady(currentView)) && (
+              {(currentView === 'home' || !isReady(currentView)) && (
+                <HomeView onNavigate={navigate} onOpenChat={openChat} onNavigateToClient={navigateToClientTracked} />
+              )}
+              {currentView === 'lab' && (
                 <LabView onNavigateToClient={isReady('client') ? navigateToClientTracked : undefined} onOpenToday={navigateToToday} />
               )}
               {currentView === 'today' && (
@@ -221,11 +226,15 @@ export default function AppLayout() {
               )}
               {currentView === 'finance' && isReady('finance') && <FinanceView />}
               {currentView === 'dashboard' && isReady('dashboard') && <DashboardView navigateToClientsList={navigateToClientsList} />}
-              {currentView === 'client' && isReady('client') && <ClientDetailView key={selectedClientId} clientId={selectedClientId} onBack={navigateToClientsList} onNavigateToClient={navigateToClientTracked} />}
+              {currentView === 'client' && isReady('client') && <ClientDetailView key={selectedClientId} clientId={selectedClientId} onBack={navigateToClientsList} onNavigateToClient={navigateToClientTracked} onOpenChat={openChat} />}
               {currentView === 'clients' && isReady('clients') && <ClientsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} />}
-              {currentView === 'leads' && <LeadsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} onOpenChat={(lead) => navigateToChats(lead.client_id)} />}
-              {currentView === 'funil' && <FunilView onNavigateToClient={navigateToClientTracked} onOpenChat={(lead) => navigateToChats(lead.client_id)} />}
+              {currentView === 'leads' && <LeadsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} onOpenChat={openChat} />}
+              {currentView === 'funil' && <FunilView onNavigateToClient={navigateToClientTracked} onOpenChat={openChat} />}
               {currentView === 'chats' && <ChatsView key={chatClientId || 'chats'} initialClientId={chatClientId} onNavigateToClient={navigateToClientTracked} />}
+              {currentView === 'tramites' && <TramitesView onNavigateToClient={navigateToClientTracked} />}
+              {currentView === 'documentos' && <DocumentosView onNavigateToClient={navigateToClientTracked} />}
+              {currentView === 'configuracion' && <ConfigView />}
+              {currentView === 'equipo' && <TeamView />}
               {currentView === 'comercial' && isReady('comercial') && <ComercialView leadAbiertoKommoId={comercialLeadId} onAbrirLead={navigateToComercial} />}
               {currentView === 'team-chat' && isReady('team-chat') && <TeamChat isFullView={true} />}
               {currentView === 'team-management' && isReady('team-management') && <TeamManagement userProfile={userProfile} />}

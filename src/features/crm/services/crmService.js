@@ -1,5 +1,12 @@
 import { supabase } from '@shared/config/supabaseClient';
 
+// Modelo de datos del CRM (ver docs/architecture/0002-crm-core.md):
+// - Se LEE de las vistas crm_leads / crm_conversations (nombres neutrales, RLS del usuario).
+// - Se ESCRIBE con los RPC crm_* (que operan sobre comercial_leads, la tabla que también escribe n8n)
+//   o directo en las tablas propias del CRM (crm_lead_tags, crm_lead_events, crm_stages…).
+// - La base vincula cada lead con su contacto y registra la actividad con triggers, así el resultado
+//   es el mismo escriba quien escriba (panel, n8n o el webhook de Kommo).
+
 const PAGE_SIZE = 1000;
 
 const must = ({ data, error }) => {
@@ -18,17 +25,56 @@ async function invoke(name, body) {
   return data;
 }
 
+// Organización del usuario (RLS de organization_members solo devuelve la propia). Se cachea por sesión.
+let orgPromise = null;
+let orgUser = null;
+export async function getMyOrganizationId() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Sin sesión');
+  if (!orgPromise || orgUser !== user.id) {
+    orgUser = user.id;
+    orgPromise = supabase.from('organization_members').select('organization_id').eq('user_id', user.id).limit(1)
+      .then(must)
+      .then((rows) => {
+        if (!rows[0]) throw new Error('Tu usuario no pertenece a ninguna organización');
+        return rows[0].organization_id;
+      })
+      .catch((err) => { orgPromise = null; throw err; });
+  }
+  return orgPromise;
+}
+
 // ── Embudos y etapas ────────────────────────────────────────────────────────────
 export async function getPipelines() {
   const [pipelines, stages] = await Promise.all([
-    supabase.from('crm_pipelines').select('id, code, name, position, is_default').order('position').then(must),
-    supabase.from('crm_stages').select('id, pipeline_id, name, position, kind, color').order('position').then(must),
+    supabase.from('crm_pipelines').select('id, code, name, position, is_default, kommo_pipeline_id').order('position').then(must),
+    supabase.from('crm_stages').select('id, pipeline_id, name, position, kind, color, is_entry, kommo_status_id').order('position').then(must),
   ]);
   return pipelines.map((p) => ({ ...p, stages: stages.filter((s) => s.pipeline_id === p.id) }));
 }
 
+export async function updateStage(stageId, patch) {
+  must(await supabase.from('crm_stages').update(patch).eq('id', stageId));
+}
+
+export async function createStage(pipelineId, { name, position, kind = 'open' }) {
+  const organization_id = await getMyOrganizationId();
+  must(await supabase.from('crm_stages').insert({ organization_id, pipeline_id: pipelineId, name: name.trim(), position, kind }));
+}
+
+// Solo etapas propias del panel (sin espejo en Kommo) y vacías: las de Kommo las usa n8n.
+export async function deleteStage(stageId) {
+  must(await supabase.from('crm_stages').delete().eq('id', stageId).is('kommo_status_id', null));
+}
+
+// Marca una sola etapa de entrada por embudo.
+export async function setEntryStage(pipelineId, stageId) {
+  must(await supabase.from('crm_stages').update({ is_entry: false }).eq('pipeline_id', pipelineId).neq('id', stageId));
+  must(await supabase.from('crm_stages').update({ is_entry: true }).eq('id', stageId));
+}
+
 // ── Leads ───────────────────────────────────────────────────────────────────────
-const LEAD_COLUMNS = 'id, client_id, name, phone, service_label, value, stage_id, stage_name, stage_kind, pipeline_id, stage_position, assigned_to, lead_source, created_at, updated_at, last_inbound_at, last_answered_at, needs_reply, ai_paused, temperature, external_id, country, city';
+const LEAD_COLUMNS = 'id, client_id, name, phone, service_label, value, stage_id, stage_name, stage_kind, pipeline_id, stage_position, assigned_to, lead_source, created_at, updated_at, last_inbound_at, last_answered_at, needs_reply, ai_paused, temperature, external_id, external_contact_id, country, city';
 
 // Supabase corta cada request en 1000 filas: se pagina hasta traerlos todos.
 export async function getLeads() {
@@ -46,6 +92,40 @@ export async function getLeads() {
   return all;
 }
 
+export async function getLeadsByClient(clientId) {
+  return must(await supabase.from('crm_leads').select(LEAD_COLUMNS).eq('client_id', clientId).order('updated_at', { ascending: false }));
+}
+
+// Alta desde el panel. La base busca/crea el contacto por teléfono (sin duplicar personas),
+// lo deja en la etapa de entrada del embudo y registra "Lead creado".
+export async function createLead({ name, phone, serviceLabel, value, stageId, assignedTo }) {
+  const res = must(await supabase.rpc('crm_create_lead', {
+    p_name: name,
+    p_phone: phone || null,
+    p_service_label: serviceLabel || null,
+    p_value: value === '' || value == null ? null : Number(value),
+    p_stage_id: stageId || null,
+    p_assigned_to: assignedTo || null,
+  }));
+  if (!res?.ok) throw new Error(res?.error === 'falta_nombre' ? 'Falta el nombre' : res?.error || 'No se pudo crear el lead');
+  return res;
+}
+
+// Cambia responsable / trámite / valor de uno o varios leads. Solo se tocan las claves presentes.
+export async function updateLeads(leadIds, patch) {
+  const res = must(await supabase.rpc('crm_update_leads', { p_lead_ids: leadIds, p_patch: patch }));
+  if (!res?.ok) throw new Error('No se pudo guardar');
+  return res;
+}
+
+export const assignLeads = (leadIds, userId) => updateLeads(leadIds, { assigned_to: userId || '' });
+
+// Nora (atendente IA) activa o pausada para este lead. Es la misma columna que usa la vista de Nora.
+export async function setAiPaused(leadId, paused) {
+  must(await supabase.from('comercial_leads').update({ atendente_pausado: paused }).eq('id', leadId));
+}
+
+// ── Etiquetas ────────────────────────────────────────────────────────────────────
 export async function getLeadTags() {
   return must(await supabase.from('crm_lead_tags').select('lead_id, tag_id'));
 }
@@ -54,12 +134,22 @@ export async function getTags() {
   return must(await supabase.from('tags').select('id, name, color').order('name'));
 }
 
-export async function createTag(organizationId, name) {
-  return must(await supabase.from('tags').insert({ organization_id: organizationId, name: name.trim() }).select('id, name, color').single());
+export async function createTag(name) {
+  const organization_id = await getMyOrganizationId();
+  return must(await supabase.from('tags').insert({ organization_id, name: name.trim() }).select('id, name, color').single());
 }
 
-export async function addTagToLeads(organizationId, leadIds, tagId) {
-  const rows = leadIds.map((lead_id) => ({ organization_id: organizationId, lead_id, tag_id: tagId }));
+export async function renameTag(tagId, name) {
+  must(await supabase.from('tags').update({ name: name.trim() }).eq('id', tagId));
+}
+
+export async function deleteTag(tagId) {
+  must(await supabase.from('tags').delete().eq('id', tagId));
+}
+
+export async function addTagToLeads(leadIds, tagId) {
+  const organization_id = await getMyOrganizationId();
+  const rows = leadIds.map((lead_id) => ({ organization_id, lead_id, tag_id: tagId }));
   must(await supabase.from('crm_lead_tags').upsert(rows, { onConflict: 'lead_id,tag_id', ignoreDuplicates: true }));
 }
 
@@ -67,54 +157,20 @@ export async function removeTagFromLead(leadId, tagId) {
   must(await supabase.from('crm_lead_tags').delete().eq('lead_id', leadId).eq('tag_id', tagId));
 }
 
-// Miembros de la organización (para responsables). RLS limita a la propia organización.
+// ── Equipo ───────────────────────────────────────────────────────────────────────
+// Miembros de la organización. RLS limita a la propia organización.
 export async function getTeam() {
-  const members = must(await supabase.from('organization_members').select('user_id, role'));
+  const members = must(await supabase.from('organization_members').select('user_id, role, created_at'));
   if (!members.length) return [];
   const profiles = must(await supabase.from('profiles').select('id, full_name, email').in('id', members.map((m) => m.user_id)));
-  return profiles.map((p) => ({ id: p.id, name: p.full_name || p.email || 'Sin nombre' }));
-}
-
-export async function assignLeads(leadIds, userId) {
-  must(await supabase.from('comercial_leads').update({ assigned_to: userId || null }).in('id', leadIds));
-}
-
-// Alta manual: reutiliza el contacto si ya existe uno con ese teléfono (no duplica personas)
-// y deja el lead en la primera etapa del embudo. Sin lead en Kommo (external_id nulo).
-export async function createLead({ organizationId, stage, name, phone, serviceLabel, value, assignedTo }) {
-  const cleanPhone = phone?.trim() || null;
-  let clientId = null;
-  if (cleanPhone) {
-    const existing = must(await supabase.from('clients').select('id').eq('phone', cleanPhone).limit(1));
-    clientId = existing[0]?.id || null;
-  }
-  if (!clientId) {
-    clientId = must(await supabase
-      .from('clients')
-      .insert({ organization_id: organizationId, full_name: name.trim(), phone: cleanPhone, status: 'lead', lead_source: 'panel' })
-      .select('id')
-      .single()).id;
-  }
-  // etapa_status_id/nombre/position son las columnas que sigue leyendo n8n.
-  const stageRow = must(await supabase.from('crm_stages').select('kommo_status_id, name, position').eq('id', stage.id).single());
-  const lead = must(await supabase
-    .from('comercial_leads')
-    .insert({
-      organization_id: organizationId,
-      client_id: clientId,
-      nombre: name.trim(),
-      telefono: cleanPhone,
-      tramite_texto: serviceLabel?.trim() || null,
-      precio: value === '' || value == null ? null : Number(value),
-      etapa_status_id: stageRow.kommo_status_id,
-      etapa_nombre: stageRow.name,
-      etapa_position: stageRow.position,
-      assigned_to: assignedTo || null,
-      lead_source: 'panel',
-    })
-    .select('id')
-    .single());
-  return lead;
+  const byId = Object.fromEntries(profiles.map((p) => [p.id, p]));
+  return members.map((m) => ({
+    id: m.user_id,
+    name: byId[m.user_id]?.full_name || byId[m.user_id]?.email || 'Sin nombre',
+    email: byId[m.user_id]?.email || '',
+    role: m.role,
+    since: m.created_at,
+  }));
 }
 
 // ── Mover de etapa: Supabase primero (idempotente), después Kommo ─────────────────
@@ -139,7 +195,7 @@ export async function syncEvent(eventId) {
   }
 }
 
-// Eventos de etapa que todavía no llegaron a Kommo (falló la llamada o no se hizo).
+// Cambios de etapa que todavía no llegaron a Kommo (falló la llamada o no se hizo).
 export async function getUnsyncedEvents() {
   return must(await supabase
     .from('crm_lead_events')
@@ -149,13 +205,16 @@ export async function getUnsyncedEvents() {
     .order('created_at'));
 }
 
-export async function retryUnsynced() {
-  const events = await getUnsyncedEvents();
+export async function retryUnsynced(eventIds = null) {
+  const events = eventIds ? eventIds.map((id) => ({ id })) : await getUnsyncedEvents();
   let synced = 0;
+  const errors = [];
   for (const ev of events) {
-    if ((await syncEvent(ev.id)).sync === 'synced') synced += 1;
+    const r = await syncEvent(ev.id);
+    if (r.sync === 'synced') synced += 1;
+    else errors.push(r.syncError);
   }
-  return { total: events.length, synced };
+  return { total: events.length, synced, errors };
 }
 
 // ── Actividad y notas internas ───────────────────────────────────────────────────
@@ -163,15 +222,25 @@ export async function getLeadEvents(leadIds, limit = 100) {
   if (!leadIds.length) return [];
   return must(await supabase
     .from('crm_lead_events')
-    .select('id, lead_id, event_type, actor_id, metadata, sync_status, created_at')
+    .select('id, lead_id, event_type, actor_id, metadata, sync_status, sync_error, created_at')
     .in('lead_id', leadIds)
     .order('created_at', { ascending: false })
     .limit(limit));
 }
 
-export async function addNote(organizationId, leadId, text, actorId) {
+export async function getRecentEvents(limit = 12) {
+  return must(await supabase
+    .from('crm_lead_events')
+    .select('id, lead_id, event_type, actor_id, metadata, created_at')
+    .is('metadata->>backfill', null)
+    .order('created_at', { ascending: false })
+    .limit(limit));
+}
+
+export async function addNote(leadId, text, actorId) {
+  const organization_id = await getMyOrganizationId();
   must(await supabase.from('crm_lead_events').insert({
-    organization_id: organizationId,
+    organization_id,
     lead_id: leadId,
     event_type: 'note',
     actor_id: actorId || null,
@@ -179,10 +248,23 @@ export async function addNote(organizationId, leadId, text, actorId) {
   }));
 }
 
-// ── Tareas (tabla `tasks` compartida con n8n/Hoy) ───────────────────────────────────
-export async function createTask({ organizationId, clientId, conversationId, title, dueAt }) {
+// ── Tareas (tabla `tasks`, compartida con n8n y la vista Tareas) ─────────────────────
+export async function getOpenTasks({ clientId } = {}) {
+  let q = supabase
+    .from('tasks')
+    .select('id, title, details, kind, priority, status, due_at, client_id, created_at')
+    .in('status', ['open', 'in_progress'])
+    .order('due_at', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (clientId) q = q.eq('client_id', clientId);
+  return must(await q);
+}
+
+export async function createTask({ clientId, conversationId, title, dueAt }) {
+  const organization_id = await getMyOrganizationId();
   must(await supabase.from('tasks').insert({
-    organization_id: organizationId,
+    organization_id,
     client_id: clientId || null,
     conversation_id: conversationId || null,
     kind: 'manual',
@@ -192,27 +274,28 @@ export async function createTask({ organizationId, clientId, conversationId, tit
   }));
 }
 
+export async function completeTask(taskId) {
+  must(await supabase.from('tasks').update({ status: 'done', completed_at: new Date().toISOString() }).eq('id', taskId));
+}
+
 // ── Chats ────────────────────────────────────────────────────────────────────────
 export const CONVERSATIONS_LIMIT = 300;
 export const MESSAGES_LIMIT = 200;
 
+const CONVERSATION_COLUMNS = 'id, client_id, channel, status, last_message_at, kommo_lead_id, kommo_contact_id, display_name, phone, client_assigned_to, last_direction, last_type, last_content, last_sender, last_at, unread_count';
+
 export async function getConversations() {
-  const convs = must(await supabase
-    .from('conversations')
-    .select('id, client_id, channel, status, last_message_at, kommo_lead_id, human_takeover_until, clients(full_name, phone, assigned_to)')
+  return must(await supabase
+    .from('crm_conversations')
+    .select(CONVERSATION_COLUMNS)
     .order('last_message_at', { ascending: false, nullsFirst: false })
     .limit(CONVERSATIONS_LIMIT));
-  if (!convs.length) return [];
-  // Último mensaje de cada conversación (una sola consulta, se queda con el primero por conversación).
-  const last = must(await supabase
-    .from('messages')
-    .select('conversation_id, direction, message_type, content, created_at')
-    .in('conversation_id', convs.map((c) => c.id))
-    .order('created_at', { ascending: false })
-    .limit(convs.length * 3));
-  const lastBy = new Map();
-  for (const m of last) if (!lastBy.has(m.conversation_id)) lastBy.set(m.conversation_id, m);
-  return convs.map((c) => ({ ...c, last: lastBy.get(c.id) || null }));
+}
+
+export async function getUnreadConversationsCount() {
+  const { count, error } = await supabase.from('crm_conversations').select('id', { count: 'exact', head: true }).gt('unread_count', 0);
+  if (error) throw error;
+  return count || 0;
 }
 
 export async function getConversationMessages(conversationId) {
@@ -225,14 +308,50 @@ export async function getConversationMessages(conversationId) {
   return desc.slice().reverse();
 }
 
-export async function sendText(clientId, mensaje) {
-  return invoke('enviar-whatsapp-cliente', { client_id: clientId, mensaje });
+// Destino del envío: el contacto (client_id) o, si la conversación todavía no tiene contacto,
+// el lead de Kommo. La edge function enviar-whatsapp-cliente acepta cualquiera de los dos.
+const target = ({ clientId, kommoLeadId }) => (clientId ? { client_id: clientId } : { kommo_lead_id: kommoLeadId });
+
+export async function sendText(to, mensaje) {
+  return invoke('enviar-whatsapp-cliente', { ...target(to), mensaje });
 }
 
-export async function sendFile(organizationId, clientId, file, caption = '') {
+export async function sendFile(to, file, caption = '') {
+  const organizationId = await getMyOrganizationId();
   const ext = file.name.split('.').pop() || 'bin';
-  const path = `${organizationId}/panel/client-${clientId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+  const folder = to.clientId ? `client-${to.clientId}` : `lead-${to.kommoLeadId}`;
+  const path = `${organizationId}/panel/${folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
   const { error } = await supabase.storage.from('chat-media').upload(path, file, { contentType: file.type });
   if (error) throw error;
-  return invoke('enviar-whatsapp-cliente', { client_id: clientId, storage_path: path, file_name: file.name, mime_type: file.type, caption: caption || undefined });
+  return invoke('enviar-whatsapp-cliente', { ...target(to), storage_path: path, file_name: file.name, mime_type: file.type, caption: caption || undefined });
+}
+
+// ── Trámites y documentos ─────────────────────────────────────────────────────────
+export async function getTramites() {
+  return must(await supabase
+    .from('client_services')
+    .select('id, client_id, status, price, currency, assigned_to, started_at, completed_at, created_at, updated_at, kommo_lead_id, services(name), service_stages(name), clients(full_name, phone)')
+    .order('updated_at', { ascending: false })
+    .limit(PAGE_SIZE));
+}
+
+export async function getDocumentos() {
+  return must(await supabase
+    .from('documents')
+    .select('id, client_id, client_service_id, status, file_name, mime_type, legivel, created_at, updated_at, document_types(name), clients(full_name)')
+    .order('created_at', { ascending: false })
+    .limit(PAGE_SIZE));
+}
+
+// ── Configuración de la organización ───────────────────────────────────────────────
+export async function getOrgSetting(key) {
+  const rows = must(await supabase.from('organization_settings').select('value').eq('key', key).limit(1));
+  return rows[0]?.value ?? null;
+}
+
+export async function setOrgSetting(key, value) {
+  const organization_id = await getMyOrganizationId();
+  const existing = must(await supabase.from('organization_settings').select('id').eq('key', key).limit(1));
+  if (existing[0]) must(await supabase.from('organization_settings').update({ value, updated_at: new Date().toISOString() }).eq('id', existing[0].id));
+  else must(await supabase.from('organization_settings').insert({ organization_id, key, value }));
 }

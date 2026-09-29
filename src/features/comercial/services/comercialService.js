@@ -1,4 +1,7 @@
 import { supabase } from '@shared/config/supabaseClient';
+// La organización se pasa explícita en cada alta: las columnas organization_id de las tablas de Nora
+// todavía tienen como valor por defecto la organización original, y no hay que depender de eso.
+import { getMyOrganizationId } from '@features/crm/services/crmService';
 
 const must = ({ data, error }) => {
   if (error) throw error;
@@ -97,6 +100,7 @@ export async function actualizarAprendizajeNora(id, cambios, userId) {
 
 export async function ensenarANora(texto, tipo, userId, origen = 'manual', kommoLeadId = null) {
   must(await supabase.from('nora_aprendizajes').insert({
+    organization_id: await getMyOrganizationId(),
     leccion: texto.trim(),
     tipo,
     origen,
@@ -136,7 +140,7 @@ export async function getReglasNora() {
 }
 
 export async function guardarReglaNora(texto, userId, kommoLeadId = null) {
-  must(await supabase.from('nora_reglas').insert({ texto: texto.trim(), kommo_lead_id: kommoLeadId, creado_por: userId || null }));
+  must(await supabase.from('nora_reglas').insert({ organization_id: await getMyOrganizationId(), texto: texto.trim(), kommo_lead_id: kommoLeadId, creado_por: userId || null }));
 }
 
 export async function actualizarReglaNora(id, cambios) {
@@ -150,7 +154,7 @@ const ENTRENADOR_URL = 'https://yhlqmdlg-n8n.cbr6xz.easypanel.host/webhook/nora-
 export async function hablarConEntrenador(mensajes, kommoLeadId = null) {
   const { id } = must(await supabase
     .from('nora_entrenador_pedidos')
-    .insert({ kommo_lead_id: kommoLeadId, mensajes })
+    .insert({ organization_id: await getMyOrganizationId(), kommo_lead_id: kommoLeadId, mensajes })
     .select('id')
     .single());
   const res = await fetch(ENTRENADOR_URL, {
