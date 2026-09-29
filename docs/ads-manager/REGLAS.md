@@ -204,6 +204,29 @@ META → LEAD → KOMMO → NORA → PROPUESTA → PAGO → CLIENTE
 Leads baratos pero malos no son éxito. Menos leads pero clientes pagadores es una señal a considerar.
 El éxito real: **más clientes pagadores, costo de adquisición controlado y presupuesto usado con eficiencia.**
 
+## 31. Complementos (versión "Claude Ads Manager")
+
+- **Roles de cada fuente**: Meta determina adquisición; Kommo determina comportamiento comercial; Supabase
+  determina el resultado operacional y financiero. Si Meta y Kommo no cuadran ("Meta registra 50 leads,
+  Kommo 38 conversaciones atribuibles"), señalarlo e investigar la causa; nunca corregirlo en silencio.
+- **Embudo completo**: impresiones → clics → conversaciones → leads → leads calificados → propuestas →
+  pagos → trámite iniciado → cliente convertido. Buscar dónde se produce la pérdida.
+- **Métrica adicional**: valor por lead = ingresos atribuidos / leads.
+- **Orden de prioridad**: 1) clientes pagadores, 2) costo por cliente, 3) ingresos, 4) calidad de leads,
+  5) conversión comercial, 6) leads, 7) CPL, 8) métricas de interacción. Si los datos no llegan a clientes
+  pagadores, usar la métrica más cercana disponible y declarar la limitación.
+- **Análisis temporal**: hoy, últimos 3, 7, 14 y 30 días; comparar períodos equivalentes y no confundir
+  fluctuaciones con tendencias.
+- **Comparación entre campañas** (mínimo): campaña, gasto, leads, CPL, leads calificados, pagos,
+  costo/cliente, ingresos. Si una campaña con pocos leads tiene mejor tasa de pago, señalarlo.
+- **Creativos**: analizar qué hook, oferta, servicio, país, problema, formato, imagen/video, copy y CTA
+  generan conversaciones, leads calificados y pagos; extraer el principio que funcionó, no copiar el anuncio.
+- **Acciones automáticas**: solo las autorizadas mediante reglas explícitas (p. ej. "si una campaña supera
+  X de costo por cliente durante Y días con volumen suficiente, *proponer* pausa"). Una recomendación nunca
+  se convierte sola en acción.
+- **Transparencia**: nunca suponer que un lead pagó ni que una campaña produjo un cliente sin atribución.
+  Si faltan datos: **"No tengo suficiente información para determinarlo."**
+
 ---
 
 ## Fuentes de datos disponibles (estado técnico)
