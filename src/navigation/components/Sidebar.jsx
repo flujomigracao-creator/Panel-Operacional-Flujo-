@@ -73,8 +73,6 @@ export default function Sidebar({ currentView, isSidebarOpen, onNavigate }) {
         <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-white/15 text-[12px] font-bold" title={organizationName}>
           {logoUrl ? <img src={logoUrl} alt={organizationName} className="h-full w-full object-contain" /> : orgInitials(organizationName)}
         </div>
- className="rounded p-1 text-white/50 hover:text-white" aria-label="Cerrar menú"><X size={14} /></button>
-        )}
       </div>
 
       <nav className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden">
