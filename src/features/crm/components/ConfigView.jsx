@@ -119,7 +119,7 @@ function Pipelines() {
           </tbody>
         </table>
         <div className="mt-3 flex gap-2">
-          <input className={`${inputCls} max-w-xs`} placeholder="Nueva etapa" value={newStage[p.id] || ''} onChange={(e) => setNewStage((st) => ({ ...st, [p.id]: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && add()} />
+          <input className={`${inputCls} max-w-xs flex-1`} placeholder="Nueva etapa" value={newStage[p.id] || ''} onChange={(e) => setNewStage((st) => ({ ...st, [p.id]: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && add()} />
           <button className={btnCls} onClick={add} disabled={busy || !(newStage[p.id] || '').trim()}><Plus size={13} /> Agregar etapa</button>
         </div>
         <p className="mt-2 text-[11px] text-text-muted">Los leads que se muevan a una etapa creada aquí (sin “Kommo”) quedan solo en el panel: Kommo no se actualiza.</p>
@@ -150,7 +150,7 @@ function Tags() {
         {tags.data?.length === 0 && <p className="text-xs text-text-muted">Todavía no hay etiquetas.</p>}
       </div>
       <div className="mt-3 flex gap-2">
-        <input className={`${inputCls} max-w-xs`} placeholder="Nueva etiqueta" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+        <input className={`${inputCls} max-w-xs flex-1`} placeholder="Nueva etiqueta" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
         <button className={btnCls} onClick={add} disabled={busy || !name.trim()}><Plus size={13} /> Crear</button>
       </div>
     </Card>

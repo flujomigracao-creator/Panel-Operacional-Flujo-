@@ -196,7 +196,7 @@ export default function LeadsView({ searchQuery = '', onNavigateToClient, onOpen
         </PageHeader>
 
         <div className="flex flex-col gap-2 border-b border-border bg-bg-surface px-4 py-2">
-          <div className="relative max-w-md">
+          <div className="relative w-full max-w-md">
             <Search size={14} className="absolute left-2.5 top-2 text-text-muted" />
             <input className={`${inputCls} h-8 !pl-8`} placeholder="Buscar leads por nombre, teléfono, trámite, país…" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
