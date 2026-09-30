@@ -7,7 +7,7 @@ const AssistantContext = createContext(null);
 const SALUDO = {
   id: 'saludo',
   role: 'assistant',
-  content: 'Hola, soy tu asistente. Puedo decirte qué tienes pendiente, buscar clientes, resumir conversaciones, sacar datos de los chats y dejar acciones listas para que las confirmes.',
+  content: 'Hola, soy el Asistente de Inteligencia de FLUJO Migração. Puedo analizar el rendimiento de tus campañas en Meta Ads, calcular costos por conversación y ventas, revisar trámites y clientes, y preparar propuestas de optimización listas para tu confirmación.',
   propuestas: [],
 };
 

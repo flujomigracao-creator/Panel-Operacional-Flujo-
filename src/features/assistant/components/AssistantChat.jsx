@@ -6,9 +6,17 @@ import ProposalCard from './ProposalCard';
 
 const ATAJOS_GENERALES = [
   '¿Qué tengo pendiente hoy?',
+  '¿Cómo van las campañas de Meta Ads esta semana?',
   '¿Qué trámites llevan más de 5 días parados?',
   '¿Cuánto cobré este mes?',
-  '¿Quién tiene documentos por revisar?',
+];
+
+const ATAJOS_INTELIGENCIA = [
+  'Analiza mis campañas de esta semana y dime dónde optimizar',
+  'Compara esta semana con la anterior en Meta Ads',
+  '¿Qué campaña tiene el mejor costo por conversación?',
+  '¿Cuántos leads atendió Nora y cuántos terminaron pagando?',
+  'Detecta fugas de gasto en mis anuncios activos',
 ];
 
 const ATAJOS_CLIENTE = [
@@ -66,7 +74,11 @@ export default function AssistantChat({ onNavigateToClient }) {
   };
 
   const abrirCliente = (id, name) => { onNavigateToClient?.(id, name); };
-  const atajos = contexto.client_id ? ATAJOS_CLIENTE : ATAJOS_GENERALES;
+  const atajos = contexto.client_id
+    ? ATAJOS_CLIENTE
+    : contexto.vista === 'intelligence'
+    ? ATAJOS_INTELIGENCIA
+    : ATAJOS_GENERALES;
   const soloSaludo = messages.length <= 1;
 
   if (!open) {

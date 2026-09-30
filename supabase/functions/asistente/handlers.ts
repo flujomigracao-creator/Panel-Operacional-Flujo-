@@ -2,6 +2,7 @@
 // Corre con service role, pero todo se limita a la organización y se registra.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { CLIENT_FIELDS, ORG_ID } from './tools.ts';
+import { executeAdsProposal } from './ads.ts';
 
 async function must<T>(p: PromiseLike<{ data: T; error: any }>): Promise<T> {
   const { data, error } = await p;
@@ -33,6 +34,9 @@ async function evento(admin: SupabaseClient, clientServiceId: string, tipo: stri
 }
 
 export async function executeProposal(admin: SupabaseClient, userId: string, p: any, opciones: any = {}): Promise<Record<string, unknown>> {
+  if (p.tipo && String(p.tipo).startsWith('ads_')) {
+    return await executeAdsProposal(admin, userId, p);
+  }
   const d = p.payload || {};
   switch (p.tipo) {
     case 'cambiar_etapa': {

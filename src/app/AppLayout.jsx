@@ -22,7 +22,7 @@ import HomeView from '@features/crm/components/HomeView';
 // Vistas que todavía leen el esquema anterior (clientes, entradas, perfiles…).
 // Se reactivan una por una a medida que se migran al modelo de FLUJO
 // (clients, client_services, documents, messages, tasks).
-export const MIGRATED_VIEWS = new Set(['home', 'lab', 'today', 'clients', 'client', 'finance', 'comercial', 'leads', 'chats', 'tramites', 'documentos', 'configuracion', 'equipo', 'tramite']);
+export const MIGRATED_VIEWS = new Set(['home', 'lab', 'today', 'clients', 'client', 'finance', 'comercial', 'leads', 'chats', 'tramites', 'documentos', 'configuracion', 'equipo', 'tramite', 'intelligence']);
 
 // Navigation
 import Sidebar from '../navigation/components/Sidebar';
@@ -50,6 +50,7 @@ import AvisoConexiones from '@features/comercial/components/AvisoConexiones';
 // Views
 
 const ContactView = lazy(() => import('@features/crm/components/ContactView'));
+const IntelligenceCenterView = lazy(() => import('@features/assistant/components/IntelligenceCenterView'));
 const ClientsView = lazy(() => import('@features/clients/components/ClientsView'));
 const LeadsView = lazy(() => import('@features/crm/components/LeadsView'));
 const ChatsView = lazy(() => import('@features/crm/components/ChatsView'));
@@ -88,6 +89,7 @@ export default function AppLayout() {
     navigateToClient,
     navigateToHome,
     navigateTo,
+    navigateToIntelligence,
     navigateToToday,
     navigateToClientsList,
     navigateToComercial,
@@ -230,6 +232,9 @@ export default function AppLayout() {
               )}
               {currentView === 'lab' && (
                 <LabView onNavigateToClient={isReady('client') ? navigateToClientTracked : undefined} onOpenToday={navigateToToday} />
+              )}
+              {currentView === 'intelligence' && isReady('intelligence') && (
+                <IntelligenceCenterView />
               )}
               {currentView === 'today' && (
                 <TodayView onNavigateToClient={isReady('client') ? navigateToClientTracked : undefined} onOpenLead={navigateToComercial} />

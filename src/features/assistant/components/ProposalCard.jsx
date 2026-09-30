@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import { AlertTriangle, Check, CheckCircle2, Loader2, X, XCircle } from 'lucide-react';
+import AdsProposalDetail from './AdsProposalDetail';
 
 const TIPO_LABEL = {
   cambiar_etapa: 'Cambiar etapa',
@@ -16,6 +17,9 @@ const TIPO_LABEL = {
   generar_documento: 'Generar documento',
   relacionar_clientes: 'Relacionar clientes',
   agregar_participante: 'Agregar persona al trámite',
+  ads_cambiar_estado_campana: 'Meta Ads — Cambiar estado',
+  ads_cambiar_presupuesto_campana: 'Meta Ads — Presupuesto',
+  ads_crear_campana: 'Meta Ads — Nueva Campaña',
 };
 
 // Tabla de datos encontrados (extracción de la conversación): el usuario elige qué guardar.
@@ -80,6 +84,10 @@ export default function ProposalCard({ proposal, onConfirm, onCancel }) {
     <div className={`mt-2 rounded-lg border p-3 ${pending ? 'border-brand-primary/60 bg-brand-primary/10' : 'border-chrome-border bg-chrome-bg-raised'}`}>
       <p className="text-[11px] font-semibold uppercase tracking-wide text-chrome-text-muted">{TIPO_LABEL[proposal.tipo] || proposal.tipo}</p>
       <p className="mt-0.5 text-sm text-chrome-text-active">{proposal.resumen}</p>
+
+      {proposal.tipo?.startsWith('ads_') && (
+        <AdsProposalDetail proposal={proposal} />
+      )}
 
       {proposal.tipo === 'lista_documentos' && (
         <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs text-chrome-text">

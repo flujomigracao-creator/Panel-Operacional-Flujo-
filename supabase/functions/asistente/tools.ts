@@ -1,6 +1,7 @@
 // Herramientas del asistente. Las de lectura consultan con el JWT del usuario (RLS aplica);
 // las de acción NO ejecutan nada: crean una propuesta que el usuario confirma en el panel.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import { ADS_TOOL_DEFS, runAdsTool } from './ads.ts';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -80,6 +81,7 @@ export const TOOL_DEFS = [
     rol: { type: 'string', enum: ['dependiente', 'conyuge', 'hijo', 'chamante', 'representante', 'otro'] },
   }, ['client_service_id', 'client_id', 'rol']),
   fn('proponer_generar_documento', 'Propone generar una declaración/PDF del trámite con las plantillas de n8n y guardarla en la carpeta de Drive.', { client_service_id: str('UUID del trámite'), documento: str('Qué documento generar, ej. declaracao_cpf, declaracao_eletronica, declaracao_entrada, declaracao_hipossuficiencia') }, ['client_service_id', 'documento']),
+  ...ADS_TOOL_DEFS,
 ];
 
 const cut = (v: unknown, max = 14000) => {
@@ -298,8 +300,17 @@ export async function runTool(ctx: Ctx, name: string, args: any): Promise<string
       return cut(await proposal(ctx, 'generar_documento', { client_service_id: t.client_service_id, kommo_lead_id: t.kommo_lead_id, documento: args.documento },
         `Generar ${args.documento} para ${t.servicio} de ${t.cliente} y guardarlo en su carpeta de Drive`));
     }
-    default:
+    default: {
+      if (
+        name.includes('_ads') ||
+        name.startsWith('proponer_cambiar_estado_campana') ||
+        name.startsWith('proponer_cambiar_presupuesto_campana') ||
+        name.startsWith('proponer_crear_campana_ads')
+      ) {
+        return cut(await runAdsTool(ctx, name, args));
+      }
       return cut({ error: 'Herramienta desconocida: ' + name });
+    }
   }
 }
 

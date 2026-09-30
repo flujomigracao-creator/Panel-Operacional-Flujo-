@@ -7,6 +7,13 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { ORG_ID, TOOL_DEFS, runTool, type Ctx } from './tools.ts';
 import { executeProposal } from './handlers.ts';
+import {
+  fetchMetaCampaigns,
+  analyzeMetaAds,
+  getMetaAdsAttribution,
+  compareMetaAdsPeriods,
+  getAdsLimits,
+} from './ads.ts';
 
 const MODEL = 'openai/gpt-oss-120b';
 const MAX_VUELTAS = 6;
@@ -21,16 +28,15 @@ const CORS = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
-const SYSTEM = (contexto: any, hoy: string) => `Eres el asistente de operaciones de FLUJO Migração, una oficina de trámites migratorios en Brasil que maneja una sola persona (el dueño). Le hablas a él, en español, directo y breve.
+const SYSTEM = (contexto: any, hoy: string) => `Eres el Asistente de Inteligencia y Operaciones de FLUJO Migração, una oficina de trámites migratorios en Brasil dirigida por el dueño. Le hablas a él, en español, profesional, analítico y directo.
 
-Cómo trabajas:
-- Antes de afirmar cualquier dato del negocio, consúltalo con las herramientas. Nunca inventes clientes, cifras, etapas ni documentos.
-- Cuando menciones un cliente, escribe [VIEW_CLIENT:<uuid>:<nombre>] para que aparezca un botón que abre su ficha.
-- Para CAMBIAR cualquier cosa usa solo las herramientas proponer_*: crean una propuesta que el dueño confirma con un botón. Nunca digas que algo ya se hizo; di que queda listo para confirmar.
-- Si te piden sacar datos de la conversación de un cliente, usa extraer_datos_conversacion.
-- Si te piden redactar un mensaje para un cliente, escríbelo en el idioma del cliente (mira la conversación), cordial y corto; no prometas plazos ni precios que no estén registrados.
-- Responde en formato simple: listas cortas con guiones, **negritas** para lo importante. Sin tablas largas.
-- Kommo es el único canal de atención: los mensajes a clientes se envían desde Kommo.
+Tu propósito es actuar como el Centro de Inteligencia del negocio:
+1. Meta Ads & Marketing: Consultar métricas reales (gasto, impresiones, clics, CTR, CPC, CPM, conversaciones, leads) con listar_campanas_ads, analizar_rendimiento_ads y comparar_periodos_ads.
+2. Atribución comercial: Relacionar la inversión publicitaria con leads de Nora/Kommo, trámites y dinero cobrado (metricas_atribucion_ads).
+3. Operaciones del negocio: Consultar estado de trámites, clientes, tareas del día, cobros y finanzas.
+4. Propuestas seguras: NUNCA ejecutes cambios directamente en Meta Ads ni en la base de datos. Para cualquier acción (pausar campaña, ajustar presupuesto, cambiar etapa, guardar datos), usa exclusivamente las herramientas proponer_*. Explica el análisis, muestra los números anteriores y nuevos, y deja la propuesta lista para que el dueño la confirme con un botón.
+5. Rigor con los datos: Nunca inventes cifras ni métricas. Si un dato no está disponible o la atribución es estimada, indícalo claramente.
+6. Formato de respuesta: Claro, con listas con guiones y **negritas** en los KPIs clave. Cuando menciones un cliente registrado, incluye [VIEW_CLIENT:<uuid>:<nombre>].
 
 Hoy es ${hoy}. Pantalla actual del dueño: ${contexto?.vista || 'desconocida'}.${contexto?.client_id ? ` Está viendo la ficha del cliente con id ${contexto.client_id}: si pregunta "este cliente" se refiere a él.` : ''}`;
 
@@ -91,6 +97,32 @@ Deno.serve(async (req) => {
     });
     const data = await r.json().catch(() => ({}));
     return r.ok ? json(data) : json({ error: data?.error?.message || ('Groq ' + r.status) }, 502);
+  }
+
+  // 2c. Consultas directas de Meta Ads para el Centro de Inteligencia
+  if (body.accion === 'ads_data') {
+    try {
+      const [campanas, analisis, atribucion, limites] = await Promise.all([
+        fetchMetaCampaigns(admin, { dateRange: body.rango }),
+        analyzeMetaAds(admin),
+        getMetaAdsAttribution(admin, body.rango),
+        getAdsLimits(admin),
+      ]);
+      return json({ ok: true, campanas, analisis, atribucion, limites });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return json({ ok: false, error: msg }, 500);
+    }
+  }
+
+  if (body.accion === 'ads_compare') {
+    try {
+      const comparacion = await compareMetaAdsPeriods(admin, body.actual || {}, body.previo || {});
+      return json({ ok: true, comparacion });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return json({ ok: false, error: msg }, 500);
+    }
   }
 
   if (body.accion !== 'mensaje' || !String(body.mensaje || '').trim()) return json({ error: 'Falta el mensaje' }, 400);

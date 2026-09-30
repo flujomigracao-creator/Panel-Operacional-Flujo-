@@ -22,6 +22,7 @@ export const useNavigation = (isReady = true) => {
         if (hash.startsWith('#client/')) return 'client';
         if (SIMPLE_VIEWS[hash.slice(1)]) return SIMPLE_VIEWS[hash.slice(1)];
         if (hash === '#hoy') return 'today';
+        if (hash === '#inteligencia') return 'intelligence';
         if (hash === '#laboratorio') return 'lab';
         if (hash === '#finanzas') return 'finance';
         if (hash === '#clients') return 'clients';
@@ -84,6 +85,8 @@ export const useNavigation = (isReady = true) => {
             window.location.hash = HASH_OF_VIEW[currentView];
         } else if (currentView === 'today') {
             window.location.hash = 'hoy';
+        } else if (currentView === 'intelligence') {
+            window.location.hash = 'inteligencia';
         } else if (currentView === 'lab') {
             window.location.hash = 'laboratorio';
         } else if (currentView === 'finance') {
@@ -127,6 +130,9 @@ export const useNavigation = (isReady = true) => {
                 setSelectedClientId(null);
             } else if (hash === '#hoy') {
                 setCurrentView('today');
+                setSelectedClientId(null);
+            } else if (hash === '#inteligencia') {
+                setCurrentView('intelligence');
                 setSelectedClientId(null);
             } else if (hash === '#laboratorio') {
                 setCurrentView('lab');
@@ -192,6 +198,11 @@ export const useNavigation = (isReady = true) => {
     const navigateTo = useCallback((view) => {
         setSelectedClientId(null);
         setCurrentView(view);
+    }, []);
+
+    const navigateToIntelligence = useCallback(() => {
+        setSelectedClientId(null);
+        setCurrentView('intelligence');
     }, []);
 
     const navigateToLab = useCallback(() => {
@@ -276,6 +287,7 @@ export const useNavigation = (isReady = true) => {
         navigateToClient,
         navigateToHome,
         navigateTo,
+        navigateToIntelligence,
         navigateToToday,
         navigateToLab,
         navigateToFinance,

@@ -2,6 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Home,
+  Sparkles,
   FolderKanban,
   Contact,
   FileText,
@@ -34,6 +35,7 @@ const SECTIONS = [
   {
     items: [
       { view: 'home', label: 'Inicio', icon: Home },
+      { view: 'intelligence', label: 'Inteligencia', icon: Sparkles },
       { view: 'tramites', label: 'Trámites', icon: FolderKanban, views: ['tramites', 'tramite'] },
       { view: 'clients', label: 'Clientes', icon: Contact, views: ['clients', 'client'] },
       { view: 'documentos', label: 'Documentos', icon: FileText },
