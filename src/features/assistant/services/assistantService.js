@@ -36,7 +36,11 @@ function rangoAFechas(rango) {
   const hoy = new Date();
   const desde = new Date(hoy);
   desde.setDate(desde.getDate() - (dias - 1));
-  const iso = (d) => d.toISOString().slice(0, 10);
+  // Fecha local (no UTC): toISOString() puede adelantar un día en Brasil (UTC-3) de noche.
+  // Mismo patrón que financeService.hoyLocal: sin esto "Últimos 7 días" pedía hasta
+  // 2026-10-01 siendo todavía 2026-09-30 (fecha futura que el panel no debería consultar).
+  const iso = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   return { desde: iso(desde), hasta: iso(hoy), etiqueta: `Últimos ${dias} días` };
 }
 
@@ -71,9 +75,14 @@ export async function getAdsData(rango) {
     }
   };
 
-  let qInsights = supabase.from('meta_ads_insights').select('*').order('date', { ascending: false });
-  if (periodo.desde) qInsights = qInsights.gte('date', periodo.desde);
-  if (periodo.hasta) qInsights = qInsights.lte('date', periodo.hasta);
+  // Columnas REALES de public.meta_ads_insights (tabla creada fuera de este repo, esquema en
+  // español): fecha, campaign_id, campaign_name, adset_id, ad_id, gasto, impresiones, clics,
+  // conversaciones, moneda, organization_id. NO existen `date`, `spend`, `impressions`,
+  // `clicks`, `status`, `daily_budget` ni `leads`: filtrar por `date` devolvía el error 42703
+  // "column meta_ads_insights.date does not exist" y dejaba el Centro de Inteligencia en rojo.
+  let qInsights = supabase.from('meta_ads_insights').select('*').order('fecha', { ascending: false });
+  if (periodo.desde) qInsights = qInsights.gte('fecha', periodo.desde);
+  if (periodo.hasta) qInsights = qInsights.lte('fecha', periodo.hasta);
 
   let qLeads = supabase
     .from('comercial_leads')
@@ -122,7 +131,9 @@ export async function getAdsData(rango) {
       porCampana[cid] = {
         id: cid,
         name: r.campaign_name || 'Campaña General',
-        status: r.status || 'ACTIVE',
+        // La tabla local no guarda estado ni presupuesto: si la columna no existe queda null
+        // y la interfaz lo muestra como "Sin estado" — no se inventa 'ACTIVE'.
+        status: r.status || null,
         daily_budget: r.daily_budget ? Number(r.daily_budget) : undefined,
         metrics: {
           spend: 0,
@@ -139,10 +150,12 @@ export async function getAdsData(rango) {
         },
       };
     }
-    const sp = Number(r.spend) || 0;
-    const im = Number(r.impressions) || 0;
-    const cl = Number(r.clicks) || 0;
-    const co = Number(r.conversations || r.messaging_conversations) || 0;
+    // Métricas con los nombres reales de la tabla local (en español). `r.leads` solo suma si
+    // la tabla tuviera la columna; si no, queda 0 y se avisa en `advertencias`.
+    const sp = Number(r.gasto) || 0;
+    const im = Number(r.impresiones) || 0;
+    const cl = Number(r.clics) || 0;
+    const co = Number(r.conversaciones) || 0;
     const le = Number(r.leads) || 0;
 
     porCampana[cid].metrics.spend += sp;
@@ -171,6 +184,19 @@ export async function getAdsData(rango) {
     return c;
   });
 
+  // Transparencia de la fuente local: lo que la tabla no guarda se informa en `advertencias`
+  // en vez de rellenarlo con valores inventados.
+  const conEstado = campanas.some(c => c.status);
+  const conLeadsMeta = rows.some(r => r.leads !== undefined);
+  if (rows.length > 0) {
+    if (!conEstado) {
+      advertencias.push('meta_ads_insights no guarda el estado de las campañas ni el presupuesto diario: esos datos solo llegan con la Edge Function (Graph API de Meta).');
+    }
+    if (!conLeadsMeta) {
+      advertencias.push('meta_ads_insights no guarda leads por campaña: el bloque de leads usa los leads comerciales del panel.');
+    }
+  }
+
   const pagos = pagosRes.data || [];
   const totalCobrado = pagos.reduce((acc, p) => acc + Number(p.amount || 0), 0);
   const leadsOk = !leadsRes.error;
@@ -192,10 +218,10 @@ export async function getAdsData(rango) {
         gasto_total: Math.round(gastoTotal * 100) / 100,
         conversaciones_totales: convTotal,
         costo_promedio_conversacion: convTotal > 0 ? Math.round((gastoTotal / convTotal) * 100) / 100 : null,
-        campanas_activas: campanas.filter(c => c.status === 'ACTIVE').length,
+        campanas_activas: conEstado ? campanas.filter(c => c.status === 'ACTIVE').length : null,
         clics_totales: clicksTotal,
         impresiones_totales: impTotal,
-        leads_totales: leadsTotal,
+        leads_totales: conLeadsMeta ? leadsTotal : null,
       },
       hallazgos: [],
       recomendaciones: [],

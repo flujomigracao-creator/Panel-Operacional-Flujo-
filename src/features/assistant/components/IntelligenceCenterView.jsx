@@ -62,6 +62,12 @@ export default function IntelligenceCenterView() {
   };
 
   const proponerToggleEstado = (campana) => {
+    // Sin estado conocido (fuente local) no se asume "activar": primero que el asistente
+    // revise el estado real en Meta Ads.
+    if (!campana.status) {
+      preguntar(`Revisa en Meta Ads el estado actual de la campaña "${campana.name}" (ID: ${campana.id}) y, si conviene, propón pausarla o reactivarla.`);
+      return;
+    }
     const nuevo = campana.status === 'ACTIVE' ? 'pausar' : 'activar';
     preguntar(`Quiero ${nuevo} la campaña "${campana.name}" (ID: ${campana.id}). Analiza el impacto y crea la propuesta.`);
   };
@@ -198,7 +204,7 @@ export default function IntelligenceCenterView() {
       {/* Fuentes auxiliares que no respondieron: se informa, no se esconde */}
       {!error && (data?.advertencias || []).length > 0 && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-400">
-          <p className="font-semibold">Algunas fuentes no respondieron:</p>
+          <p className="font-semibold">Avisos sobre las fuentes de datos:</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-4">
             {data.advertencias.map((a, i) => (
               <li key={i}>{a}</li>
@@ -214,7 +220,11 @@ export default function IntelligenceCenterView() {
             <MetricCard
               title="Inversión Meta Ads"
               value={globales.gasto_total !== undefined ? `R$ ${globales.gasto_total.toFixed(2)}` : null}
-              subtitle={`${globales.campanas_activas || 0} campañas activas`}
+              subtitle={
+                typeof globales.campanas_activas === 'number'
+                  ? `${globales.campanas_activas} campañas activas`
+                  : 'Estado de campañas no disponible en esta fuente'
+              }
               icon={DollarSign}
               tone="accent"
             />

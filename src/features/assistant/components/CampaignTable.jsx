@@ -34,6 +34,8 @@ export default function CampaignTable({ campaigns = [], onAnalyze, onAdjustBudge
           <tbody className="divide-y divide-chrome-border">
             {campaigns.map((c) => {
               const m = c.metrics || {};
+              // status vacío/nulo = la fuente local no lo guarda: no se asume "Pausada".
+              const tieneEstado = Boolean(c.status);
               const isActive = c.status === 'ACTIVE';
 
               return (
@@ -53,7 +55,7 @@ export default function CampaignTable({ campaigns = [], onAnalyze, onAdjustBudge
                           : 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20'
                       }`}
                     >
-                      {isActive ? 'Activa' : 'Pausada'}
+                      {!tieneEstado ? 'Sin estado' : isActive ? 'Activa' : 'Pausada'}
                     </span>
                   </td>
 
@@ -104,12 +106,14 @@ export default function CampaignTable({ campaigns = [], onAnalyze, onAdjustBudge
                       <button
                         onClick={() => onToggleStatus?.(c)}
                         className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${
-                          isActive
-                            ? 'text-amber-400 hover:bg-amber-500/10'
-                            : 'text-emerald-400 hover:bg-emerald-500/10'
+                          !tieneEstado
+                            ? 'text-chrome-text-muted hover:bg-chrome-bg-active'
+                            : isActive
+                              ? 'text-amber-400 hover:bg-amber-500/10'
+                              : 'text-emerald-400 hover:bg-emerald-500/10'
                         }`}
                       >
-                        {isActive ? 'Pausar' : 'Activar'}
+                        {!tieneEstado ? 'Revisar' : isActive ? 'Pausar' : 'Activar'}
                       </button>
                     </div>
                   </td>

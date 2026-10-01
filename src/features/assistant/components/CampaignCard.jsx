@@ -6,6 +6,9 @@ import { TrendingUp, Sparkles } from 'lucide-react';
  */
 export default function CampaignCard({ campaign, onAnalyze, onAdjustBudget, onToggleStatus }) {
   const m = campaign.metrics || {};
+  // status vacío/nulo = la fuente local no lo guarda: se muestra "Sin estado" en vez de
+  // asumir "Pausada".
+  const tieneEstado = Boolean(campaign.status);
   const isActive = campaign.status === 'ACTIVE';
 
   return (
@@ -33,7 +36,7 @@ export default function CampaignCard({ campaign, onAnalyze, onAdjustBudget, onTo
                 : 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20'
             }`}
           >
-            {isActive ? 'Activa' : 'Pausada'}
+            {!tieneEstado ? 'Sin estado' : isActive ? 'Activa' : 'Pausada'}
           </span>
         </div>
 
@@ -104,13 +107,15 @@ export default function CampaignCard({ campaign, onAnalyze, onAdjustBudget, onTo
         <button
           onClick={() => onToggleStatus?.(campaign)}
           className={`inline-flex items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium ${
-            isActive
-              ? 'text-amber-400 hover:bg-amber-500/10'
-              : 'text-emerald-400 hover:bg-emerald-500/10'
+            !tieneEstado
+              ? 'text-chrome-text-muted hover:bg-chrome-bg-active'
+              : isActive
+                ? 'text-amber-400 hover:bg-amber-500/10'
+                : 'text-emerald-400 hover:bg-emerald-500/10'
           }`}
-          title={isActive ? 'Proponer pausa' : 'Proponer reactivación'}
+          title={!tieneEstado ? 'Revisar estado y proponer acción' : isActive ? 'Proponer pausa' : 'Proponer reactivación'}
         >
-          {isActive ? 'Pausar' : 'Activar'}
+          {!tieneEstado ? 'Revisar' : isActive ? 'Pausar' : 'Activar'}
         </button>
       </div>
     </div>

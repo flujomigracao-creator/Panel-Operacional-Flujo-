@@ -15,12 +15,21 @@ export interface AdsDateRange {
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
+// "Hoy" en America/Sao_Paulo: el runtime de las Edge Functions vive en UTC, así que
+// toISOString() devuelve ya mañana a partir de las 21:00 en Brasil (UTC-3) — el panel
+// terminaba pidiendo `lte.2026-10-01` siendo todavía 2026-09-30. Mismo criterio que la
+// fecha del prompt en index.ts.
+const spDay = (d: Date) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d);
+
 /**
  * Resuelve el rango pedido por el panel o por el modelo a fechas ISO (America/Sao_Paulo).
  * Sin esto, el selector de período del Centro de Inteligencia no tenía ningún efecto.
  */
 export function resolveAdsDateRange(input?: unknown, ahora: Date = new Date()): AdsDateRange {
-  const hoy = new Date(ahora);
+  // Ancla al día de São Paulo a mediodía UTC: `setDate` sobre esa ancla nunca cruza de
+  // calendario ni vuelve a introducir el desfase UTC.
+  const hoy = new Date(`${spDay(ahora)}T12:00:00Z`);
   const dias = (n: number) => {
     const hasta = new Date(hoy);
     const desde = new Date(hoy);
@@ -330,61 +339,65 @@ export async function fetchMetaCampaigns(
     }
   }
 
-  // 2. Fallback: Consultar tabla local `meta_ads_insights` en Supabase
-  try {
-    const { data: rows } = await admin
-      .from('meta_ads_insights')
-      .select('*')
-      .order('date', { ascending: false });
-
-    // El período también filtra el fallback: si no, el selector del panel mentía.
-    const dentro = (r: any) => {
-      if (!conRango || !r?.date) return true;
-      const dia = String(r.date).slice(0, 10);
-      if (range!.desde && dia < range!.desde) return false;
-      if (range!.hasta && dia > range!.hasta) return false;
-      return true;
-    };
-    const periodo = (rows || []).filter(dentro);
-
-    if (periodo.length > 0) {
-      // Agrupar por campaña
-      const porCampana: Record<string, { id: string; name: string; status: string; spend: number; impressions: number; clicks: number; conversations: number; leads: number; daily_budget?: number }> = {};
-      for (const r of periodo) {
-        const cid = r.campaign_id || r.campaign_name || 'unknown';
-        if (!porCampana[cid]) {
-          porCampana[cid] = {
-            id: cid,
-            name: r.campaign_name || 'Campaña sin nombre',
-            status: r.status || 'ACTIVE',
-            spend: 0,
-            impressions: 0,
-            clicks: 0,
-            conversations: 0,
-            leads: 0,
-            daily_budget: r.daily_budget ? Number(r.daily_budget) : undefined,
-          };
-        }
-        porCampana[cid].spend += Number(r.spend) || 0;
-        porCampana[cid].impressions += Number(r.impressions) || 0;
-        porCampana[cid].clicks += Number(r.clicks) || 0;
-        porCampana[cid].conversations += Number(r.conversations || r.messaging_conversations) || 0;
-        porCampana[cid].leads += Number(r.leads) || 0;
-      }
-
-      return Object.values(porCampana).map(c => ({
-        id: c.id,
-        name: c.name,
-        status: c.status,
-        daily_budget: c.daily_budget,
-        metrics: calculateAdsMetrics(c),
-      }));
-    }
-  } catch {
-    // Si no hay tabla
+  // 2. Fallback: tabla local `meta_ads_insights` (fuente única del panel).
+  //
+  // Esquema REAL (tabla creada fuera de este repo, columnas en español): fecha, campaign_id,
+  // campaign_name, adset_id, ad_id, gasto, impresiones, clics, conversaciones, moneda,
+  // organization_id. NO existen `date`, `spend`, `status`, `daily_budget` ni `leads`.
+  // Un fallo aquí es un error real (sin permisos o esquema cambiado): se propaga en vez de
+  // devolver [] y hacer creer al panel que "no hay datos" en el período.
+  const { data: rows, error: errorInsights } = await admin
+    .from('meta_ads_insights')
+    .select('*')
+    .order('fecha', { ascending: false });
+  if (errorInsights) {
+    throw new Error(`No se pudieron leer las métricas de meta_ads_insights: ${errorInsights.message}`);
   }
 
-  return [];
+  // El período también filtra el fallback: si no, el selector del panel mentía.
+  const dentro = (r: any) => {
+    if (!conRango || !r?.fecha) return true;
+    const dia = String(r.fecha).slice(0, 10);
+    if (range!.desde && dia < range!.desde) return false;
+    if (range!.hasta && dia > range!.hasta) return false;
+    return true;
+  };
+  const periodo = (rows || []).filter(dentro);
+  if (!periodo.length) return [];
+
+  // Agrupar por campaña
+  const porCampana: Record<string, { id: string; name: string; status: string; spend: number; impressions: number; clicks: number; conversations: number; leads: number; daily_budget?: number }> = {};
+  for (const r of periodo) {
+    const cid = r.campaign_id || r.campaign_name || 'unknown';
+    if (!porCampana[cid]) {
+      porCampana[cid] = {
+        id: cid,
+        name: r.campaign_name || 'Campaña sin nombre',
+        // '' = estado desconocido: la tabla local no lo guarda y no se inventa 'ACTIVE'.
+        status: r.status || '',
+        spend: 0,
+        impressions: 0,
+        clicks: 0,
+        conversations: 0,
+        leads: 0,
+        daily_budget: r.daily_budget ? Number(r.daily_budget) : undefined,
+      };
+    }
+    // Nombres reales de las columnas (en español). `leads` solo suma si la columna existe.
+    porCampana[cid].spend += Number(r.gasto) || 0;
+    porCampana[cid].impressions += Number(r.impresiones) || 0;
+    porCampana[cid].clicks += Number(r.clics) || 0;
+    porCampana[cid].conversations += Number(r.conversaciones) || 0;
+    porCampana[cid].leads += Number(r.leads) || 0;
+  }
+
+  return Object.values(porCampana).map(c => ({
+    id: c.id,
+    name: c.name,
+    status: c.status,
+    daily_budget: c.daily_budget,
+    metrics: calculateAdsMetrics(c),
+  }));
 }
 
 // ── Conjuntos de anuncios y anuncios (nivel de detalle que faltaba) ──
@@ -687,7 +700,10 @@ export async function analyzeMetaAds(
       gasto_total: Math.round(gastoTotal * 100) / 100,
       conversaciones_totales: convTotal,
       costo_promedio_conversacion: cpcPromedio !== null ? Math.round(cpcPromedio * 100) / 100 : null,
-      campanas_activas: campaigns.filter(c => c.status === 'ACTIVE').length,
+      campanas_activas: campaigns.some(c => c.status)
+        ? campaigns.filter(c => c.status === 'ACTIVE').length
+        // '' = estado desconocido (fallback local sin columna de estado): no se cuenta.
+        : null,
       // Se calcula aquí para no repetir el ordenamiento en el frontend ni en el prompt.
       campana_mas_eficiente: mejor ? { id: mejor.id, nombre: mejor.name, costo_por_conversacion: mejor.metrics.costPerConversation } : null,
     },
