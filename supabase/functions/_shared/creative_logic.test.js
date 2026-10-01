@@ -122,3 +122,24 @@ test('formatos de Meta: tamaño exacto primero y respaldo clásico después', ()
     assert.equal(a % 16, 0); assert.equal(b % 16, 0);
   }
 });
+
+import { textoEnImagen } from './creative_logic.ts';
+
+test('el anuncio SIEMPRE pide titular, botón CTA y firma dentro de la imagen (nunca "sin texto")', () => {
+  const p = construirPromptPublicitario({ servicio: 'CPF', titular: 'Tu CPF paso a paso', hook: 'Recién llegado? Empieza aquí', cta: 'Chatear por WhatsApp', formato: '9:16', idioma: 'es' });
+  for (const t of ['TEXTO DENTRO DE LA IMAGEN', 'TITULAR grande', '"Tu CPF paso a paso"', 'SUBTÍTULO', '"Recién llegado? Empieza aquí"', 'BOTÓN de acción', '"Chatear por WhatsApp"', 'FIRMA', '"Flujo de Migração"', '14 % superior']) assert.ok(p.includes(t), t);
+  assert.doesNotMatch(p, /sin texto largo|No incluyas texto/i);
+});
+
+test('sin CTA explícito se usa uno por defecto en el idioma elegido; sin titular se usa el hook', () => {
+  const es = textoEnImagen({ hook: 'Tu CPF sin filas' }).join('\n');
+  assert.ok(es.includes('"Tu CPF sin filas"') && es.includes('Escríbenos por WhatsApp'));
+  const pt = textoEnImagen({ hook: 'Seu CPF sem filas', idioma: 'pt' }).join('\n');
+  assert.ok(pt.includes('Fale conosco no WhatsApp') && pt.includes('portugués de Brasil'));
+  assert.ok(textoEnImagen({}).join('\n').includes('BOTÓN de acción'));
+});
+
+test('regenerar con otro hook obliga a que el titular dibujado cambie', () => {
+  const h = ajustarPromptRegeneracion('base', 'hook', { hook: 'CPF sin complicaciones' });
+  assert.ok(h.includes('headline text must now read exactly "CPF sin complicaciones"'));
+});

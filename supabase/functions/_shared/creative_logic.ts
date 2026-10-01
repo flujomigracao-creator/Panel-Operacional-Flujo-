@@ -47,10 +47,38 @@ export const VARIABLES_CAMBIO = ['estilo', 'hook', 'concepto', 'composicion', 'i
 
 export const REGLAS_PUBLICITARIAS =
   'Imagen publicitaria profesional para Meta Ads. Sin logos de gobiernos ni de la Polícia Federal, sin sellos oficiales falsos, ' +
-  'sin documentos con datos reales, sin promesas de resultado garantizado. Deja zonas despejadas para que el texto del anuncio sea legible. ' +
-  'No incluyas texto pequeño ni párrafos dentro de la imagen.';
+  'sin documentos con datos reales, sin promesas de resultado garantizado. ' +
+  'La imagen DEBE llevar integrados un titular grande, un botón de acción y la firma de marca (ver TEXTO DENTRO DE LA IMAGEN); ' +
+  'nada de párrafos ni letra pequeña ilegible, y ningún otro texto aparte del indicado.';
+
+/** Zonas de composición por formato de Meta (Stories/Reels tapan arriba y abajo con la interfaz). */
+export const DISENO_FORMATO: Record<string, string> = {
+  '1:1': 'titular en el tercio superior, sujeto en el centro, botón CTA en la parte inferior.',
+  '4:5': 'titular en el tercio superior, sujeto en el centro, botón CTA en la parte inferior.',
+  '9:16': 'zona segura de Stories/Reels: nada de texto en el 14 % superior ni en el 20 % inferior; titular en la zona media-alta, botón CTA por encima del 20 % inferior.',
+};
+
+/**
+ * Textos que la IA debe DIBUJAR dentro del anuncio. Un anuncio sin titular ni botón de acción no vende:
+ * se piden literales, cortos y legibles en móvil. CTA y firma siempre presentes.
+ */
+export function textoEnImagen(i: { titular?: string; hook?: string; cta?: string; idioma?: string }): string[] {
+  const pt = i.idioma === 'pt';
+  const titular = (i.titular || i.hook || '').trim();
+  const subtitulo = i.hook && i.titular && i.hook.trim() !== i.titular.trim() && i.hook.trim().length <= 60 ? i.hook.trim() : '';
+  const cta = (i.cta || '').trim() || (pt ? 'Fale conosco no WhatsApp' : 'Escríbenos por WhatsApp');
+  return [
+    `TEXTO DENTRO DE LA IMAGEN (obligatorio; escríbelo EXACTAMENTE así, con ortografía y tildes correctas, en ${pt ? 'portugués de Brasil' : 'español'}, tipografía sans-serif gruesa y muy legible en pantalla de móvil, alto contraste con el fondo):`,
+    titular && `1) TITULAR grande y destacado: "${titular}".`,
+    subtitulo && `2) SUBTÍTULO breve debajo del titular: "${subtitulo}".`,
+    `${titular ? '3' : '1'}) BOTÓN de acción (CTA) redondeado, en verde o dorado, con texto blanco o azul oscuro: "${cta}".`,
+    `${titular ? '4' : '2'}) FIRMA de marca pequeña pero legible en una esquina: "Flujo de Migração".`,
+  ].filter(Boolean) as string[];
+}
 
 export interface PromptInput {
+  titular?: string;
+  formato?: string;
   servicio: string;
   concepto?: string;
   hook?: string;
@@ -76,9 +104,8 @@ export function construirPromptPublicitario(i: PromptInput): string {
     i.objetivo && `Objetivo del anuncio: ${i.objetivo}.`,
     i.estilo && `Estilo visual: ${ESTILOS[i.estilo] || i.estilo}.`,
     i.referencia_visual && `Referencia visual: ${i.referencia_visual}.`,
-    i.hook && `Idea central que debe transmitir (sin escribirla como texto largo): "${i.hook}".`,
-    i.cta && `Debe sugerir visualmente la acción: "${i.cta}" (sin texto largo dentro de la imagen).`,
-    i.idioma && `Si aparece texto, en ${i.idioma === 'pt' ? 'portugués de Brasil' : 'español'}.`,
+    ...textoEnImagen(i),
+    i.formato && `Formato ${i.formato}: ${DISENO_FORMATO[i.formato] || ''}`,
     IDENTIDAD_VISUAL,
     REGLAS_PUBLICITARIAS,
   ].filter(Boolean) as string[];
@@ -251,7 +278,7 @@ export function ajustarPromptRegeneracion(promptPadre: string, variable: string,
     return `${promptPadre}\n\nSTYLE OVERRIDE (change ONLY the visual style; keep subject, composition, copy space and brand colors): ${ESTILOS[c.style]}. This replaces any earlier instruction about photographic or illustrative style.`;
   }
   if (variable === 'hook' && c.hook && c.hook.trim()) {
-    return `${promptPadre}\n\nIDEA OVERRIDE (change ONLY the central idea; keep style, composition and brand colors): "${c.hook.trim()}". It replaces any earlier central idea.`;
+    return `${promptPadre}\n\nIDEA OVERRIDE (change ONLY the hook; keep style, composition and brand colors): the on-image headline text must now read exactly "${c.hook.trim()}" (correct spelling and accents). It replaces any earlier headline or central idea.`;
   }
   return null; // concepto / composición: requieren un prompt nuevo explícito
 }

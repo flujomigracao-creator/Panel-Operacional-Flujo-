@@ -112,20 +112,20 @@ export async function proponerConceptos(admin: SupabaseClient, userId: string, i
 
 // ── Prompt de imagen (texto con OpenAI) a partir de los datos del creativo; el usuario lo revisa y edita ──
 export interface DatosPrompt {
-  service: string; objective?: string; audience?: string; concept?: string; hook?: string; cta?: string; visual_concept?: string;
+  service: string; objective?: string; audience?: string; concept?: string; hook?: string; headline?: string; cta?: string; visual_concept?: string;
   style?: string; language?: string; format?: string; visual_reference?: string;
 }
 export async function generarPrompt(admin: SupabaseClient, userId: string, d: DatosPrompt) {
   const err = validarCreativo({ service: d.service, format: d.format });
   if (err) throw new Error(err);
   const base = construirPromptPublicitario({
-    servicio: d.service, concepto: d.concept, hook: d.hook, visual_concept: d.visual_concept, objetivo: d.objective, publico: d.audience,
-    cta: d.cta, estilo: d.style, idioma: d.language, referencia_visual: d.visual_reference,
+    servicio: d.service, concepto: d.concept, hook: d.hook, titular: d.headline, formato: d.format || '1:1', visual_concept: d.visual_concept,
+    objetivo: d.objective, publico: d.audience, cta: d.cta, estilo: d.style, idioma: d.language, referencia_visual: d.visual_reference,
   });
   const model = await modeloTexto();
   try {
     const r = await chatJson(
-      'Eres director de arte de anuncios en Meta Ads. Conviertes un brief en UN prompt de generación de imagen en inglés, concreto y profesional: composición, encuadre, luz, jerarquía visual, espacio libre para el texto del anuncio, identidad de marca (azul #1E3A8A dominante, verde, dorado, blanco). Sin texto largo dentro de la imagen, sin logos oficiales ni sellos de gobierno, sin datos reales en documentos. Respondes SOLO JSON {"prompt": "..."}.',
+      'Eres director de arte de anuncios en Meta Ads. Conviertes un brief en UN prompt de generación de imagen en inglés, concreto y profesional: composición, encuadre, luz, jerarquía visual, espacio libre para el texto del anuncio, identidad de marca (azul #1E3A8A dominante, verde, dorado, blanco). IMPORTANTE: el anuncio debe llevar texto integrado en la imagen. Copia LITERALMENTE, entre comillas y sin traducir ni reescribir, el TITULAR, el SUBTÍTULO (si existe), el texto del BOTÓN CTA y la FIRMA del brief; indica dónde va cada uno (titular grande arriba, botón CTA redondeado abajo, firma en una esquina), alto contraste y tipografía gruesa legible en móvil, ortografía impecable. Ningún otro texto aparte de esos; sin logos oficiales ni sellos de gobierno, sin datos reales en documentos. Respondes SOLO JSON {"prompt": "..."}.',
       `Brief:\n${base}\nFormato: ${d.format || '1:1'} (Meta Ads).`,
     );
     const prompt = String(r.json.prompt || '').trim();
@@ -235,8 +235,8 @@ export async function crearCreativo(admin: SupabaseClient, userId: string, entra
   if (i.style && !ESTILOS[i.style]) throw new Error(`Estilo no válido. Usa uno de: ${Object.keys(ESTILOS).join(', ')}.`);
 
   const promptTexto = (i.prompt && i.prompt.trim()) || construirPromptPublicitario({
-    servicio: i.service, concepto: i.concept, hook: i.hook, visual_concept: i.visual_concept, objetivo: i.objective, publico: i.audience,
-    cta: i.cta, estilo: i.style, idioma: i.language, referencia_visual: i.visual_reference,
+    servicio: i.service, concepto: i.concept, hook: i.hook, titular: i.headline, formato: formato, visual_concept: i.visual_concept,
+    objetivo: i.objective, publico: i.audience, cta: i.cta, estilo: i.style, idioma: i.language, referencia_visual: i.visual_reference,
   });
 
   let bytes: Uint8Array; let mime: string; let modelo: string | null = null; let usage: unknown = null;
