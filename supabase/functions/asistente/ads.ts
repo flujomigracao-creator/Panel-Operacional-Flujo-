@@ -2136,6 +2136,24 @@ async function verificarObjetoMeta(token: string, accountId: string, objectId: s
   return data;
 }
 
+/** Quién es dueño de la cuenta publicitaria, la página y el WhatsApp Business, para explicar un rechazo de "número no vinculado". Solo lectura. */
+async function diagnosticoWhatsApp(token: string, accountId: string, pageId?: string | null): Promise<string> {
+  const g = async (ruta: string) => {
+    try {
+      const r = await fetch(`https://graph.facebook.com/v20.0/${ruta}`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json().catch(() => ({}));
+      return d?.error ? { error: String(d.error.message || 'error').slice(0, 120) } : d;
+    } catch { return { error: 'sin respuesta' }; }
+  };
+  const act = String(accountId).startsWith('act_') ? accountId : `act_${accountId}`;
+  const [cuenta, pagina] = await Promise.all([g(`${act}?fields=business`), pageId ? g(`${pageId}?fields=name,business`) : Promise.resolve(null)]);
+  const negocio = (x: any) => x?.business ? `${x.business.name} (${x.business.id})` : x?.error ? `no verificable: ${x.error}` : 'sin portafolio visible';
+  const negocioCuenta = cuenta?.business?.id;
+  const waba = negocioCuenta ? await g(`${negocioCuenta}/owned_whatsapp_business_accounts?fields=id,name`) : null;
+  const wabas = waba?.data ? (waba.data.map((w: any) => `${w.name} (${w.id})`).join(', ') || 'ninguno') : waba?.error ? `no verificable: ${waba.error}` : 'no verificable';
+  return ` DIAGNÓSTICO — portafolio de la cuenta publicitaria: ${negocio(cuenta)}; portafolio de la página: ${negocio(pagina)}; WhatsApp Business del portafolio de la cuenta: ${wabas}. Si la página y la cuenta están en portafolios distintos, o el WhatsApp Business no aparece en el portafolio de la cuenta, ahí está el bloqueo.`;
+}
+
 // ── Compatibilidad con la Marketing API v20 (verificada con validate_only contra la cuenta real) ──
 // El objetivo "OUTCOME_MESSAGES" ya no existe: los anuncios que abren un chat de WhatsApp son OUTCOME_ENGAGEMENT
 // con destination_type WHATSAPP (así están configuradas las campañas reales de la cuenta).
@@ -2506,7 +2524,8 @@ export async function executeAdsProposal(
           message: `Experimento V4 "${d.nombre_campana}": ninguna variante se pudo crear; se eliminó la campaña vacía ${metaCampaignId}`,
           details: { proposal_id: p.id, executed_by: userId, accion: 'ads_experimento_v4', campaign_id: metaCampaignId, variantes: variantesResult, resultado: 'revertido' },
         });
-        throw new Error(`Meta rechazó todas las variantes: ${variantesResult.map(x => `${x.variant_name} → ${x.error}`).join(' | ')}. La campaña vacía se eliminó; no queda nada creado.`);
+        const diag = variantesResult.some(x => /not linked|no est[aá] vinculad/i.test(String(x.error))) ? await diagnosticoWhatsApp(token, accountId, pageId) : '';
+        throw new Error(`Meta rechazó todas las variantes: ${variantesResult.map(x => `${x.variant_name} → ${x.error}`).join(' | ')}. La campaña vacía se eliminó; no queda nada creado.${diag}`);
       }
 
       if (d.experiment_id) {
