@@ -2462,6 +2462,18 @@ export async function executeAdsProposal(
 
       // Conjuntos como los de las campañas reales: sin presupuesto propio, destino WhatsApp, página, misma segmentación.
       const targeting = await plantillaTargeting(token, accountId);
+      // Números reales de la WABA de Nora según Meta (display_phone_number sin símbolos): son los únicos que Meta reconoce.
+      const numerosWaba: string[] = [];
+      if (mensajes) {
+        try {
+          const { data: ci } = await admin.from('channel_integrations').select('whatsapp_waba_id').eq('organization_id', ORG_ID).maybeSingle();
+          if (ci?.whatsapp_waba_id) {
+            const rn = await fetch(`https://graph.facebook.com/v20.0/${ci.whatsapp_waba_id}/phone_numbers?fields=display_phone_number`, { headers: { Authorization: `Bearer ${token}` } });
+            const dn = await rn.json().catch(() => ({}));
+            for (const x of dn?.data || []) { const dig = String(x.display_phone_number || '').replace(/\D/g, ''); if (dig) numerosWaba.push(dig); }
+          }
+        } catch { /* sin permiso: se usan los números por defecto */ }
+      }
       const variantesResult: any[] = [];
       for (const v of d.variantes || []) {
         let adsetId: string | null = null;
@@ -2470,7 +2482,7 @@ export async function executeAdsProposal(
         let errorVariante: string | null = null;
         try {
           // El número debe coincidir con el registrado en la WABA (el de Nora es +55 48 8455-3306, sin el 9); se prueban ambas formas.
-          const numeros = [...new Set([Deno.env.get('WHATSAPP_ADS_NUMBER'), '554884553306', '5548984553306'].filter(Boolean) as string[])];
+          const numeros = [...new Set([Deno.env.get('WHATSAPP_ADS_NUMBER'), ...numerosWaba, '554884553306', '5548984553306'].filter(Boolean) as string[])];
           let adsetRes: Response; let adsetData: any = {};
           for (const [n, numero] of numeros.entries()) {
             adsetRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/adsets`, {
@@ -2524,7 +2536,7 @@ export async function executeAdsProposal(
           message: `Experimento V4 "${d.nombre_campana}": ninguna variante se pudo crear; se eliminó la campaña vacía ${metaCampaignId}`,
           details: { proposal_id: p.id, executed_by: userId, accion: 'ads_experimento_v4', campaign_id: metaCampaignId, variantes: variantesResult, resultado: 'revertido' },
         });
-        const diag = variantesResult.some(x => /not linked|no est[aá] vinculad/i.test(String(x.error))) ? await diagnosticoWhatsApp(token, accountId, pageId) : '';
+        const diag = variantesResult.some(x => /not linked|no est[aá] vinculad/i.test(String(x.error))) ? (await diagnosticoWhatsApp(token, accountId, pageId)) + ` Números de la WABA de Nora según Meta: ${numerosWaba.join(', ') || 'no verificable'}; probados: ${[...new Set([...numerosWaba, '554884553306', '5548984553306'])].join(', ')}.` : '';
         throw new Error(`Meta rechazó todas las variantes: ${variantesResult.map(x => `${x.variant_name} → ${x.error}`).join(' | ')}. La campaña vacía se eliminó; no queda nada creado.${diag}`);
       }
 
