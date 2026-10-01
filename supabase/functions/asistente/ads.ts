@@ -1961,6 +1961,10 @@ export async function runAdsTool(
     }
 
     case 'disenar_campana_v4': {
+      // Publicar exige un creativo del Laboratorio por variante: sin él la propuesta nunca podría ejecutarse.
+      if (!(args.variants || []).length || (args.variants || []).some((v: any) => !v.creative_asset_id)) {
+        return JSON.stringify({ error: 'No se crea la propuesta: cada variante necesita un creativo con imagen del Laboratorio. Usa proponer_experimento_creativos con 2-4 creativos APROBADOS del mismo servicio (genera y aprueba las imágenes primero).' });
+      }
       const resultado = await proponerExperimentoV4(ctx, {
         name: args.name,
         service: args.service,
