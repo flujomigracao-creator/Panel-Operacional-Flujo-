@@ -26,3 +26,11 @@ Estados: OK / PENDIENTE / BLOQUEADO. Todo lo marcado OK se comprobó contra la b
 - Actualizar: cambiar el SHA del `index.ts` desplegado y redesplegar (o usar `.github/workflows/deploy-functions.yml`). Volver atrás: poner un SHA anterior.
 - Comprobado: arranca, exige JWT y ejecuta el código (la clave pública recibe `No autenticado` de la función). NO comprobado de extremo a extremo: requiere sesión de usuario del panel.
 - `META_PAGE_ID` configurado en Supabase (ID de la página de los anuncios existentes). Formatos de imagen verificados: 1:1, 4:5 y 9:16 con proporción exacta.
+
+## Agente de Ads unificado (2026-10-01, commit 85d961c)
+- `asistente` v28 y `generar-creativo` v14 ejecutan el código de GitHub fijado al commit `85d961c…` (cargadores de un solo archivo).
+- El agente (asistente/Nora) hace el ciclo completo con herramientas: `buscar_tendencias`, `consultar_tendencias`, `proponer_conceptos_creativos`, `generar_prompt_creativo`, `generar_creativo`, `regenerar_creativo`, `origen_clientes`, `ranking_creativos`, `biblioteca_prompts`, `proponer_experimento_creativos`, `proponer_publicar_creativo`, `cerrar_experimento_creativos`. Todo lo que toca Meta sigue siendo propuesta → confirmación humana.
+- Vistas `origen_leads` y `cobertura_atribucion`; tabla `ad_trends` (tendencias = hipótesis con fuentes, no evidencia; no se mezclan con `campaign_learnings`).
+- Todo anuncio generado lleva titular, subtítulo, botón CTA y firma "Flujo de Migração" (`asegurarTextos` los garantiza); formatos 1:1, 4:5, 9:16 exactos.
+- Reglas de Meta aplicadas a los conceptos: sin atributos personales del lector, sin "Reel" para piezas estáticas, sin `variacion_ganadora` sin historial.
+- Atribución hoy: 160 leads, 0 con anuncio de origen, `meta_ads_referidos` vacía → estado ESPERANDO TRÁFICO REAL. `whatsapp-webhook` ya captura el `referral` (código desplegado, ahora también en el repo).
