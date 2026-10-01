@@ -8,9 +8,10 @@
 // Este test lo verifica de forma estática (no necesita red, ni Supabase, ni node_modules).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // Raíz del repo: este archivo vive en src/features/assistant/services/.
 const RAIZ = fileURLToPath(new URL('../../../../', import.meta.url));
@@ -231,6 +232,52 @@ test('26. la sincronización se dispara con la acción ads_sync y desde el servi
   assert.ok(vista.includes('api.sincronizarMetaAds()'), 'el panel ofrece sincronizar con un botón');
   assert.ok(vista.includes('Última sincronización:'), 'el panel muestra la última sincronización');
   assert.ok(vista.includes("'nunca'"), 'si nunca se sincronizó, debe decirlo explícitamente');
+});
+
+// ── Prueba de humo: ejecuta el código real ──
+// Los tests anteriores son estáticos (leen el texto): un `ReferenceError` en tiempo de ejecución
+// se escapó de ellos. Este test importa el servicio con un cliente Supabase simulado y llama a
+// `getAdsData`, de modo que cualquier variable mal nombrada revienta aquí.
+
+test('28. getAdsData se ejecuta de verdad y devuelve las fuentes', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ads-smoke-'));
+  const stub = join(dir, 'supabaseStub.mjs');
+  // Builder "thenable" mínimo: cada llamada encadenada devuelve el mismo objeto.
+  writeFileSync(
+    stub,
+    `const filas = globalThis.__filas ?? [];
+export const supabase = {
+  from: (tabla) => ({
+    select() { return this; }, order() { return this; }, gte() { return this; },
+    lte() { return this; }, eq() { return this; }, limit() { return this; },
+    then(resolve) { return Promise.resolve(resolve({ data: filas, error: null })); },
+  }),
+};`
+  );
+
+  const ruta = join(RAIZ, 'src', 'features', 'assistant', 'services', 'assistantService.js');
+  const codigo = readFileSync(ruta, 'utf8').replace('@shared/config/supabaseClient', pathToFileURL(stub).href);
+  const mod = join(dir, 'servicio.mjs');
+  writeFileSync(mod, codigo);
+
+  const { getAdsData, atribuirReferidos } = await import(pathToFileURL(mod).href);
+
+  // Sin filas: el panel debe responder "sin datos", no romperse.
+  const data = await getAdsData({ periodo: '7d' });
+  assert.equal(data.ok, true);
+  assert.ok(Array.isArray(data.campanas), 'devuelve la lista de campañas');
+  assert.ok(data.fuentes && data.fuentes.metricas_historicas, 'devuelve las fuentes de datos');
+  assert.ok(data.sincronizacion, 'devuelve el estado de la sincronización');
+  assert.ok(data.periodo.hasta, 'resuelve el período');
+
+  // Con referidos sin fecha no se inventa una campaña ni se mete en el corte.
+  // 1789473600 = 2026-09-15 12:00 UTC (dentro del período de abajo).
+  const sinCampana = atribuirReferidos([{ ad_id: '999', raw: { created_time: 1789473600 } }], [], { desde: '2026-09-01', hasta: '2026-09-30' });
+  assert.equal(sinCampana.sin_campana, 1, 'un referido sin campaña queda como no atribuido');
+  assert.equal(sinCampana.total, 0, 'no se inventa la atribución');
+
+  const fueraDeRango = atribuirReferidos([{ ad_id: '999', raw: { created_time: 1780000000, campaign_id: '55' } }], [], { desde: '2026-01-01', hasta: '2026-01-31' });
+  assert.equal(fueraDeRango.total, 0, 'lo que cae fuera del período no se cuenta');
 });
 
 test('27. presupuesto en BRL y status/effective_status/last_synced_at separados', () => {

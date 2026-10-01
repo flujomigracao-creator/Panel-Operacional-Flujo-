@@ -331,7 +331,7 @@ export async function getAdsData(rango) {
       `No se pudo sincronizar Meta Ads. Última sincronización disponible: ${sincronizacion.ultima_ok ? sincronizacion.ultima_ok.slice(0, 16).replace('T', ' ') : 'nunca'}.`
     );
   }
-  if (referidos.sin_campana > 0 && referred.total === 0) {
+  if (referred.sin_campana > 0 && referred.total === 0) {
     advertencias.push('Hay referidos de Meta Ads pero no se puede determinar a qué campaña pertenecen.');
   }
 
