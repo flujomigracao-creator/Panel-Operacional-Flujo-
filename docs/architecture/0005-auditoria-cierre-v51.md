@@ -20,3 +20,9 @@ Estados: OK / PENDIENTE / BLOQUEADO. Todo lo marcado OK se comprobó contra la b
 | Atribución (`meta_ads_referidos`) | ESPERANDO TRÁFICO REAL | Mecanismo listo: referido → trigger → `comercial_leads.meta_ad_id` → vista `lead_atribucion_anuncio` |
 | Pestaña "Negocio" | No creada | No aporta función distinta de Resumen/Aprendizajes |
 | Generación automática de variantes | Desactivada | Falta evidencia; flujo humano → hipótesis → experimento |
+
+## Despliegue de `asistente` desde GitHub (2026-10-01)
+- Estado: `asistente` v27, `index.ts` mínimo que importa `supabase/functions/asistente/index.ts` del repositorio **fijado al commit** `65df5372…` (el repo es público). Producción ejecuta exactamente el código de GitHub; ya incluye V4, V5/V5.1 y los endurecimientos de `ads.ts`.
+- Actualizar: cambiar el SHA del `index.ts` desplegado y redesplegar (o usar `.github/workflows/deploy-functions.yml`). Volver atrás: poner un SHA anterior.
+- Comprobado: arranca, exige JWT y ejecuta el código (la clave pública recibe `No autenticado` de la función). NO comprobado de extremo a extremo: requiere sesión de usuario del panel.
+- `META_PAGE_ID` configurado en Supabase (ID de la página de los anuncios existentes). Formatos de imagen verificados: 1:1, 4:5 y 9:16 con proporción exacta.
