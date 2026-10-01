@@ -13,7 +13,7 @@ import { proponerExperimentoV4, type ExperimentDesignParams } from './campaign_s
 import { validarCreativo, evaluarGanador, UMBRALES_POR_DEFECTO, type MetricasVariante } from '../_shared/creative_logic.ts';
 import { resolverPrompt } from '../_shared/creative_store.ts';
 
-const CAMPOS_CREATIVO = 'id, service, objective, concept, format, prompt_id, prompt_text, prompt_version, hook, headline, primary_text, cta, visual_concept, image_path, image_source, status, parent_creative_id, campaign_id, adset_id, ad_id, meta_creative_id, created_at';
+const CAMPOS_CREATIVO = 'id, service, objective, concept, format, prompt_id, prompt_text, prompt_version, hook, headline, primary_text, cta, visual_concept, image_path, image_source, status, parent_creative_id, campaign_id, adset_id, ad_id, meta_creative_id, generation_id, created_at';
 
 const bytesToB64 = (bytes: Uint8Array) => {
   let s = '';
@@ -168,7 +168,7 @@ export async function crearExperimentoCreativos(
     variants: orden.map((c, idx) => ({
       variant_name: idx === 0 ? 'Control' : `Variante ${String.fromCharCode(65 + idx - 1)}`,
       hook: c.hook || c.headline || '', copy: c.primary_text || '', cta: c.cta || '',
-      creative_reference: c.image_path, creative_asset_id: c.id,
+      creative_reference: c.image_path, creative_asset_id: c.id, creative_generation_id: c.generation_id || undefined,
       variable_changed: idx === 0 ? 'control' : i.variable_tested,
     })),
     decision_rules: {

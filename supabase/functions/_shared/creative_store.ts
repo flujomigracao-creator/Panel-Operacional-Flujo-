@@ -52,11 +52,12 @@ export async function modeloTexto(): Promise<string> {
 
 // ── Bitácora de generaciones (modelo, usuario, uso). El costo solo se guarda si OpenAI lo informa. ──
 export async function registrarGeneracion(admin: SupabaseClient, g: { creative_id?: string | null; user_id: string; kind: 'concepts' | 'prompt' | 'image' | 'trends'; model: string; status: 'ok' | 'error'; usage?: unknown; error?: string }) {
-  const { error } = await admin.from('creative_generations').insert({
+  const { data, error } = await admin.from('creative_generations').insert({
     organization_id: ORG_ID, creative_id: g.creative_id ?? null, user_id: g.user_id, kind: g.kind, model: g.model,
     status: g.status, usage: g.usage ?? null, error: g.error ? sanearError(g.error) : null,
-  });
+  }).select('id').single();
   if (error) console.error('[creative_generations] no se pudo registrar:', sanearError(error.message));
+  return (data?.id as string | undefined) ?? null;
 }
 
 const b64ToBytes = (b64: string) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
@@ -292,7 +293,12 @@ export async function crearCreativo(admin: SupabaseClient, userId: string, entra
     await admin.storage.from(BUCKET).remove([path]);
     throw new Error(`No se pudo registrar el creativo: ${sanearError(error?.message || '')}`);
   }
-  if (modo !== 'subir') await registrarGeneracion(admin, { creative_id: id, user_id: userId, kind: 'image', model: modelo!, status: 'ok', usage });
+  let generacionId: string | null = null;
+  if (modo !== 'subir') {
+    generacionId = await registrarGeneracion(admin, { creative_id: id, user_id: userId, kind: 'image', model: modelo!, status: 'ok', usage });
+    // El creativo conserva para siempre qué generación lo produjo (imagen → anuncio → pago).
+    if (generacionId) await admin.from('creatives').update({ generation_id: generacionId }).eq('id', id);
+  }
   if (i.concept_id) await admin.from('creative_concepts').update({ status: 'used' }).eq('id', i.concept_id);
-  return { ok: true, creativo: data, image_url: await urlFirmada(admin, path), modelo };
+  return { ok: true, creativo: data, image_url: await urlFirmada(admin, path), modelo, generation_id: generacionId };
 }

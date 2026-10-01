@@ -90,6 +90,7 @@ export interface ExperimentVariantInput {
   cta: string;
   creative_reference?: string;
   creative_asset_id?: string; // creativo del Laboratorio V5 (public.creatives)
+  creative_generation_id?: string; // generación (creative_generations) que produjo esa imagen
   variable_changed?: string; // qué cambió frente al control ('control' para el control)
   audience_definition?: Record<string, unknown>;
 }
@@ -517,6 +518,7 @@ export async function proponerExperimentoV4(
     cta: v.cta,
     creative_reference: v.creative_reference || null,
     creative_asset_id: v.creative_asset_id || null,
+    creative_generation_id: v.creative_generation_id || null,
     variable_changed: v.variable_changed || null,
     audience_definition: v.audience_definition || params.audience_definition || {},
   }));
