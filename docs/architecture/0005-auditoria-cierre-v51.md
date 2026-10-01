@@ -28,7 +28,7 @@ Estados: OK / PENDIENTE / BLOQUEADO. Todo lo marcado OK se comprobó contra la b
 - `META_PAGE_ID` configurado en Supabase (ID de la página de los anuncios existentes). Formatos de imagen verificados: 1:1, 4:5 y 9:16 con proporción exacta.
 
 ## Agente de Ads unificado (2026-10-01, commit 85d961c)
-- `asistente` v28 y `generar-creativo` v14 ejecutan el código de GitHub fijado al commit `85d961c…` (cargadores de un solo archivo).
+- `asistente` v28 y `generar-creativo` v14 ejecutan el código de GitHub fijado al commit `d835b98…` (asistente v29, generar-creativo v18; enviar-whatsapp-cliente v24 fijado a `9e3b307…`) (cargadores de un solo archivo).
 - El agente (asistente/Nora) hace el ciclo completo con herramientas: `buscar_tendencias`, `consultar_tendencias`, `proponer_conceptos_creativos`, `generar_prompt_creativo`, `generar_creativo`, `regenerar_creativo`, `origen_clientes`, `ranking_creativos`, `biblioteca_prompts`, `proponer_experimento_creativos`, `proponer_publicar_creativo`, `cerrar_experimento_creativos`. Todo lo que toca Meta sigue siendo propuesta → confirmación humana.
 - Vistas `origen_leads` y `cobertura_atribucion`; tabla `ad_trends` (tendencias = hipótesis con fuentes, no evidencia; no se mezclan con `campaign_learnings`).
 - Todo anuncio generado lleva titular, subtítulo, botón CTA y firma "Flujo de Migração" (`asegurarTextos` los garantiza); formatos 1:1, 4:5, 9:16 exactos.
