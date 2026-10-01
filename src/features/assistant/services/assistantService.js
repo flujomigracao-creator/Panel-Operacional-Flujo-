@@ -478,7 +478,7 @@ export async function getCampaignExperiments(limit = 20) {
     .select(`
       id, name, service, status, hypothesis, objective, primary_metric, secondary_metrics, budget,
       start_date, end_date, control_description, treatment_description, created_at,
-      campaign_variants(id, variant_name, hook, copy, cta, campaign_id, adset_id, ad_id),
+      campaign_variants(id, variant_name, hook, copy, cta, campaign_id, adset_id, ad_id, creative_asset_id),
       campaign_hypotheses(id, hypothesis, result, confidence, decision),
       campaign_measurements(id, date, spend, impressions, clicks, ctr, cpc, conversations, cost_per_lead, roas)
     `)

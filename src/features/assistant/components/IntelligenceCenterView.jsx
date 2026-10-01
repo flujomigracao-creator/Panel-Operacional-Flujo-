@@ -19,6 +19,7 @@ import {
   ArrowRight,
   Filter,
   Image as ImageIcon,
+  Rocket,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAssistant } from '../context/AssistantContext';
@@ -28,7 +29,7 @@ import AlertCard from './AlertCard';
 import CampaignCard from './CampaignCard';
 import CampaignTable from './CampaignTable';
 import CreativesView from './creatives/CreativesView';
-import { cerrarExperimento } from '../services/creativesService';
+import { cerrarExperimento, publicarExperimento } from '../services/creativesService';
 import MetaStatusBanner from './MetaStatusBanner';
 import LearningSummary from './LearningSummary';
 import PerformanceChart from './PerformanceChart';
@@ -115,6 +116,24 @@ export default function IntelligenceCenterView() {
       await loadData();
     } catch (err) {
       toast.error(err.message || 'No se pudo medir el experimento');
+    }
+  };
+
+  const [publicando, setPublicando] = useState(null);
+  // Publica un experimento en Meta. Todo nace en PAUSA: no gasta hasta que se active en Meta.
+  const publicarEnMeta = async (exp) => {
+    const presupuesto = Number(exp.budget || 0).toFixed(2);
+    if (!window.confirm(`¿Publicar "${exp.name}" en Meta?\n\nSe crea la campaña con sus conjuntos y anuncios EN PAUSA (presupuesto R$ ${presupuesto}/día cuando la actives). No se gasta nada hasta que la actives en Meta.`)) return;
+    setPublicando(exp.id);
+    try {
+      const r = await publicarExperimento(exp.id);
+      if (r?.ok === false) throw new Error(r.error || 'Meta rechazó la publicación');
+      toast.success('Experimento creado en Meta (en pausa).', { duration: 6000 });
+      await loadData();
+    } catch (err) {
+      toast.error(err.message || 'No se pudo publicar el experimento', { duration: 9000 });
+    } finally {
+      setPublicando(null);
     }
   };
 
@@ -744,6 +763,24 @@ export default function IntelligenceCenterView() {
                             {hyp.result === 'supported' ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
                             <span>Resultado: {hyp.result === 'supported' ? 'Hipótesis Confirmada' : 'Hipótesis Rechazada'}</span>
                           </div>
+                        )}
+
+                        {/* Publicar en Meta: solo si todas las variantes tienen imagen y aún no hay anuncios */}
+                        {!isCompleted && !vars.some((v) => v.ad_id) && (
+                          vars.length > 0 && vars.every((v) => v.creative_asset_id) ? (
+                            <button
+                              onClick={() => publicarEnMeta(exp)}
+                              disabled={publicando === exp.id}
+                              className="w-full inline-flex items-center justify-center gap-1 rounded-lg bg-brand-primary px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"
+                            >
+                              <Rocket size={13} />
+                              <span>{publicando === exp.id ? 'Publicando en Meta…' : 'Publicar en Meta (en pausa)'}</span>
+                            </button>
+                          ) : (
+                            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-400">
+                              Faltan imágenes: cada variante necesita un creativo. Pídele a Nora «arma este experimento con imágenes».
+                            </p>
+                          )
                         )}
 
                         {/* Botón para analizar con el asistente */}

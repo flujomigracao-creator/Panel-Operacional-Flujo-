@@ -96,6 +96,26 @@ Deno.serve(async (req) => {
   let body: any;
   try { body = await req.json(); } catch { return json({ error: 'JSON inválido' }, 400); }
 
+  // 1b. Botón "Publicar en Meta" de un experimento: usa su propuesta pendiente o recrea una desde la última
+  //     (las fallidas/canceladas no se pueden reejecutar) y sigue por el flujo normal de 'ejecutar'.
+  if (body.accion === 'publicar_experimento') {
+    const { data: props } = await admin.from('ai_proposals').select('*').eq('organization_id', ORG_ID).eq('tipo', 'ads_experimento_v4')
+      .eq('payload->>experiment_id', String(body.experiment_id)).order('created_at', { ascending: false }).limit(10);
+    if (!props?.length) return json({ error: 'Este experimento no tiene propuesta de publicación. Pídele a Nora que la prepare.' }, 404);
+    if (props.some((x: any) => x.status === 'executed')) return json({ error: 'Este experimento ya fue publicado en Meta.' }, 409);
+    let objetivo = props.find((x: any) => x.status === 'pending' && x.user_id === u.id);
+    if (!objetivo) {
+      const base = props[0];
+      const { data: nueva, error: eNueva } = await admin.from('ai_proposals').insert({
+        organization_id: ORG_ID, user_id: u.id, tipo: base.tipo, payload: base.payload, resumen: base.resumen,
+      }).select('id').single();
+      if (eNueva || !nueva) return json({ error: `No se pudo preparar la publicación: ${eNueva?.message}` }, 500);
+      objetivo = nueva;
+    }
+    body.accion = 'ejecutar';
+    body.proposal_id = objetivo.id;
+  }
+
   // 2. Ejecutar / cancelar propuestas (sin IA)
   if (body.accion === 'ejecutar' || body.accion === 'cancelar') {
     const { data: p } = await admin.from('ai_proposals').select('*').eq('id', body.proposal_id).eq('user_id', u.id).maybeSingle();

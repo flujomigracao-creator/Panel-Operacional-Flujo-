@@ -95,6 +95,8 @@ export const actualizarCreativo = (id, patch) => invoke({ accion: 'creative_actu
 export const guardarPrompt = (body) => invoke({ accion: 'creative_prompt_guardar', ...body });
 export const proponerPublicacion = (creative_id, adset_id) => invoke({ accion: 'creative_proponer_publicacion', creative_id, adset_id });
 export const crearExperimento = (body) => invoke({ accion: 'creative_experimento', ...body });
+/** Botón Publicar: crea campaña, conjuntos y anuncios del experimento en Meta (siempre en pausa). */
+export const publicarExperimento = (experiment_id) => invoke({ accion: 'publicar_experimento', experiment_id });
 export const cerrarExperimento = (experiment_id, concluirInconcluso = false) =>
   invoke({ accion: 'creative_cerrar_experimento', experiment_id, concluir_inconcluso: concluirInconcluso });
 
