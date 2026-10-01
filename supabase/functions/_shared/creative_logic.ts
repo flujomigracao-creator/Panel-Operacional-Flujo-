@@ -92,6 +92,15 @@ export function construirPromptPublicitario(i: PromptInput): string {
 export function tamanoOpenAI(formato: string): string {
   return formato === '1:1' ? '1024x1024' : '1024x1536';
 }
+/**
+ * Tamaños candidatos por formato, del más fiel al de respaldo. Los modelos gpt-image recientes admiten proporciones
+ * propias (lados múltiplos de 16); si OpenAI rechaza el exacto se usa el clásico 1024x1536.
+ */
+export function tamanosCandidatos(formato: string): string[] {
+  if (formato === '1:1') return ['1024x1024'];
+  const exacto = formato === '4:5' ? '1024x1280' : '1152x2048'; // 4:5 y 9:16 exactos
+  return [exacto, '1024x1536'];
+}
 export function aspectoGemini(formato: string): string {
   return formato === '9:16' ? '9:16' : formato === '4:5' ? '4:5' : '1:1';
 }

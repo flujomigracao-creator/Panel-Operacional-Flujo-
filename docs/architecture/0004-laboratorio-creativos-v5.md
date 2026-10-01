@@ -42,4 +42,4 @@ más los de Meta ya existentes. Sin proveedor de imagen se pueden subir imágene
 - Imágenes: bucket privado `creatives`, ruta `{servicio}/{creative_id}/v{version}/image.{ext}`; el panel las ve con URL firmada.
 - Regenerar crea un creativo NUEVO (`root_creative_id`, `parent_creative_id`, `version`) y exige declarar UNA variable cambiada (`changed_variable`): estilo, hook, concepto, composición o imagen. Nunca se sobrescribe una imagen.
 - `creative_generations` registra modelo, usuario, uso devuelto por OpenAI y errores. `cost_usd` queda `null` mientras la API no informe costo (no se estima).
-- Tope de 40 imágenes por día. Formatos 4:5 y 9:16 se generan en 1024×1536 (OpenAI no ofrece esas proporciones exactas) y Meta las recorta.
+- Tope de 40 imágenes por día. Formatos exactos con `gpt-image-2`: 1:1 → 1024×1024, 4:5 → 1024×1280, 9:16 → 1152×2048 (verificado con generaciones reales); si OpenAI rechaza un tamaño se cae a 1024×1536 y el tamaño usado queda en `creative_generations.usage.size`.

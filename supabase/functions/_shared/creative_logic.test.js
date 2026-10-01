@@ -110,3 +110,15 @@ test('regenerar: concepto/composición sin prompt nuevo, o estilo/hook sin valor
   assert.equal(ajustarPromptRegeneracion('x', 'estilo', {}), null);
   assert.equal(ajustarPromptRegeneracion('x', 'hook', { hook: '  ' }), null);
 });
+
+import { tamanosCandidatos } from './creative_logic.ts';
+
+test('formatos de Meta: tamaño exacto primero y respaldo clásico después', () => {
+  assert.deepEqual(tamanosCandidatos('1:1'), ['1024x1024']);
+  assert.deepEqual(tamanosCandidatos('4:5'), ['1024x1280', '1024x1536']);
+  assert.deepEqual(tamanosCandidatos('9:16'), ['1152x2048', '1024x1536']);
+  for (const f of ['4:5', '9:16']) {
+    const [a, b] = tamanosCandidatos(f)[0].split('x').map(Number);
+    assert.equal(a % 16, 0); assert.equal(b % 16, 0);
+  }
+});

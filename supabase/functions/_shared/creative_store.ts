@@ -3,7 +3,7 @@
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import {
-  CONCEPTOS, ESTILOS, OBJETIVOS, construirPromptPublicitario, tamanoOpenAI, validarCreativo, validarCambio,
+  CONCEPTOS, ESTILOS, OBJETIVOS, construirPromptPublicitario, tamanosCandidatos, validarCreativo, validarCambio,
   tipoImagen, rutaImagen, elegirModeloImagen, sanearError, ajustarPromptRegeneracion,
 } from './creative_logic.ts';
 
@@ -141,10 +141,20 @@ export async function generarPrompt(admin: SupabaseClient, userId: string, d: Da
 // ── Imagen (OpenAI Images API) ──
 async function generarImagen(prompt: string, formato: string) {
   const model = await modeloImagen();
-  const d = await openai('/images/generations', { method: 'POST', body: JSON.stringify({ model, prompt, size: tamanoOpenAI(formato), n: 1 }) });
-  const b64 = d?.data?.[0]?.b64_json;
-  if (!b64) throw new Error('OpenAI no devolvió la imagen.');
-  return { bytes: b64ToBytes(b64), mime: 'image/png', model, usage: d.usage ?? null };
+  let ultimoError: unknown = null;
+  for (const size of tamanosCandidatos(formato)) {
+    try {
+      const d = await openai('/images/generations', { method: 'POST', body: JSON.stringify({ model, prompt, size, n: 1 }) });
+      const b64 = d?.data?.[0]?.b64_json;
+      if (!b64) throw new Error('OpenAI no devolvió la imagen.');
+      // El tamaño realmente usado queda en el uso registrado (para saber si el formato fue exacto o de respaldo).
+      return { bytes: b64ToBytes(b64), mime: 'image/png', model, usage: { ...(d.usage ?? {}), size, format: formato } };
+    } catch (e) {
+      ultimoError = e;
+      if (!/\(400\)/.test(String(e))) throw e; // solo un tamaño no admitido justifica probar el siguiente
+    }
+  }
+  throw ultimoError;
 }
 
 async function urlFirmada(admin: SupabaseClient, path: string) {
