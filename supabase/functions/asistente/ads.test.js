@@ -8,6 +8,7 @@ import {
   validateAdsOperation,
   DEFAULT_ADS_LIMITS,
   ADS_TOOL_DEFS,
+  resolveAdsDateRange,
 } from './ads.ts';
 
 test('1. calculateAdsMetrics calcula correctamente CTR, CPC, CPM y costo por conversación', () => {
@@ -171,4 +172,67 @@ test('8. ADS_TOOL_DEFS tiene todas las definiciones requeridas con esquemas vál
     assert.ok(tool.function.description);
     assert.ok(tool.function.parameters);
   }
+});
+
+test('9. resolveAdsDateRange convierte atajos y fechas en un rango real', () => {
+  const fijo = new Date('2026-09-30T12:00:00Z');
+
+  const d7 = resolveAdsDateRange('7d', fijo);
+  assert.equal(d7.desde, '2026-09-24');
+  assert.equal(d7.hasta, '2026-09-30');
+  assert.equal(d7.etiqueta, 'Últimos 7 días');
+
+  // El panel manda { periodo: '30d' }: se resuelve al rango de 30 días.
+  const d30 = resolveAdsDateRange({ periodo: '30d' }, fijo);
+  assert.equal(d30.desde, '2026-09-01');
+  assert.equal(d30.hasta, '2026-09-30');
+
+  const explicito = resolveAdsDateRange({ desde: '2026-09-01', hasta: '2026-09-15' }, fijo);
+  assert.equal(explicito.desde, '2026-09-01');
+  assert.equal(explicito.hasta, '2026-09-15');
+  assert.equal(explicito.etiqueta, '2026-09-01 — 2026-09-15');
+
+  // 'all' no inventa fechas: sin rango se consulta todo el histórico.
+  const todo = resolveAdsDateRange('all', fijo);
+  assert.equal(todo.desde, undefined);
+  assert.equal(todo.hasta, undefined);
+  assert.equal(todo.etiqueta, 'Todo el histórico');
+
+  // Sin argumentos se asume la última semana.
+  assert.equal(resolveAdsDateRange(undefined, fijo).etiqueta, 'Últimos 7 días');
+});
+
+test('10. calculateAdsMetrics calcula tasa de conversión y costo por cliente solo con datos reales', () => {
+  const conDatos = calculateAdsMetrics({ spend: 200, impressions: 20000, clicks: 400, conversations: 40, leads: 8, clients: 4 });
+  assert.equal(conDatos.conversionRate, 20); // 8 leads / 40 conversaciones
+  assert.equal(conDatos.costPerClient, 50); // 200 / 4 clientes
+  assert.equal(conDatos.conversationRate, 10); // 40 / 400 clics
+
+  // Sin leads reportados no se puede afirmar una tasa de conversión.
+  const sinLeads = calculateAdsMetrics({ spend: 100, impressions: 1000, clicks: 20, conversations: 10, leads: 0 });
+  assert.equal(sinLeads.conversionRate, null);
+  assert.equal(sinLeads.costPerClient, null);
+});
+
+test('11. ADS_TOOL_DEFS expone conjuntos, anuncios y presupuesto de conjunto con período', () => {
+  const names = ADS_TOOL_DEFS.map(t => t.function.name);
+  for (const n of ['listar_conjuntos_ads', 'listar_anuncios_ads', 'proponer_cambiar_presupuesto_conjunto']) {
+    assert.ok(names.includes(n), `falta la herramienta ${n}`);
+  }
+
+  const campanas = ADS_TOOL_DEFS.find(t => t.function.name === 'listar_campanas_ads');
+  assert.deepEqual(campanas.function.parameters.properties.periodo.enum, ['7d', '14d', '30d', 'all']);
+
+  const analisis = ADS_TOOL_DEFS.find(t => t.function.name === 'analizar_rendimiento_ads');
+  assert.ok(analisis.function.parameters.properties.incluir_anuncios);
+});
+
+test('12. validateAdsOperation valida el presupuesto de un conjunto con los mismos límites', () => {
+  const limits = { ...DEFAULT_ADS_LIMITS, maxDailyBudgetChange: 100 };
+
+  const valido = { tipo: 'cambiar_presupuesto_adset', presupuestoActual: 60, presupuestoNuevo: 80 };
+  assert.equal(validateAdsOperation(valido, limits).valid, true);
+
+  const excesivo = { tipo: 'cambiar_presupuesto_adset', presupuestoActual: 60, presupuestoNuevo: 220 };
+  assert.equal(validateAdsOperation(excesivo, limits).valid, false);
 });

@@ -3,6 +3,10 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { ADS_TOOL_DEFS, runAdsTool } from './ads.ts';
 
+// Nombres de las herramientas de Ads derivados de su propia definición: así el despacho en
+// runTool nunca se desincroniza si se agrega o renombra una herramienta.
+export const ADS_TOOL_NAMES = new Set<string>(ADS_TOOL_DEFS.map((t: any) => t.function.name));
+
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
 
 // Campos del cliente que el asistente puede proponer editar.
@@ -48,6 +52,10 @@ export const TOOL_DEFS = [
   }),
   fn('checklist_tramite', 'Lista de documentos y datos que pide un trámite y el estado de cada uno (ok, faltando, rechazado con motivo).', { client_service_id: str('UUID del trámite') }, ['client_service_id']),
   fn('metricas', 'Cobros y cantidad de trámites en un período.', { desde: str('Fecha inicio YYYY-MM-DD'), hasta: str('Fecha fin YYYY-MM-DD') }),
+  fn('analizar_ventas_nora', 'Embudo comercial del período: leads por etapa, propuestas enviadas, comprobantes de pago, leads sin atención y trámites creados. Responde "¿cuántos leads atendió Nora y cuántos terminaron pagando?".', {
+    desde: str('Fecha inicio YYYY-MM-DD (por defecto: últimos 7 días)'),
+    hasta: str('Fecha fin YYYY-MM-DD (por defecto: hoy)'),
+  }),
   fn('catalogo_tramites', 'Trámites que ofrece la empresa, con precio, etapas y lista de documentos cargada.'),
   fn('extraer_datos_conversacion', 'Lee toda la conversación de Kommo del cliente y los datos extraídos de sus documentos, encuentra datos personales y del trámite, y crea una propuesta para guardarlos (el usuario elige cuáles).', { client_id: str('UUID del cliente') }, ['client_id']),
 
@@ -205,6 +213,51 @@ export async function runTool(ctx: Ctx, name: string, args: any): Promise<string
         por_mes: await must(ctx.user.from('asistente_metricas').select('*').order('mes', { ascending: false }).limit(6)),
       });
     }
+    case 'analizar_ventas_nora': {
+      const hoy = new Date().toISOString().slice(0, 10);
+      const desde = args.desde || new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10);
+      const hasta = args.hasta || hoy;
+
+      // Columnas tomadas del contrato real de comercial_leads (ver comercialService.getComercialLeads).
+      const leads = await must(ctx.user
+        .from('comercial_leads')
+        .select('id, nombre, tramite_texto, precio, etapa_nombre, etapa_position, temperatura, propuesta_enviada, comprobante_at, comprobante_monto, atendente_pausado, last_inbound_at, last_atendido_at, updated_at')
+        .gte('updated_at', desde + 'T00:00:00')
+        .lte('updated_at', hasta + 'T23:59:59')) as any[];
+
+      const pagos = await must(ctx.user
+        .from('payments').select('amount, status, paid_at, client_service_id')
+        .eq('status', 'paid').gte('paid_at', desde + 'T00:00:00').lte('paid_at', hasta + 'T23:59:59')) as any[];
+
+      const tramites = await must(ctx.user
+        .from('client_services').select('id, status, created_at')
+        .gte('created_at', desde).lte('created_at', hasta + 'T23:59:59')) as any[];
+
+      const agrupar = (arr: any[], k: string) => arr.reduce((a, x) => { const key = x[k] || '—'; a[key] = (a[key] || 0) + 1; return a; }, {} as Record<string, number>);
+      // Un lead quedó sin atención si el último mensaje del cliente es posterior a la última respuesta.
+      const sinAtender = leads.filter(l => l.last_inbound_at && (!l.last_atendido_at || l.last_inbound_at > l.last_atendido_at));
+
+      return cut({
+        periodo: { desde, hasta },
+        leads: {
+          total: leads.length,
+          por_etapa: agrupar(leads, 'etapa_nombre'),
+          valor_en_pipeline: leads.reduce((s, l) => s + Number(l.precio || 0), 0),
+          con_propuesta_enviada: leads.filter(l => l.propuesta_enviada).length,
+          con_comprobante: leads.filter(l => l.comprobante_at).length,
+          sin_atencion: sinAtender.length,
+          nora_pausada: leads.filter(l => l.atendente_pausado).length,
+          por_temperatura: agrupar(leads, 'temperatura'),
+        },
+        cobros: {
+          pagos: pagos.length,
+          total: pagos.reduce((s, p) => s + Number(p.amount || 0), 0),
+        },
+        tramites_creados: { total: tramites.length, por_estado: agrupar(tramites, 'status') },
+        atribucion_estado: 'estimada',
+        nota: 'Embudo comercial del período. No implica que estos leads vengan de Meta Ads: eso necesita evidencia de atribución.',
+      });
+    }
     case 'catalogo_tramites': {
       const servicios = await must(ctx.user.from('services').select('id, name, description, default_price, active, service_stages(name, position, pipeline_stage_code), service_requirements(kind, label, required, ask_client)').order('position')) as any[];
       return cut(servicios.map(s => ({ ...s, service_stages: (s.service_stages || []).sort((a: any, b: any) => a.position - b.position) })));
@@ -301,12 +354,8 @@ export async function runTool(ctx: Ctx, name: string, args: any): Promise<string
         `Generar ${args.documento} para ${t.servicio} de ${t.cliente} y guardarlo en su carpeta de Drive`));
     }
     default: {
-      if (
-        name.includes('_ads') ||
-        name.startsWith('proponer_cambiar_estado_campana') ||
-        name.startsWith('proponer_cambiar_presupuesto_campana') ||
-        name.startsWith('proponer_crear_campana_ads')
-      ) {
+      // Todas las herramientas de Meta Ads se atienden con su propio módulo.
+      if (ADS_TOOL_NAMES.has(name)) {
         return cut(await runAdsTool(ctx, name, args));
       }
       return cut({ error: 'Herramienta desconocida: ' + name });

@@ -85,6 +85,7 @@ export default function IntelligenceCenterView() {
               </h1>
               <p className="text-xs text-chrome-text-muted">
                 Auditoría en tiempo real de Meta Ads, conversión de leads, trámites y cobros
+                {data?.periodo?.etiqueta ? ` · Período: ${data.periodo.etiqueta}` : ''}
               </p>
             </div>
           </div>
@@ -199,20 +200,42 @@ export default function IntelligenceCenterView() {
             />
             <MetricCard
               title="Leads Comerciales"
-              value={atribucion.leads_analizados || globales.leads_totales || 0}
-              subtitle={`${atribucion.leads_en_propuesta_o_pago || 0} en propuesta / pago`}
+              value={atribucion.leads_analizados ?? globales.leads_totales ?? null}
+              subtitle={
+                atribucion.leads_analizados === undefined
+                  ? 'Datos no disponibles'
+                  : `${atribucion.leads_en_propuesta_o_pago || 0} en propuesta / pago`
+              }
               icon={Users}
               tone="default"
             />
             <MetricCard
               title="Cobrado Registrado"
-              value={atribucion.ingresos_totales_registrados !== undefined ? `R$ ${atribucion.ingresos_totales_registrados.toFixed(2)}` : null}
-              subtitle="Atribución calculada"
+              value={atribucion.ingresos_totales_registrados != null ? `R$ ${atribucion.ingresos_totales_registrados.toFixed(2)}` : null}
+              subtitle={
+                atribucion.atribucion_estado === 'confirmada'
+                  ? 'Atribución con evidencia'
+                  : atribucion.atribucion_estado === 'estimada'
+                  ? 'Correlación del período (no confirmada)'
+                  : 'Datos no disponibles'
+              }
               badge={atribucion.atribucion_estado}
               icon={TrendingUp}
               tone="emerald"
             />
           </div>
+
+          {/* Estado de la atribución: se declara explícitamente para no dar por confirmado un cruce */}
+          {atribucion.atribucion_estado !== 'confirmada' && (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-400">
+              <ShieldCheck size={14} className="mt-0.5 shrink-0" />
+              <span>
+                {atribucion.atribucion_estado === 'no_disponible'
+                  ? 'No hay suficiente información de atribución para relacionar Meta Ads con clientes y pagos.'
+                  : atribucion.nota || 'Los cruces con leads y cobros son correlación del período, no atribución confirmada.'}
+              </span>
+            </div>
+          )}
 
           {/* Hallazgos y Alertas Automáticas */}
           {hallazgos.length > 0 && (
@@ -304,6 +327,11 @@ export default function IntelligenceCenterView() {
             </div>
             <p className="mt-1 text-xs text-chrome-text-muted leading-relaxed">
               El asistente opera bajo reglas de seguridad estrictas: Máximo cambio diario de <strong>R$ {limites.maxDailyBudgetChange || 150}</strong> por operación, incremento máximo de <strong>+{limites.maxBudgetIncreasePercent || 50}%</strong>, y presupuesto de creación limitado a <strong>R$ {limites.maxCampaignCreationBudget || 250}/día</strong>. Cualquier acción requiere confirmación manual previa.
+              {limites.origen === 'local_por_defecto' && (
+                <span className="mt-1 block italic">
+                  Valores por defecto del código: no se pudo leer la configuración de límites de la organización.
+                </span>
+              )}
             </p>
           </div>
         </>

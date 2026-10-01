@@ -8,6 +8,7 @@ import { Megaphone, ArrowRight, TrendingUp, TrendingDown, AlertCircle } from 'lu
 export default function AdsProposalDetail({ proposal }) {
   const d = proposal.payload || {};
   const isBudgetChange = proposal.tipo === 'ads_cambiar_presupuesto_campana';
+  const isAdSetBudget = proposal.tipo === 'ads_cambiar_presupuesto_adset';
   const isStatusChange = proposal.tipo === 'ads_cambiar_estado_campana';
   const isCreateCampaign = proposal.tipo === 'ads_crear_campana';
 
@@ -20,20 +21,27 @@ export default function AdsProposalDetail({ proposal }) {
       <div className="flex items-center justify-between gap-2 border-b border-sky-500/10 pb-2">
         <div className="flex items-center gap-1.5 font-semibold text-sky-400">
           <Megaphone size={14} />
-          <span>Meta Ads — {isBudgetChange ? 'Ajuste de Presupuesto' : isStatusChange ? 'Cambio de Estado' : isCreateCampaign ? 'Nueva Campaña' : 'Operación'}</span>
+          <span>Meta Ads — {isBudgetChange ? 'Ajuste de Presupuesto' : isAdSetBudget ? 'Presupuesto del Conjunto' : isStatusChange ? 'Cambio de Estado' : isCreateCampaign ? 'Nueva Campaña' : 'Operación'}</span>
         </div>
-        {d.campaign_id && (
-          <span className="font-mono text-[10px] text-chrome-text-muted">ID: {d.campaign_id}</span>
+        {(d.campaign_id || d.adset_id) && (
+          <span className="font-mono text-[10px] text-chrome-text-muted">
+            ID: {d.adset_id ? `conjunto ${d.adset_id}` : d.campaign_id}
+          </span>
         )}
       </div>
 
       {/* Target info */}
       <div className="mt-2 space-y-1">
         <p className="text-chrome-text-active">
-          <span className="text-chrome-text-muted">Campaña:</span> <strong className="font-semibold">{d.nombre_campana || d.nombre || 'Campaña'}</strong>
+          <span className="text-chrome-text-muted">{isAdSetBudget ? 'Conjunto:' : 'Campaña:'}</span>{' '}
+          <strong className="font-semibold">{d.nombre_conjunto || d.nombre_campana || d.nombre || 'Campaña'}</strong>
         </p>
 
-        {isBudgetChange && (
+        {isAdSetBudget && d.nombre_campana && (
+          <p className="text-[11px] text-chrome-text-muted">Campaña: {d.nombre_campana}</p>
+        )}
+
+        {(isBudgetChange || isAdSetBudget) && (
           <div className="my-2 grid grid-cols-3 gap-2 rounded-md bg-chrome-bg-raised p-2 text-center">
             <div>
               <p className="text-[10px] uppercase text-chrome-text-muted">Antes</p>

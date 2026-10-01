@@ -13,6 +13,7 @@ import {
   getMetaAdsAttribution,
   compareMetaAdsPeriods,
   getAdsLimits,
+  resolveAdsDateRange,
 } from './ads.ts';
 
 const MODEL = 'openai/gpt-oss-120b';
@@ -31,11 +32,12 @@ const json = (body: unknown, status = 200) =>
 const SYSTEM = (contexto: any, hoy: string) => `Eres el Asistente de Inteligencia y Operaciones de FLUJO Migração, una oficina de trámites migratorios en Brasil dirigida por el dueño. Le hablas a él, en español, profesional, analítico y directo.
 
 Tu propósito es actuar como el Centro de Inteligencia del negocio:
-1. Meta Ads & Marketing: Consultar métricas reales (gasto, impresiones, clics, CTR, CPC, CPM, conversaciones, leads) con listar_campanas_ads, analizar_rendimiento_ads y comparar_periodos_ads.
+1. Meta Ads & Marketing: Consultar métricas reales (gasto, impresiones, clics, CTR, CPC, CPM, conversaciones, leads) con listar_campanas_ads, analizar_rendimiento_ads y comparar_periodos_ads. Bajar al detalle con listar_conjuntos_ads y listar_anuncios_ads cuando haga falta explicar resultados por conjunto o por creativo.
 2. Atribución comercial: Relacionar la inversión publicitaria con leads de Nora/Kommo, trámites y dinero cobrado (metricas_atribucion_ads).
+3. Períodos: cuando el dueño diga "esta semana", "los últimos 7 días", "este mes" o compare períodos, pasa el período a las herramientas (periodo: 7d/14d/30d o desde/hasta en YYYY-MM-DD). Nunca inventes el rango: si no lo dice, usa 7d y di cuál usaste.
 3. Operaciones del negocio: Consultar estado de trámites, clientes, tareas del día, cobros y finanzas.
-4. Propuestas seguras: NUNCA ejecutes cambios directamente en Meta Ads ni en la base de datos. Para cualquier acción (pausar campaña, ajustar presupuesto, cambiar etapa, guardar datos), usa exclusivamente las herramientas proponer_*. Explica el análisis, muestra los números anteriores y nuevos, y deja la propuesta lista para que el dueño la confirme con un botón.
-5. Rigor con los datos: Nunca inventes cifras ni métricas. Si un dato no está disponible o la atribución es estimada, indícalo claramente.
+4. Propuestas seguras: NUNCA ejecutes cambios directamente en Meta Ads ni en la base de datos. Para cualquier acción (pausar campaña, activar campaña, ajustar presupuesto de campaña o de conjunto, cambiar etapa, guardar datos), usa exclusivamente las herramientas proponer_*. Explica el análisis, muestra siempre el valor anterior y el nuevo, el porcentaje de cambio y el motivo, y deja la propuesta lista para que el dueño la confirme con un botón.
+5. Rigor con los datos: Nunca inventes cifras ni métricas. Si un dato no está disponible (por ejemplo el nivel de anuncios sin credenciales de Meta), dilo explícitamente; si la atribución es estimada y no confirmada, acláralo; si falta información de atribución, di "No hay suficiente información de atribución".
 6. Formato de respuesta: Claro, con listas con guiones y **negritas** en los KPIs clave. Cuando menciones un cliente registrado, incluye [VIEW_CLIENT:<uuid>:<nombre>].
 
 Hoy es ${hoy}. Pantalla actual del dueño: ${contexto?.vista || 'desconocida'}.${contexto?.client_id ? ` Está viendo la ficha del cliente con id ${contexto.client_id}: si pregunta "este cliente" se refiere a él.` : ''}`;
@@ -102,13 +104,17 @@ Deno.serve(async (req) => {
   // 2c. Consultas directas de Meta Ads para el Centro de Inteligencia
   if (body.accion === 'ads_data') {
     try {
+      // El panel manda { periodo: '7d' | '14d' | '30d' } o { desde, hasta }: aquí se resuelve
+      // a un rango real para que el selector de período sí cambie los números.
+      const periodo = resolveAdsDateRange(body.rango);
+      const dateRange = periodo.desde && periodo.hasta ? { desde: periodo.desde, hasta: periodo.hasta } : undefined;
       const [campanas, analisis, atribucion, limites] = await Promise.all([
-        fetchMetaCampaigns(admin, { dateRange: body.rango }),
-        analyzeMetaAds(admin),
-        getMetaAdsAttribution(admin, body.rango),
+        fetchMetaCampaigns(admin, { dateRange }),
+        analyzeMetaAds(admin, { dateRange, incluirAnuncios: body.incluir_anuncios !== false }),
+        getMetaAdsAttribution(admin, dateRange),
         getAdsLimits(admin),
       ]);
-      return json({ ok: true, campanas, analisis, atribucion, limites });
+      return json({ ok: true, periodo, campanas, analisis, atribucion, limites });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return json({ ok: false, error: msg }, 500);
@@ -117,7 +123,14 @@ Deno.serve(async (req) => {
 
   if (body.accion === 'ads_compare') {
     try {
-      const comparacion = await compareMetaAdsPeriods(admin, body.actual || {}, body.previo || {});
+      const actual = body.actual ? resolveAdsDateRange(body.actual) : null;
+      const previo = body.previo ? resolveAdsDateRange(body.previo) : null;
+      // Sin período anterior explícito, compareMetaAdsPeriods deriva el bloque inmediatamente anterior.
+      const comparacion = await compareMetaAdsPeriods(
+        admin,
+        actual?.desde && actual?.hasta ? { desde: actual.desde, hasta: actual.hasta } : undefined,
+        previo?.desde && previo?.hasta ? { desde: previo.desde, hasta: previo.hasta } : undefined
+      );
       return json({ ok: true, comparacion });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

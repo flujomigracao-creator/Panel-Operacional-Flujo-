@@ -19,6 +19,7 @@ const TIPO_LABEL = {
   agregar_participante: 'Agregar persona al trámite',
   ads_cambiar_estado_campana: 'Meta Ads — Cambiar estado',
   ads_cambiar_presupuesto_campana: 'Meta Ads — Presupuesto',
+  ads_cambiar_presupuesto_adset: 'Meta Ads — Presupuesto del conjunto',
   ads_crear_campana: 'Meta Ads — Nueva Campaña',
 };
 

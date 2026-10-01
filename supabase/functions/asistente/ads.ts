@@ -6,6 +6,48 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
 
+// ── Períodos: convierte '7d' | '14d' | '30d' | 'all' o fechas ISO en un rango real ──
+export interface AdsDateRange {
+  desde?: string;
+  hasta?: string;
+  etiqueta: string;
+}
+
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+
+/**
+ * Resuelve el rango pedido por el panel o por el modelo a fechas ISO (America/Sao_Paulo).
+ * Sin esto, el selector de período del Centro de Inteligencia no tenía ningún efecto.
+ */
+export function resolveAdsDateRange(input?: unknown, ahora: Date = new Date()): AdsDateRange {
+  const hoy = new Date(ahora);
+  const dias = (n: number) => {
+    const hasta = new Date(hoy);
+    const desde = new Date(hoy);
+    desde.setDate(desde.getDate() - (n - 1));
+    return { desde: isoDay(desde), hasta: isoDay(hasta), etiqueta: `Últimos ${n} días` };
+  };
+
+  if (!input) return dias(7);
+  if (typeof input === 'string') {
+    const v = input.trim().toLowerCase();
+    if (v === '7d' || v === '7') return dias(7);
+    if (v === '14d' || v === '14') return dias(14);
+    if (v === '30d' || v === '30' || v === 'mes' || v === 'este_mes') return dias(30);
+    if (v === 'all' || v === 'todo') return { etiqueta: 'Todo el histórico' };
+    return dias(7);
+  }
+
+  const obj = input as Record<string, unknown>;
+  if (typeof obj.periodo === 'string') return resolveAdsDateRange(obj.periodo, ahora);
+  const desde = typeof obj.desde === 'string' && obj.desde ? obj.desde : undefined;
+  const hasta = typeof obj.hasta === 'string' && obj.hasta ? obj.hasta : undefined;
+  if (desde && hasta) return { desde, hasta, etiqueta: `${desde} — ${hasta}` };
+  if (desde) return { desde, hasta: isoDay(hoy), etiqueta: `${desde} — ${isoDay(hoy)}` };
+  if (hasta) return { desde: dias(7).desde, hasta, etiqueta: `${dias(7).desde} — ${hasta}` };
+  return dias(7);
+}
+
 // ── Límites de seguridad por defecto (configurables en BD) ──
 export interface AdsLimitsConfig {
   maxDailyBudgetChange: number;       // Máximo cambio de presupuesto en BRL por operación (ej. R$ 100)
@@ -33,11 +75,18 @@ export interface AdsMetrics {
   cpm: number;
   conversations: number;
   leads: number;
+  /** Clientes que efectivamente pagaron, solo si la atribución lo permite. */
+  clients?: number;
   costPerConversation: number | null;
   costPerLead: number | null;
+  /** Conversaciones / clics (calidad del tráfico). */
   conversationRate: number | null;
+  /** Leads / conversaciones: qué proporción de las conversaciones es un lead real. */
+  conversionRate: number | null;
   revenueAttributed?: number;
   roas?: number | null;
+  /** Gasto / clientes que pagaron. Solo existe con atribución confirmada. */
+  costPerClient?: number | null;
   attributionStatus: 'confirmed' | 'estimated' | 'unavailable';
 }
 
@@ -77,6 +126,7 @@ export function calculateAdsMetrics(raw: {
   clicks?: number;
   conversations?: number;
   leads?: number;
+  clients?: number;
   revenueAttributed?: number;
   hasAttribution?: boolean;
 }): AdsMetrics {
@@ -85,6 +135,7 @@ export function calculateAdsMetrics(raw: {
   const clicks = Number(raw.clicks) || 0;
   const conversations = Number(raw.conversations) || 0;
   const leads = Number(raw.leads) || 0;
+  const clients = raw.clients !== undefined ? Number(raw.clients) : undefined;
   const revenueAttributed = raw.revenueAttributed !== undefined ? Number(raw.revenueAttributed) : undefined;
 
   const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
@@ -93,6 +144,9 @@ export function calculateAdsMetrics(raw: {
   const costPerConversation = conversations > 0 ? spend / conversations : null;
   const costPerLead = leads > 0 ? spend / leads : null;
   const conversationRate = clicks > 0 ? (conversations / clicks) * 100 : null;
+  // Solo se calcula si Meta reportó leads: sin ese dato no hay tasa de conversión honesta.
+  const conversionRate = leads > 0 && conversations > 0 ? (leads / conversations) * 100 : null;
+  const costPerClient = clients !== undefined && clients > 0 ? spend / clients : null;
 
   let roas: number | null = null;
   if (revenueAttributed !== undefined && spend > 0) {
@@ -111,11 +165,14 @@ export function calculateAdsMetrics(raw: {
     cpm: Math.round(cpm * 100) / 100,
     conversations,
     leads,
+    clients,
     costPerConversation: costPerConversation !== null ? Math.round(costPerConversation * 100) / 100 : null,
     costPerLead: costPerLead !== null ? Math.round(costPerLead * 100) / 100 : null,
     conversationRate: conversationRate !== null ? Math.round(conversationRate * 100) / 100 : null,
+    conversionRate: conversionRate !== null ? Math.round(conversionRate * 100) / 100 : null,
     revenueAttributed: revenueAttributed !== undefined ? Math.round(revenueAttributed * 100) / 100 : undefined,
     roas: roas !== null ? Math.round(roas * 100) / 100 : null,
+    costPerClient: costPerClient !== null ? Math.round(costPerClient * 100) / 100 : null,
     attributionStatus,
   };
 }
@@ -212,14 +269,24 @@ function getMetaConfig() {
   return { token, accountId: cleanAccountId };
 }
 
-export async function fetchMetaCampaigns(admin: SupabaseClient, _options: { dateRange?: { desde?: string; hasta?: string } } = {}): Promise<AdsCampaign[]> {
+export async function fetchMetaCampaigns(
+  admin: SupabaseClient,
+  options: { dateRange?: { desde?: string; hasta?: string } } = {}
+): Promise<AdsCampaign[]> {
   const { token, accountId } = getMetaConfig();
+  const range = options.dateRange;
+  const conRango = !!(range && (range.desde || range.hasta));
 
   // 1. Si hay token y cuenta configurados, consultar Graph API
   if (token && accountId) {
     try {
       const url = new URL(`https://graph.facebook.com/v20.0/${accountId}/campaigns`);
-      url.searchParams.set('fields', 'id,name,status,objective,daily_budget,lifetime_budget,insights{spend,impressions,clicks,actions,cost_per_action_type,cpc,cpm,ctr}');
+      // El período va dentro de la expansión de insights: sin esto todos los números eran históricos.
+      const expansion = conRango
+        ? `insights.time_range(${JSON.stringify({ since: range!.desde, until: range!.hasta })}){spend,impressions,clicks,actions,cpc,cpm,ctr}`
+        : 'insights{spend,impressions,clicks,actions,cpc,cpm,ctr}';
+      url.searchParams.set('fields', `id,name,status,objective,daily_budget,lifetime_budget,${expansion}`);
+      url.searchParams.set('limit', '100');
       url.searchParams.set('access_token', token);
 
       const r = await fetch(url.toString());
@@ -270,10 +337,20 @@ export async function fetchMetaCampaigns(admin: SupabaseClient, _options: { date
       .select('*')
       .order('date', { ascending: false });
 
-    if (rows && rows.length > 0) {
+    // El período también filtra el fallback: si no, el selector del panel mentía.
+    const dentro = (r: any) => {
+      if (!conRango || !r?.date) return true;
+      const dia = String(r.date).slice(0, 10);
+      if (range!.desde && dia < range!.desde) return false;
+      if (range!.hasta && dia > range!.hasta) return false;
+      return true;
+    };
+    const periodo = (rows || []).filter(dentro);
+
+    if (periodo.length > 0) {
       // Agrupar por campaña
       const porCampana: Record<string, { id: string; name: string; status: string; spend: number; impressions: number; clicks: number; conversations: number; leads: number; daily_budget?: number }> = {};
-      for (const r of rows) {
+      for (const r of periodo) {
         const cid = r.campaign_id || r.campaign_name || 'unknown';
         if (!porCampana[cid]) {
           porCampana[cid] = {
@@ -310,14 +387,155 @@ export async function fetchMetaCampaigns(admin: SupabaseClient, _options: { date
   return [];
 }
 
+// ── Conjuntos de anuncios y anuncios (nivel de detalle que faltaba) ──
+//
+// Solo se leen de la Graph API: `meta_ads_insights` es a nivel de campaña, así que si no hay
+// credenciales se devuelve "no disponible" en lugar de inventar números.
+
+export interface AdsReadResult<T> {
+  disponible: boolean;
+  motivo?: string;
+  periodo?: { desde?: string; hasta?: string };
+  datos: T[];
+}
+
+const META_MESSAGING_ACTIONS = [
+  'onsite_conversion.messaging_conversation_started_7d',
+  'messaging_conversation_started_7d',
+  'onsite_conversion.total_messaging_connection',
+];
+
+function metricsFromInsight(ins: any): AdsMetrics {
+  const actions = ins?.actions || [];
+  const convAction = actions.find((a: any) => META_MESSAGING_ACTIONS.includes(a.action_type));
+  const leadAction = actions.find((a: any) => a.action_type === 'lead' || a.action_type === 'onsite_conversion.lead_grouped');
+  return calculateAdsMetrics({
+    spend: Number(ins?.spend) || 0,
+    impressions: Number(ins?.impressions) || 0,
+    clicks: Number(ins?.clicks) || 0,
+    conversations: Number(convAction?.value) || 0,
+    leads: Number(leadAction?.value) || 0,
+  });
+}
+
+async function leerNivelMeta(
+  ruta: string,
+  fields: string,
+  options: { dateRange?: { desde?: string; hasta?: string } },
+  mapear: (nodo: any) => any
+): Promise<{ disponible: boolean; motivo?: string; datos: any[] }> {
+  const { token, accountId } = getMetaConfig();
+  if (!token || !accountId) {
+    return {
+      disponible: false,
+      motivo: 'Faltan las credenciales META_ADS_TOKEN / META_AD_ACCOUNT_ID en los secretos de Supabase.',
+      datos: [],
+    };
+  }
+
+  const range = options.dateRange;
+  const conRango = !!(range && (range.desde || range.hasta));
+  try {
+    const url = new URL(`https://graph.facebook.com/v20.0/${ruta}`);
+    const expansion = conRango
+      ? `insights.time_range(${JSON.stringify({ since: range!.desde, until: range!.hasta })}){spend,impressions,clicks,actions}`
+      : 'insights{spend,impressions,clicks,actions}';
+    url.searchParams.set('fields', `${fields},${expansion}`);
+    url.searchParams.set('limit', '200');
+    url.searchParams.set('access_token', token);
+
+    const r = await fetch(url.toString());
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok || json.error) {
+      return {
+        disponible: false,
+        motivo: json?.error?.message || `Meta Graph API error (${r.status})`,
+        datos: [],
+      };
+    }
+    return { disponible: true, datos: (json.data || []).map(mapear) };
+  } catch (e) {
+    return { disponible: false, motivo: e instanceof Error ? e.message : String(e), datos: [] };
+  }
+}
+
+/** Conjuntos de anuncios (ad sets) de la cuenta o de una campaña concreta. */
+export async function fetchMetaAdSets(
+  options: { dateRange?: { desde?: string; hasta?: string }; campaignId?: string } = {}
+): Promise<AdsReadResult<AdsAdSet>> {
+  const ruta = options.campaignId ? `${options.campaignId}/adsets` : `${getMetaConfig().accountId}/adsets`;
+  const res = await leerNivelMeta(
+    ruta,
+    'id,name,status,campaign_id,daily_budget,lifetime_budget',
+    options,
+    (n) => ({
+      id: n.id,
+      name: n.name,
+      campaign_id: n.campaign_id,
+      status: n.status,
+      daily_budget: n.daily_budget ? Number(n.daily_budget) / 100 : undefined,
+      metrics: metricsFromInsight(n.insights?.data?.[0]),
+    })
+  );
+  return { ...res, periodo: options.dateRange, datos: res.datos };
+}
+
+/** Anuncios (creativos) de la cuenta, de una campaña o de un conjunto concreto. */
+export async function fetchMetaAds(
+  options: { dateRange?: { desde?: string; hasta?: string }; campaignId?: string; adsetId?: string } = {}
+): Promise<AdsReadResult<AdsAd>> {
+  const ruta = options.adsetId
+    ? `${options.adsetId}/ads`
+    : options.campaignId
+    ? `${options.campaignId}/ads`
+    : `${getMetaConfig().accountId}/ads`;
+  const res = await leerNivelMeta(
+    ruta,
+    'id,name,status,adset_id,campaign_id,creative{id,name}',
+    options,
+    (n) => ({
+      id: n.id,
+      name: n.name,
+      adset_id: n.adset_id,
+      campaign_id: n.campaign_id,
+      status: n.status,
+      creative_name: n.creative?.name,
+      metrics: metricsFromInsight(n.insights?.data?.[0]),
+    })
+  );
+  return { ...res, periodo: options.dateRange, datos: res.datos };
+}
+
 // ── Comparación de períodos (ej. últimos 7 días vs 7 días anteriores) ──
 export async function compareMetaAdsPeriods(
   admin: SupabaseClient,
-  actualRange: { desde: string; hasta: string },
-  previoRange: { desde: string; hasta: string }
+  actualRange?: { desde?: string; hasta?: string },
+  previoRange?: { desde?: string; hasta?: string }
 ) {
-  const campaignsActual = await fetchMetaCampaigns(admin, { dateRange: actualRange });
-  const campaignsPrevio = await fetchMetaCampaigns(admin, { dateRange: previoRange });
+  // El período anterior se deriva si no viene explícito: mismo tamaño, justo antes.
+  const siete = resolveAdsDateRange('7d');
+  const pedido = resolveAdsDateRange(actualRange || '7d');
+  const actual = pedido.desde && pedido.hasta
+    ? { desde: pedido.desde, hasta: pedido.hasta }
+    : { desde: siete.desde!, hasta: siete.hasta! };
+
+  let previo: { desde: string; hasta: string };
+  if (previoRange?.desde && previoRange?.hasta) {
+    previo = { desde: previoRange.desde, hasta: previoRange.hasta };
+  } else {
+    const dia = 86_400_000;
+    const finActual = new Date(`${actual.hasta}T00:00:00Z`).getTime();
+    const iniActual = new Date(`${actual.desde}T00:00:00Z`).getTime();
+    const dias = Math.max(1, Math.round((finActual - iniActual) / dia) + 1);
+    const finPrevio = finActual - dia;
+    previo = {
+      desde: new Date(finPrevio - (dias - 1) * dia).toISOString().slice(0, 10),
+      hasta: new Date(finPrevio).toISOString().slice(0, 10),
+    };
+  }
+
+  const campaignsActual = await fetchMetaCampaigns(admin, { dateRange: actual });
+  const campaignsPrevio = await fetchMetaCampaigns(admin, { dateRange: previo });
 
   const totalActual = campaignsActual.reduce(
     (acc, c) => ({
@@ -350,8 +568,8 @@ export async function compareMetaAdsPeriods(
   };
 
   return {
-    periodo_actual: { rango: actualRange, metricas: metActual },
-    periodo_previo: { rango: previoRange, metricas: metPrevio },
+    periodo_actual: { rango: actual, metricas: metActual },
+    periodo_previo: { rango: previo, metricas: metPrevio },
     variaciones_porcentuales: {
       gasto: calcDiff(metActual.spend, metPrevio.spend),
       impresiones: calcDiff(metActual.impressions, metPrevio.impressions),
@@ -365,13 +583,17 @@ export async function compareMetaAdsPeriods(
 }
 
 // ── Análisis Inteligente de Rendimiento y Detección de Anomalías ──
-export async function analyzeMetaAds(admin: SupabaseClient) {
-  const campaigns = await fetchMetaCampaigns(admin);
+export async function analyzeMetaAds(
+  admin: SupabaseClient,
+  options: { dateRange?: { desde?: string; hasta?: string }; incluirAnuncios?: boolean } = {}
+) {
+  const campaigns = await fetchMetaCampaigns(admin, { dateRange: options.dateRange });
 
   if (!campaigns.length) {
     return {
       estado: 'sin_datos',
       resumen: 'No hay campañas activas o métricas registradas en el período seleccionado.',
+      periodo: options.dateRange || null,
       hallazgos: [],
       recomendaciones: [],
     };
@@ -424,45 +646,147 @@ export async function analyzeMetaAds(admin: SupabaseClient) {
     }
   }
 
+  // ── Nivel de anuncio: detecta creativos que gastan sin generar conversaciones ──
+  // Solo cuando hay credenciales; si no, se declara la limitación en lugar de suponer.
+  const datos_anuncios: Record<string, unknown> = { disponible: false };
+  if (options.incluirAnuncios) {
+    const anuncios = await fetchMetaAds({ dateRange: options.dateRange });
+    datos_anuncios.disponible = anuncios.disponible;
+    if (!anuncios.disponible) {
+      datos_anuncios.motivo = anuncios.motivo;
+    } else {
+      datos_anuncios.total = anuncios.datos.length;
+      for (const a of anuncios.datos) {
+        if (a.metrics.spend >= 20 && a.metrics.conversations === 0) {
+          hallazgos.push({
+            tipo: 'alerta',
+            titulo: `Anuncio sin conversaciones: "${a.name}"`,
+            detalle: `Gastó R$ ${a.metrics.spend.toFixed(2)} con ${a.metrics.impressions} impresiones y 0 conversaciones iniciadas.`,
+            campana_id: a.campaign_id,
+          });
+          recomendaciones.push({
+            accion_propuesta: `revisar_anuncio_${a.id}`,
+            motivo: `Revisar o pausar el creativo "${a.name}": está consumiendo presupuesto sin generar conversaciones.`,
+            impacto: `Hasta R$ ${a.metrics.spend.toFixed(2)} del período.`,
+            campana_id: a.campaign_id,
+          });
+        }
+      }
+    }
+  }
+
   const cpcPromedio = convTotal > 0 ? gastoTotal / convTotal : null;
+  const mejor = campaigns
+    .filter(c => c.metrics.conversations > 0 && c.metrics.costPerConversation !== null)
+    .sort((a, b) => (a.metrics.costPerConversation as number) - (b.metrics.costPerConversation as number))[0];
 
   return {
     estado: 'analizado',
+    periodo: options.dateRange || null,
     metricas_globales: {
       gasto_total: Math.round(gastoTotal * 100) / 100,
       conversaciones_totales: convTotal,
       costo_promedio_conversacion: cpcPromedio !== null ? Math.round(cpcPromedio * 100) / 100 : null,
       campanas_activas: campaigns.filter(c => c.status === 'ACTIVE').length,
+      // Se calcula aquí para no repetir el ordenamiento en el frontend ni en el prompt.
+      campana_mas_eficiente: mejor ? { id: mejor.id, nombre: mejor.name, costo_por_conversacion: mejor.metrics.costPerConversation } : null,
     },
     campanas: campaigns,
+    anuncios: datos_anuncios,
     hallazgos,
     recomendaciones,
   };
 }
 
 // ── Atribución Comercial (Meta Ads -> Leads -> Trámites -> Cobros) ──
-export async function getMetaAdsAttribution(admin: SupabaseClient, _dateRange?: { desde?: string; hasta?: string }) {
-  // Consultar leads comerciales vinculados
-  const { data: leads } = await admin
-    .from('comercial_leads')
-    .select('id, nombre, tramite_texto, precio, etapa_nombre, client_id, updated_at')
-    .order('updated_at', { ascending: false })
-    .limit(50);
+//
+// Regla: no se afirma que un lead vino de Meta si no hay evidencia (`lead_source` o
+// `meta_ads_referidos`). Cuando solo hay correlación, se marca como 'estimada'.
+const FUENTES_META = /(^|[^a-z])(meta|facebook|instagram|fb|ig|messenger|paid_?social)([^a-z]|$)/i;
 
-  // Consultar pagos cobrados
-  const { data: pagos } = await admin
+export async function getMetaAdsAttribution(
+  admin: SupabaseClient,
+  dateRange?: { desde?: string; hasta?: string }
+) {
+  const conRango = !!(dateRange && (dateRange.desde || dateRange.hasta));
+
+  // Leads comerciales: el período se aplica sobre la última actividad del lead.
+  let consultaLeads = admin
+    .from('comercial_leads')
+    .select('id, nombre, tramite_texto, precio, etapa_nombre, client_id, lead_source, updated_at')
+    .order('updated_at', { ascending: false })
+    .limit(500);
+  if (conRango) {
+    if (dateRange!.desde) consultaLeads = consultaLeads.gte('updated_at', `${dateRange!.desde}T00:00:00`);
+    if (dateRange!.hasta) consultaLeads = consultaLeads.lte('updated_at', `${dateRange!.hasta}T23:59:59`);
+  }
+  const { data: leads } = await consultaLeads;
+
+  // Pagos cobrados dentro del período.
+  let consultaPagos = admin
     .from('payments')
     .select('amount, paid_at, client_id')
     .eq('status', 'paid');
+  if (conRango) {
+    if (dateRange!.desde) consultaPagos = consultaPagos.gte('paid_at', `${dateRange!.desde}T00:00:00`);
+    if (dateRange!.hasta) consultaPagos = consultaPagos.lte('paid_at', `${dateRange!.hasta}T23:59:59`);
+  }
+  const { data: pagos } = await consultaPagos;
 
-  const totalCobrado = (pagos || []).reduce((acc, p) => acc + Number(p.amount || 0), 0);
+  // Evidencia de atribución real (si la tabla existe y tiene filas en el período).
+  let referidos = 0;
+  let referidosDisponible = false;
+  try {
+    let consulta = admin.from('meta_ads_referidos').select('id').limit(1000);
+    if (conRango) {
+      if (dateRange!.desde) consulta = consulta.gte('created_at', `${dateRange!.desde}T00:00:00`);
+      if (dateRange!.hasta) consulta = consulta.lte('created_at', `${dateRange!.hasta}T23:59:59`);
+    }
+    const { data, error } = await consulta;
+    if (!error) {
+      referidosDisponible = true;
+      referidos = (data || []).length;
+    }
+  } catch {
+    referidosDisponible = false;
+  }
+
+  const listaLeads = leads || [];
+  const listaPagos = pagos || [];
+  const totalCobrado = listaPagos.reduce((acc, p) => acc + Number(p.amount || 0), 0);
+  const leadsDeMeta = listaLeads.filter(l => FUENTES_META.test(String((l as any).lead_source || ''))).length;
+  const clientesQuePagaron = new Set(listaPagos.map(p => (p as any).client_id).filter(Boolean)).size;
+
+  // Inversión del mismo período, para poder hablar de ROAS con el mismo corte de fechas.
+  const campanas = await fetchMetaCampaigns(admin, { dateRange });
+  const inversion = campanas.reduce((acc, c) => acc + c.metrics.spend, 0);
+  const conversaciones = campanas.reduce((acc, c) => acc + c.metrics.conversations, 0);
+
+  const red = (n: number | null) => (n === null ? null : Math.round(n * 100) / 100);
+  const hayDatos = listaLeads.length > 0 || listaPagos.length > 0;
+  const atribucionEstado: 'confirmada' | 'estimada' | 'no_disponible' =
+    referidos > 0 || leadsDeMeta > 0 ? 'confirmada' : hayDatos ? 'estimada' : 'no_disponible';
 
   return {
-    leads_analizados: (leads || []).length,
+    periodo: dateRange || null,
+    leads_analizados: listaLeads.length,
+    leads_de_meta_confirmados: leadsDeMeta,
+    referidos_registrados: referidos,
+    meta_ads_referidos_disponible: referidosDisponible,
+    leads_en_propuesta_o_pago: listaLeads.filter(l => /propuesta|pago/i.test(String(l.etapa_nombre || ''))).length,
+    clientes_que_pagaron: clientesQuePagaron,
     ingresos_totales_registrados: Math.round(totalCobrado * 100) / 100,
-    leads_en_propuesta_o_pago: (leads || []).filter(l => l.etapa_nombre?.includes('Propuesta') || l.etapa_nombre?.includes('Pago')).length,
-    atribucion_estado: 'estimada',
-    nota: 'La correlación se calcula sobre los leads que interactuaron en el período. Si el tracking de UTMs o meta_ads_referidos está activo, los datos son confirmados.',
+    inversion_periodo: red(inversion),
+    conversaciones_periodo: conversaciones,
+    // ROAS global del negocio en el período. NO es ROAS por campaña: para eso haría falta
+    // atribución por anuncio, que hoy no existe.
+    roas_global_estimado: inversion > 0 ? red(totalCobrado / inversion) : null,
+    costo_por_lead_global: red(listaLeads.length > 0 ? inversion / listaLeads.length : null),
+    costo_por_cliente_global: clientesQuePagaron > 0 ? red(inversion / clientesQuePagaron) : null,
+    atribucion_estado: atribucionEstado,
+    nota: atribucionEstado === 'confirmada'
+      ? 'Hay evidencia de procedencia (lead_source de Meta o registros en meta_ads_referidos); el ROAS sigue siendo global, no por campaña.'
+      : 'No hay evidencia de atribución por anuncio. Los cruces son correlación del período, no atribución confirmada.',
   };
 }
 
@@ -470,22 +794,40 @@ export async function getMetaAdsAttribution(admin: SupabaseClient, _dateRange?: 
 
 const str = (description: string) => ({ type: 'string', description });
 const num = (description: string) => ({ type: 'number', description });
+const bool = (description: string) => ({ type: 'boolean', description });
 
 export const ADS_TOOL_DEFS = [
   {
     type: 'function',
     function: {
       name: 'listar_campanas_ads',
-      description: 'Lista las campañas de Meta Ads con su estado, presupuesto diario, gasto, impresiones, clics, CTR, CPC, conversaciones y costo por conversación.',
-      parameters: { type: 'object', properties: {}, required: [] },
+      description: 'Lista las campañas de Meta Ads con su estado, presupuesto diario, gasto, impresiones, clics, CTR, CPC, conversaciones y costo por conversación para el período pedido.',
+      parameters: {
+        type: 'object',
+        properties: {
+          periodo: { type: 'string', enum: ['7d', '14d', '30d', 'all'], description: 'Atajo de período (por defecto 7d)' },
+          desde: str('Fecha inicio YYYY-MM-DD (si viene junto a hasta, reemplaza al atajo periodo)'),
+          hasta: str('Fecha fin YYYY-MM-DD'),
+        },
+        required: [],
+      },
     },
   },
   {
     type: 'function',
     function: {
       name: 'analizar_rendimiento_ads',
-      description: 'Analiza a fondo el rendimiento publicitario de Meta Ads: detecta fugas de gasto, campañas con mejor y peor costo por conversación, alertas y recomendaciones accionables con números reales.',
-      parameters: { type: 'object', properties: {}, required: [] },
+      description: 'Analiza a fondo el rendimiento publicitario de Meta Ads: detecta fugas de gasto, campañas con mejor y peor costo por conversación, creativos que gastan sin conversaciones, alertas y recomendaciones accionables con números reales.',
+      parameters: {
+        type: 'object',
+        properties: {
+          periodo: { type: 'string', enum: ['7d', '14d', '30d', 'all'], description: 'Atajo de período (por defecto 7d)' },
+          desde: str('Fecha inicio YYYY-MM-DD'),
+          hasta: str('Fecha fin YYYY-MM-DD'),
+          incluir_anuncios: bool('Analizar también el nivel de anuncio/creativo (por defecto true)'),
+        },
+        required: [],
+      },
     },
   },
   {
@@ -523,6 +865,39 @@ export const ADS_TOOL_DEFS = [
   {
     type: 'function',
     function: {
+      name: 'listar_conjuntos_ads',
+      description: 'Lista los conjuntos de anuncios (ad sets) de Meta Ads con presupuesto, gasto, clics y conversaciones. Si no hay credenciales de Meta configuradas, responde que el dato no está disponible (nunca inventa números).',
+      parameters: {
+        type: 'object',
+        properties: {
+          campaign_id: str('ID de la campaña para filtrar (opcional)'),
+          desde: str('Fecha inicio YYYY-MM-DD (opcional)'),
+          hasta: str('Fecha fin YYYY-MM-DD (opcional)'),
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'listar_anuncios_ads',
+      description: 'Lista los anuncios (creativos) de Meta Ads con estado, gasto, clics, CTR y conversaciones, para detectar creativos que consumen presupuesto sin generar resultados.',
+      parameters: {
+        type: 'object',
+        properties: {
+          campaign_id: str('ID de la campaña para filtrar (opcional)'),
+          adset_id: str('ID del conjunto de anuncios para filtrar (opcional)'),
+          desde: str('Fecha inicio YYYY-MM-DD (opcional)'),
+          hasta: str('Fecha fin YYYY-MM-DD (opcional)'),
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'proponer_cambiar_estado_campana',
       description: 'Propone pausar o activar una campaña de Meta Ads. Requiere confirmación del usuario antes de ejecutarse en Meta.',
       parameters: {
@@ -530,6 +905,7 @@ export const ADS_TOOL_DEFS = [
         properties: {
           campaign_id: str('ID de la campaña en Meta Ads'),
           nombre_campana: str('Nombre de la campaña'),
+          estado_anterior: { type: 'string', enum: ['ACTIVE', 'PAUSED'], description: 'Estado actual conocido (opcional, para la auditoría)' },
           nuevo_estado: { type: 'string', enum: ['ACTIVE', 'PAUSED'], description: 'ACTIVE para activar, PAUSED para pausar' },
           motivo: str('Motivo del cambio fundamentado en datos'),
         },
@@ -552,6 +928,26 @@ export const ADS_TOOL_DEFS = [
           motivo: str('Motivo del ajuste presupuestario'),
         },
         required: ['campaign_id', 'nombre_campana', 'presupuesto_actual', 'nuevo_presupuesto', 'motivo'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'proponer_cambiar_presupuesto_conjunto',
+      description: 'Propone modificar el presupuesto diario de un conjunto de anuncios (ad set), dentro de los límites de seguridad. Requiere confirmación del usuario antes de ejecutarse en Meta.',
+      parameters: {
+        type: 'object',
+        properties: {
+          adset_id: str('ID del conjunto de anuncios en Meta Ads'),
+          nombre_conjunto: str('Nombre del conjunto de anuncios'),
+          campaign_id: str('ID de la campaña a la que pertenece (opcional)'),
+          nombre_campana: str('Nombre de la campaña (opcional)'),
+          presupuesto_actual: num('Presupuesto diario actual en BRL'),
+          nuevo_presupuesto: num('Nuevo presupuesto diario propuesto en BRL'),
+          motivo: str('Motivo del ajuste fundamentado en datos'),
+        },
+        required: ['adset_id', 'nombre_conjunto', 'presupuesto_actual', 'nuevo_presupuesto', 'motivo'],
       },
     },
   },
@@ -582,21 +978,63 @@ export async function runAdsTool(
 ): Promise<string> {
   const limits = await getAdsLimits(ctx.admin);
 
+  // Período pedido por el modelo: fechas explícitas o atajo ('7d', '30d'...).
+  const rangoDe = (a: any) =>
+    a?.desde || a?.hasta
+      ? { desde: a.desde as string | undefined, hasta: a.hasta as string | undefined }
+      : resolveAdsDateRange(a?.periodo || '7d');
+
   switch (name) {
     case 'listar_campanas_ads': {
-      const campanas = await fetchMetaCampaigns(ctx.admin);
+      const dateRange = rangoDe(args);
+      const campanas = await fetchMetaCampaigns(ctx.admin, { dateRange });
       if (!campanas.length) {
         return JSON.stringify({
-          mensaje: 'No se encontraron campañas configuradas en Meta Ads o datos sincronizados.',
+          mensaje: 'No se encontraron campañas configuradas en Meta Ads o datos sincronizados para el período.',
+          periodo: dateRange,
           campanas: [],
         });
       }
-      return JSON.stringify({ campanas });
+      return JSON.stringify({ periodo: dateRange, campanas });
     }
 
     case 'analizar_rendimiento_ads': {
-      const anal = await analyzeMetaAds(ctx.admin);
+      const dateRange = rangoDe(args);
+      const anal = await analyzeMetaAds(ctx.admin, {
+        dateRange,
+        incluirAnuncios: args?.incluir_anuncios !== false,
+      });
       return JSON.stringify(anal);
+    }
+
+    case 'listar_conjuntos_ads': {
+      const dateRange = rangoDe(args);
+      const res = await fetchMetaAdSets({ dateRange, campaignId: args?.campaign_id || undefined });
+      if (!res.disponible) {
+        return JSON.stringify({
+          disponible: false,
+          motivo: res.motivo,
+          mensaje: 'Datos no disponibles: no se pudo leer el nivel de conjuntos de anuncios en Meta.',
+        });
+      }
+      return JSON.stringify({ disponible: true, periodo: dateRange, conjuntos: res.datos });
+    }
+
+    case 'listar_anuncios_ads': {
+      const dateRange = rangoDe(args);
+      const res = await fetchMetaAds({
+        dateRange,
+        campaignId: args?.campaign_id || undefined,
+        adsetId: args?.adset_id || undefined,
+      });
+      if (!res.disponible) {
+        return JSON.stringify({
+          disponible: false,
+          motivo: res.motivo,
+          mensaje: 'Datos no disponibles: no se pudo leer el nivel de anuncios en Meta.',
+        });
+      }
+      return JSON.stringify({ disponible: true, periodo: dateRange, anuncios: res.datos });
     }
 
     case 'comparar_periodos_ads': {
@@ -609,7 +1047,8 @@ export async function runAdsTool(
     }
 
     case 'metricas_atribucion_ads': {
-      const atrib = await getMetaAdsAttribution(ctx.admin, { desde: args.desde, hasta: args.hasta });
+      const dateRange = args?.desde || args?.hasta ? { desde: args.desde, hasta: args.hasta } : undefined;
+      const atrib = await getMetaAdsAttribution(ctx.admin, dateRange);
       return JSON.stringify(atrib);
     }
 
@@ -627,6 +1066,7 @@ export async function runAdsTool(
           payload: {
             campaign_id: args.campaign_id,
             nombre_campana: args.nombre_campana,
+            estado_anterior: args.estado_anterior ?? null,
             nuevo_estado: args.nuevo_estado,
             motivo: args.motivo,
           },
@@ -667,6 +1107,48 @@ export async function runAdsTool(
           payload: {
             campaign_id: args.campaign_id,
             nombre_campana: args.nombre_campana,
+            presupuesto_actual: act,
+            nuevo_presupuesto: nue,
+            cambio_porcentual: diffPct,
+            motivo: args.motivo,
+          },
+          resumen,
+        })
+        .select('id, tipo, payload, resumen, status, created_at')
+        .single();
+
+      if (error) throw new Error(error.message);
+      ctx.proposals.push(prop);
+      return JSON.stringify({ ok: true, propuesta_creada: resumen, proposal_id: prop.id });
+    }
+
+    case 'proponer_cambiar_presupuesto_conjunto': {
+      const act = Number(args.presupuesto_actual) || 0;
+      const nue = Number(args.nuevo_presupuesto) || 0;
+      const diffPct = act > 0 ? Math.round(((nue - act) / act) * 100) : 0;
+      const signo = diffPct >= 0 ? `+${diffPct}%` : `${diffPct}%`;
+
+      // La propuesta se valida antes de crearse: el usuario solo confirma lo que ya cabe en los límites.
+      const validacion = validateAdsOperation(
+        { tipo: 'cambiar_presupuesto_adset', presupuestoActual: act, presupuestoNuevo: nue },
+        limits
+      );
+      if (!validacion.valid) throw new Error(validacion.error);
+
+      const resumen = `Ajustar presupuesto del conjunto "${args.nombre_conjunto}" de R$ ${act.toFixed(2)}/día a R$ ${nue.toFixed(2)}/día (${signo}): ${args.motivo}`;
+
+      const { data: prop, error } = await ctx.admin
+        .from('ai_proposals')
+        .insert({
+          organization_id: ORG_ID,
+          user_id: ctx.userId,
+          ai_conversation_id: ctx.conversationId,
+          tipo: 'ads_cambiar_presupuesto_adset',
+          payload: {
+            adset_id: args.adset_id,
+            nombre_conjunto: args.nombre_conjunto,
+            campaign_id: args.campaign_id || null,
+            nombre_campana: args.nombre_campana || null,
             presupuesto_actual: act,
             nuevo_presupuesto: nue,
             cambio_porcentual: diffPct,
@@ -756,7 +1238,17 @@ export async function executeAdsProposal(
         ref: p.tipo,
         ok: true,
         message: `Campaña ${d.campaign_id} (${d.nombre_campana}) cambiada a ${d.nuevo_estado}`,
-        details: { proposal_id: p.id, executed_by: userId, meta_response: data },
+        details: {
+          proposal_id: p.id,
+          executed_by: userId,
+          accion: 'ads_cambiar_estado_campana',
+          campana: { id: d.campaign_id, nombre: d.nombre_campana || null },
+          estado_anterior: d.estado_anterior ?? null,
+          estado_nuevo: d.nuevo_estado,
+          motivo: d.motivo || null,
+          resultado: 'ok',
+          meta_response: data,
+        },
       });
 
       return { ok: true, campaign_id: d.campaign_id, estado: d.nuevo_estado, meta_success: true };
@@ -796,12 +1288,77 @@ export async function executeAdsProposal(
         ref: p.tipo,
         ok: true,
         message: `Presupuesto de campaña ${d.campaign_id} ajustado a R$ ${d.nuevo_presupuesto}/día`,
-        details: { proposal_id: p.id, anterior: d.presupuesto_actual, nuevo: d.nuevo_presupuesto, executed_by: userId },
+        details: {
+          proposal_id: p.id,
+          executed_by: userId,
+          accion: 'ads_cambiar_presupuesto_campana',
+          campana: { id: d.campaign_id, nombre: d.nombre_campana || null },
+          valor_anterior: d.presupuesto_actual,
+          valor_nuevo: d.nuevo_presupuesto,
+          cambio_porcentual: d.cambio_porcentual ?? null,
+          motivo: d.motivo || null,
+          resultado: 'ok',
+        },
       });
 
       return {
         ok: true,
         campaign_id: d.campaign_id,
+        presupuesto_anterior: d.presupuesto_actual,
+        nuevo_presupuesto: d.nuevo_presupuesto,
+        meta_success: true,
+      };
+    }
+
+    case 'ads_cambiar_presupuesto_adset': {
+      // Mismo contrato que el presupuesto de campaña, pero sobre el conjunto de anuncios.
+      const validacion = validateAdsOperation(
+        { tipo: 'cambiar_presupuesto_adset', presupuestoActual: d.presupuesto_actual, presupuestoNuevo: d.nuevo_presupuesto },
+        limits
+      );
+      if (!validacion.valid) {
+        throw new Error(`Ejecución cancelada por seguridad: ${validacion.error}`);
+      }
+      if (!token) {
+        throw new Error('No se pudo ejecutar en Meta: Falta configurar el secreto META_ADS_TOKEN en Supabase.');
+      }
+
+      const cents = Math.round(Number(d.nuevo_presupuesto) * 100);
+      const url = `https://graph.facebook.com/v20.0/${d.adset_id}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ daily_budget: cents, access_token: token }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        const errorMsg = data.error?.message || `Meta API error (${res.status})`;
+        throw new Error(`Meta rechazó el cambio de presupuesto del conjunto: ${errorMsg}`);
+      }
+
+      await admin.from('automation_runs').insert({
+        organization_id: ORG_ID,
+        workflow: 'asistente_meta_ads',
+        ref: p.tipo,
+        ok: true,
+        message: `Presupuesto del conjunto ${d.adset_id} ajustado a R$ ${d.nuevo_presupuesto}/día`,
+        details: {
+          proposal_id: p.id,
+          executed_by: userId,
+          accion: 'ads_cambiar_presupuesto_adset',
+          conjunto: { id: d.adset_id, nombre: d.nombre_conjunto || null },
+          campana: { id: d.campaign_id || null, nombre: d.nombre_campana || null },
+          valor_anterior: d.presupuesto_actual,
+          valor_nuevo: d.nuevo_presupuesto,
+          cambio_porcentual: d.cambio_porcentual ?? null,
+          motivo: d.motivo || null,
+          resultado: 'ok',
+        },
+      });
+
+      return {
+        ok: true,
+        adset_id: d.adset_id,
         presupuesto_anterior: d.presupuesto_actual,
         nuevo_presupuesto: d.nuevo_presupuesto,
         meta_success: true,
@@ -847,7 +1404,17 @@ export async function executeAdsProposal(
         ref: p.tipo,
         ok: true,
         message: `Nueva campaña "${d.nombre}" creada en Meta con ID ${data.id} (Pausada por seguridad)`,
-        details: { proposal_id: p.id, meta_id: data.id, executed_by: userId },
+        details: {
+          proposal_id: p.id,
+          executed_by: userId,
+          accion: 'ads_crear_campana',
+          campana: { id: data.id, nombre: d.nombre },
+          objetivo: d.objetivo || null,
+          valor_nuevo: d.presupuesto_diario,
+          estado_inicial: 'PAUSED',
+          motivo: d.motivo || null,
+          resultado: 'ok',
+        },
       });
 
       return { ok: true, meta_id: data.id, nombre: d.nombre, estado_inicial: 'PAUSED' };
