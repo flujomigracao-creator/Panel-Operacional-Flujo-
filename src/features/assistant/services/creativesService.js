@@ -58,6 +58,21 @@ export const crearExperimento = (body) => invoke({ accion: 'creative_experimento
 export const cerrarExperimento = (experiment_id, concluirInconcluso = false) =>
   invoke({ accion: 'creative_cerrar_experimento', experiment_id, concluir_inconcluso: concluirInconcluso });
 
+/** Referidos reales de anuncios (clic → WhatsApp). 0 = ESPERANDO TRÁFICO REAL, no es un error. null = no se pudo leer. */
+export async function contarReferidos() {
+  const { count, error } = await supabase.from('meta_ads_referidos').select('ad_id', { count: 'exact', head: true });
+  return error ? null : count ?? 0;
+}
+
+/** Estado de facturación que se puede afirmar según lo que Meta dejó comprobar. */
+export function estadoFacturacion(estado) {
+  if (!estado) return 'PENDIENTE DE VERIFICACIÓN';
+  if (estado.ok) return 'Sin bloqueo de pago en la cuenta (estado activo); el método de pago no se consulta por API';
+  const t = estado.problema?.tipo;
+  if (['pago_pendiente', 'periodo_gracia', 'liquidacion_pendiente', 'problema_de_pago'].includes(t)) return 'PROBLEMA DE PAGO CONFIRMADO por Meta';
+  return 'PENDIENTE DE VERIFICACIÓN (no se puede comprobar: ' + (estado.problema?.tipo || 'sin respuesta') + ')';
+}
+
 /** Estado real de la conexión con Meta (token, permisos, cuenta, pagos). Nunca incluye el token. */
 export async function estadoMeta() {
   const { data, error } = await supabase.functions.invoke('estado-meta', { body: {} });

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
-import { estadoMeta } from '../services/creativesService';
+import { estadoMeta, contarReferidos, estadoFacturacion } from '../services/creativesService';
 
 const TITULO = {
   sin_credenciales: 'Meta Ads sin credenciales',
@@ -21,11 +21,13 @@ export default function MetaStatusBanner() {
   const [estado, setEstado] = useState(null);
   const [fallo, setFallo] = useState(null);
   const [cargando, setCargando] = useState(false);
+  const [referidos, setReferidos] = useState(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
     setFallo(null);
     try { setEstado(await estadoMeta()); } catch (e) { setFallo(e.message); } finally { setCargando(false); }
+    setReferidos(await contarReferidos());
   }, []);
 
   useEffect(() => { cargar(); }, [cargar]);
@@ -35,12 +37,22 @@ export default function MetaStatusBanner() {
   }
   if (!estado) return cargando ? <p className="text-[11px] text-chrome-text-muted">Comprobando conexión con Meta…</p> : null;
 
+  const lineaAtribucion = referidos === null ? null : (
+    <p className="text-[11px] text-chrome-text-muted">
+      Atribución: {referidos > 0 ? `${referidos} referidos reales de anuncios` : 'ESPERANDO TRÁFICO REAL (aún no llegó ningún clic de anuncio a WhatsApp; no es un error)'}
+    </p>
+  );
+
   if (estado.ok) {
     return (
+      <div className="space-y-0.5">
       <p className="flex items-center gap-1.5 text-[11px] text-emerald-400">
         <CheckCircle2 size={13} /> Meta conectado · cuenta {estado.cuenta?.nombre || estado.cuenta?.id} ({estado.cuenta?.moneda})
         {!estado.config?.page_id_configurado && <span className="text-amber-400"> · falta META_PAGE_ID para publicar anuncios</span>}
       </p>
+      <p className="text-[11px] text-chrome-text-muted">Facturación: {estadoFacturacion(estado)}</p>
+      {lineaAtribucion}
+      </div>
     );
   }
 
@@ -55,6 +67,8 @@ export default function MetaStatusBanner() {
       </div>
       <p className="mt-1">{p.explicacion}</p>
       {p.meta?.mensaje && p.meta.mensaje !== p.explicacion && <p className="mt-1 text-red-300/80">Meta dice: {p.meta.mensaje}{p.meta.fbtrace_id ? ` [fbtrace_id ${p.meta.fbtrace_id}]` : ''}</p>}
+      <p className="mt-1 font-semibold">Facturación: {estadoFacturacion(estado)}</p>
+      <div className="mt-0.5 text-red-300/80">{lineaAtribucion}</div>
       <p className="mt-1 text-red-300/70">Mientras tanto se muestran los últimos datos guardados en Supabase; no se pueden sincronizar ni publicar cambios en Meta.</p>
     </div>
   );
