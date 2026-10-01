@@ -19,6 +19,10 @@ import {
   leerUltimaSincronizacion,
   META_GRAPH_VERSION,
 } from './ads.ts';
+import {
+  generarCreativo, subirCreativo, actualizarCreativo, guardarPrompt, proponerPublicacion,
+  crearExperimentoCreativos, cerrarExperimentoCreativos, proponerConceptos,
+} from './creatives.ts';
 
 const MODEL = 'openai/gpt-oss-120b';
 const MAX_VUELTAS = 6;
@@ -55,6 +59,7 @@ Tu propósito es actuar como el Centro de Inteligencia del negocio y el Motor Ci
 3. Meta Ads & Métricas:
    - Consultar métricas reales con listar_campanas_ads, analizar_rendimiento_ads, comparar_periodos_ads, listar_conjuntos_ads y listar_anuncios_ads.
    - Listar y medir experimentos V4 con listar_experimentos_v4 y medir_experimento_v4.
+   - Creativos: ranking_creativos y biblioteca_prompts muestran qué imagen, concepto y prompt generan conversaciones, clientes y pagos. proponer_experimento_creativos y proponer_publicar_creativo solo crean propuestas; cerrar_experimento_creativos declara ganador únicamente si hay datos suficientes (si responde insuficiente/tendencia, dilo tal cual y no elijas ganador).
 4. Atribución comercial: Relacionar la inversión con leads y pagos (metricas_atribucion_ads). Si no hay evidencia real por anuncio, indicar atribución no confirmada o desconocida. Nunca inventar correlaciones falsas.
 5. Períodos: cuando el dueño diga "esta semana", "los últimos 7 días", "este mes" o compare períodos, pasa el período a las herramientas (periodo: 7d/14d/30d o desde/hasta en YYYY-MM-DD). Nunca inventes el rango: si no lo dice, usa 7d y di cuál usaste.
 6. Operaciones del negocio: Consultar estado de trámites, clientes, tareas del día, cobros y finanzas.
@@ -102,6 +107,35 @@ Deno.serve(async (req) => {
       const { data } = await admin.from('ai_proposals').update({ status: 'failed', result: { error: msg }, executed_at: new Date().toISOString() }).eq('id', p.id).select().single();
       await admin.from('automation_runs').insert({ organization_id: ORG_ID, workflow: 'asistente', ref: p.tipo, ok: false, message: msg, details: { proposal_id: p.id } });
       return json({ ok: false, error: msg, propuesta: data }, 422);
+    }
+  }
+
+  // 2a. Laboratorio de Creativos V5. Escribe solo la Edge Function; lo que toca Meta pasa por propuesta.
+  if (typeof body.accion === 'string' && body.accion.startsWith('creative_')) {
+    try {
+      const a = body.accion;
+      if (a === 'creative_generar') return json(await generarCreativo(admin, u.id, body));
+      if (a === 'creative_subir') return json(await subirCreativo(admin, u.id, body));
+      if (a === 'creative_actualizar') return json(await actualizarCreativo(admin, String(body.id), body));
+      if (a === 'creative_prompt_guardar') return json(await guardarPrompt(admin, u.id, body));
+      if (a === 'creative_proponer_publicacion') return json(await proponerPublicacion({ admin, userId: u.id }, body));
+      if (a === 'creative_experimento') return json({ ok: true, ...(await crearExperimentoCreativos({ admin, userId: u.id }, body)) });
+      if (a === 'creative_cerrar_experimento') return json(await cerrarExperimentoCreativos(admin, String(body.experiment_id)));
+      if (a === 'creative_conceptos') {
+        const key = Deno.env.get('GROQ_API_KEY');
+        if (!key) return json({ ok: false, error: 'Falta configurar el secreto GROQ_API_KEY en Supabase.' }, 500);
+        const llamar = async (payload: Record<string, unknown>) => {
+          const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+          });
+          if (!r.ok) throw new Error('Groq ' + r.status);
+          return await r.json();
+        };
+        return json(await proponerConceptos(admin, llamar, MODEL, body));
+      }
+      return json({ ok: false, error: 'Acción de creativos desconocida' }, 400);
+    } catch (e) {
+      return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 422);
     }
   }
 

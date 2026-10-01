@@ -18,13 +18,17 @@ import {
   HelpCircle,
   ArrowRight,
   Filter,
+  Image as ImageIcon,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useAssistant } from '../context/AssistantContext';
 import * as api from '../services/assistantService';
 import MetricCard from './MetricCard';
 import AlertCard from './AlertCard';
 import CampaignCard from './CampaignCard';
 import CampaignTable from './CampaignTable';
+import CreativesView from './creatives/CreativesView';
+import { cerrarExperimento } from '../services/creativesService';
 import PerformanceChart from './PerformanceChart';
 import { LoadingSpinner } from '@/shared/components/ui/LoadingSpinner';
 
@@ -35,7 +39,7 @@ export default function IntelligenceCenterView() {
   const [experiments, setExperiments] = useState([]);
   const [learnings, setLearnings] = useState([]);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'meta_ads' | 'experimentos' | 'aprendizajes' | 'campanas'
+  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'meta_ads' | 'creativos' | 'experimentos' | 'aprendizajes' | 'campanas'
   const [campaignStatusFilter, setCampaignStatusFilter] = useState('all'); // 'all' | 'ACTIVE' | 'PAUSED' | 'testing' | 'completed'
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
   const [dateRange, setDateRange] = useState('7d'); // '7d' | '14d' | '30d' | 'custom'
@@ -92,6 +96,18 @@ export default function IntelligenceCenterView() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Cierra el experimento solo si hay volumen/periodo/diferencia suficientes; si no, lo dice y lo deja abierto.
+  const cerrarYAprender = async (exp) => {
+    try {
+      const r = await cerrarExperimento(exp.id);
+      if (r.veredicto === 'ganador') toast.success(`Ganador: ${r.ganador}. Aprendizaje guardado.`);
+      else toast(r.mensaje || r.motivo || 'Sin datos suficientes todavía.', { duration: 7000 });
+      await loadData();
+    } catch (err) {
+      toast.error(err.message || 'No se pudo medir el experimento');
+    }
+  };
 
   const preguntar = (mensaje) => {
     setOpen(true);
@@ -279,6 +295,17 @@ export default function IntelligenceCenterView() {
         >
           <TrendingUp size={14} />
           <span>Meta Ads ({campanas.length})</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('creativos')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
+            activeTab === 'creativos'
+              ? 'border-brand-primary text-brand-primary'
+              : 'border-transparent text-chrome-text-muted hover:text-chrome-text'
+          }`}
+        >
+          <ImageIcon size={14} />
+          <span>Creativos</span>
         </button>
         <button
           onClick={() => setActiveTab('experimentos')}
@@ -596,6 +623,8 @@ export default function IntelligenceCenterView() {
           )}
 
           {/* ── PESTAÑA 3: EXPERIMENTOS CIENTÍFICOS V4 ── */}
+          {activeTab === 'creativos' && <CreativesView />}
+
           {activeTab === 'experimentos' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -714,6 +743,15 @@ export default function IntelligenceCenterView() {
                           <Activity size={12} />
                           <span>Medir y Analizar Resultados</span>
                         </button>
+                        {!isCompleted && (
+                          <button
+                            onClick={() => cerrarYAprender(exp)}
+                            className="w-full inline-flex items-center justify-center gap-1 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-400 hover:bg-indigo-500/20"
+                          >
+                            <Lightbulb size={12} />
+                            <span>Medir, cerrar y aprender (solo con datos suficientes)</span>
+                          </button>
+                        )}
                       </div>
                     );
                   })}

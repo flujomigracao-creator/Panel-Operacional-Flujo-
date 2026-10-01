@@ -88,6 +88,7 @@ export interface ExperimentVariantInput {
   copy: string;
   cta: string;
   creative_reference?: string;
+  creative_asset_id?: string; // creativo del Laboratorio V5 (public.creatives)
   audience_definition?: Record<string, unknown>;
 }
 
@@ -512,6 +513,7 @@ export async function proponerExperimentoV4(
     copy: v.copy,
     cta: v.cta,
     creative_reference: v.creative_reference || null,
+    creative_asset_id: v.creative_asset_id || null,
     audience_definition: v.audience_definition || params.audience_definition || {},
   }));
 

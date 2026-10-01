@@ -2,7 +2,7 @@ import { supabase } from '@shared/config/supabaseClient';
 
 // Llama a la Edge Function `asistente` con la sesión del usuario.
 // Si responde con error, devuelve el mensaje que explica el problema.
-async function invoke(body) {
+export async function invoke(body) {
   const { data, error } = await supabase.functions.invoke('asistente', { body });
   if (error) {
     let msg = error.message;

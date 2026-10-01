@@ -10,6 +10,14 @@ import {
   medirExperimentoV4,
   listarExperimentosV4,
 } from './campaign_science.ts';
+import {
+  rankingCreativos,
+  biblioteca,
+  proponerPublicacion,
+  crearExperimentoCreativos,
+  cerrarExperimentoCreativos,
+  publicarCreativoEnMeta,
+} from './creatives.ts';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -387,9 +395,9 @@ async function leerEntidadesMeta(ruta: string, fields: string): Promise<MetaLect
   try {
     while (url) {
       if (paginas >= 25) break; // tope de seguridad: nadie tiene 12.500 campañas en una cuenta
-      const r = await fetch(url);
+      const r: Response = await fetch(url);
       status = r.status;
-      const json = await r.json().catch(() => ({}));
+      const json: any = await r.json().catch(() => ({}));
       if (!r.ok || json?.error) {
         return {
           disponible: false,
@@ -404,7 +412,7 @@ async function leerEntidadesMeta(ruta: string, fields: string): Promise<MetaLect
       datos.push(...(json.data || []));
       paginas++;
       // Solo se sigue el `next` que devuelve Meta (ya incluye el token de la propia respuesta).
-      const next = json.paging?.next;
+      const next: unknown = json.paging?.next;
       url = typeof next === 'string' && next.startsWith('https://graph.facebook.com/') ? next : null;
     }
     return { disponible: true, endpoint, http_status: status, paginas, datos };
@@ -1276,6 +1284,7 @@ export async function getMetaAdsAttribution(
 // ── Herramientas de Meta Ads para Groq LLM (Tools Definitions) ──
 
 const str = (description: string) => ({ type: 'string', description });
+const nullableStr = (description: string) => ({ type: ['string', 'null'], description });
 const num = (description: string) => ({ type: 'number', description });
 const bool = (description: string) => ({ type: 'boolean', description });
 
@@ -1305,8 +1314,8 @@ export const ADS_TOOL_DEFS = [
         type: 'object',
         properties: {
           periodo: { type: 'string', enum: ['7d', '14d', '30d', 'all'], description: 'Atajo de período (por defecto 7d)' },
-          desde: str('Fecha inicio YYYY-MM-DD'),
-          hasta: str('Fecha fin YYYY-MM-DD'),
+          desde: nullableStr('Fecha inicio YYYY-MM-DD; puede ser null si se usa periodo'),
+          hasta: nullableStr('Fecha fin YYYY-MM-DD; puede ser null si se usa periodo'),
           incluir_anuncios: bool('Analizar también el nivel de anuncio/creativo (por defecto true)'),
         },
         required: [],
@@ -1559,6 +1568,70 @@ export const ADS_TOOL_DEFS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'ranking_creativos',
+      description: 'Ranking interno de creativos (imagen + copy + prompt) con el embudo real: impresiones, CTR, conversaciones, costo/conversación, leads, clientes que pagaron, costo/cliente e ingresos. Filtra por servicio, formato o concepto. Los null significan "sin datos", no cero.',
+      parameters: {
+        type: 'object',
+        properties: {
+          servicio: str('CPF | Agendamento PF | RNM | Residência Permanente | Refúgio'),
+          formato: str('1:1 | 4:5 | 9:16'),
+          concepto: str('persona | documento | problema_solucion | institucional | mensaje_directo | variacion_ganadora'),
+          orden: str('ctr | conversaciones | costo_por_conversacion | clientes_pagaron | costo_por_cliente | ingresos'),
+          limite: num('Máximo de creativos (por defecto 15)'),
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'biblioteca_prompts',
+      description: 'Biblioteca de prompts de creativos con sus resultados reales agregados (creativos generados, conversaciones, clientes, costo por cliente). Sirve para saber qué tipo de instrucción produce mejores creativos.',
+      parameters: { type: 'object', properties: { servicio: str('Filtrar por servicio (opcional)') }, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'proponer_experimento_creativos',
+      description: 'Crea una PROPUESTA de experimento que compara 2-4 creativos aprobados del mismo servicio (el primero es el Control) cambiando UNA sola variable. No gasta nada hasta que el dueño la confirme.',
+      parameters: {
+        type: 'object',
+        properties: {
+          hypothesis: str('Hipótesis a probar'),
+          variable_tested: str('Única variable que cambia: imagen | hook | copy | composición'),
+          creative_ids: { type: 'array', items: { type: 'string' }, description: 'ids de creativos (el primero es el Control)' },
+          daily_budget: num('Presupuesto diario total en BRL'),
+          name: str('Nombre del experimento (opcional)'),
+        },
+        required: ['hypothesis', 'variable_tested', 'creative_ids', 'daily_budget'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'proponer_publicar_creativo',
+      description: 'Crea una PROPUESTA para publicar un creativo APROBADO en un conjunto de anuncios existente de Meta. El anuncio nace en pausa y requiere confirmación humana.',
+      parameters: {
+        type: 'object',
+        properties: { creative_id: str('Id del creativo'), adset_id: str('Id real del conjunto de anuncios en Meta') },
+        required: ['creative_id', 'adset_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'cerrar_experimento_creativos',
+      description: 'Mide un experimento con datos reales y, solo si hay volumen, periodo y diferencia suficientes, declara ganador y guarda el aprendizaje. Con pocos datos responde "insuficiente" o "tendencia" y deja el experimento abierto.',
+      parameters: { type: 'object', properties: { experiment_id: str('Id del experimento') }, required: ['experiment_id'] },
+    },
+  },
 ];
 
 // ── Ejecución de Herramientas de Ads en el ciclo del Asistente ──
@@ -1570,10 +1643,13 @@ export async function runAdsTool(
   const limits = await getAdsLimits(ctx.admin);
 
   // Período pedido por el modelo: fechas explícitas o atajo ('7d', '30d'...).
-  const rangoDe = (a: any) =>
-    a?.desde || a?.hasta
-      ? { desde: a.desde as string | undefined, hasta: a.hasta as string | undefined }
-      : resolveAdsDateRange(a?.periodo || '7d');
+  const rangoDe = (a: any) => {
+    const desde = typeof a?.desde === 'string' && a.desde.trim() ? a.desde.trim() : undefined;
+    const hasta = typeof a?.hasta === 'string' && a.hasta.trim() ? a.hasta.trim() : undefined;
+    return desde || hasta
+      ? { desde, hasta }
+      : resolveAdsDateRange(typeof a?.periodo === 'string' ? a.periodo : '7d');
+  };
 
   switch (name) {
     case 'listar_campanas_ads': {
@@ -1791,7 +1867,13 @@ export async function runAdsTool(
     }
 
     case 'diagnosticar_funnel_campanas': {
-      const funnel = await analizarFunnelCompleto(ctx.admin, args);
+      // Groq puede serializar campos opcionales como null. Nunca pasar null como fecha.
+      const argsNormalizados = {
+        periodo: typeof args?.periodo === 'string' ? args.periodo : undefined,
+        desde: typeof args?.desde === 'string' && args.desde.trim() ? args.desde.trim() : undefined,
+        hasta: typeof args?.hasta === 'string' && args.hasta.trim() ? args.hasta.trim() : undefined,
+      };
+      const funnel = await analizarFunnelCompleto(ctx.admin, argsNormalizados);
       return JSON.stringify(funnel);
     }
 
@@ -1838,9 +1920,54 @@ export async function runAdsTool(
       return JSON.stringify({ total: experimentos.length, experimentos });
     }
 
+    case 'ranking_creativos':
+      return JSON.stringify(await rankingCreativos(ctx.admin, args));
+
+    case 'biblioteca_prompts':
+      return JSON.stringify(await biblioteca(ctx.admin, args.servicio));
+
+    case 'proponer_experimento_creativos': {
+      const r = await crearExperimentoCreativos(ctx, args);
+      // proponerExperimentoV4 devuelve la propuesta en su propio arreglo: se registra en la del chat.
+      return JSON.stringify(r);
+    }
+
+    case 'proponer_publicar_creativo': {
+      const r = await proponerPublicacion(ctx, args);
+      ctx.proposals.push(r.propuesta);
+      return JSON.stringify({ propuesta_creada: true, proposal_id: r.propuesta.id, resumen: r.propuesta.resumen });
+    }
+
+    case 'cerrar_experimento_creativos':
+      return JSON.stringify(await cerrarExperimentoCreativos(ctx.admin, args.experiment_id));
+
     default:
       throw new Error(`Herramienta de Ads no reconocida: ${name}`);
   }
+}
+
+/** Diagnóstico seguro de errores de escritura de Meta: nunca registra el access token. */
+function extraerErrorMeta(data: any, httpStatus: number) {
+  const e = data?.error || {};
+  return { http_status: httpStatus, type: e?.type ?? null, code: e?.code ?? null, error_subcode: e?.error_subcode ?? null, message: e?.message ?? null, fbtrace_id: e?.fbtrace_id ?? null };
+}
+async function registrarErrorEscrituraMeta(admin: SupabaseClient, userId: string, p: any, accion: string, metaError: Record<string, unknown>, target: Record<string, unknown>) {
+  const { error } = await admin.from('automation_runs').insert({
+    organization_id: ORG_ID, workflow: 'asistente_meta_ads', ref: p.tipo, ok: false,
+    message: String(metaError.message || 'Meta API error'),
+    details: { proposal_id: p.id, executed_by: userId, accion, target, resultado: 'meta_rejected', meta_error: metaError },
+  });
+  if (error) console.error('[Meta Ads] no se pudo registrar el error de Meta:', error.message);
+}
+async function verificarObjetoMeta(token: string, accountId: string, objectId: string, objectType: 'campaign' | 'adset') {
+  const url = `https://graph.facebook.com/v20.0/${encodeURIComponent(objectId)}?fields=id,account_id,status`;
+  const res = await fetch(url, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.error) throw new Error(`No se pudo validar ${objectType} ${objectId} en Meta: ${data?.error?.message || `HTTP ${res.status}`}`);
+  const expected = String(accountId).replace(/^act_/, '');
+  const actual = String(data?.account_id ?? '').replace(/^act_/, '');
+  if (!actual || actual !== expected) throw new Error(`Seguridad: el ${objectType} ${objectId} no pertenece a la cuenta publicitaria configurada.`);
+  return data;
 }
 
 // ── Ejecución Determinista de Propuestas de Ads Confirmadas ──
@@ -1858,16 +1985,16 @@ export async function executeAdsProposal(
       if (!token) {
         throw new Error('No se pudo ejecutar en Meta: Falta configurar el secreto META_ADS_TOKEN en Supabase.');
       }
-      const url = `https://graph.facebook.com/v20.0/${d.campaign_id}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: d.nuevo_estado, access_token: token }),
-      });
+      if (!accountId) throw new Error('No se pudo ejecutar en Meta: Falta configurar el secreto META_AD_ACCOUNT_ID en Supabase.');
+      await verificarObjetoMeta(token, accountId, String(d.campaign_id), 'campaign');
+      const url = `https://graph.facebook.com/v20.0/${encodeURIComponent(d.campaign_id)}`;
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: d.nuevo_estado, access_token: token }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
-        const errorMsg = data.error?.message || `Meta API error (${res.status})`;
-        throw new Error(`Meta rechazó el cambio: ${errorMsg}`);
+        const metaError = extraerErrorMeta(data, res.status);
+        await registrarErrorEscrituraMeta(admin, userId, p, 'ads_cambiar_estado_campana', metaError, { campaign_id: String(d.campaign_id), account_id: String(accountId).replace(/^act_/, ''), requested_status: d.nuevo_estado });
+        const suffix = [metaError.code, metaError.error_subcode].filter(Boolean).join('/');
+        throw new Error(`Meta rechazó el cambio: ${metaError.message || `HTTP ${res.status}`}${suffix ? ` (code ${suffix})` : ''}${metaError.fbtrace_id ? ` [fbtrace_id ${metaError.fbtrace_id}]` : ''}`);
       }
 
       // Registro de auditoría
@@ -1909,16 +2036,15 @@ export async function executeAdsProposal(
 
       // Meta requiere el presupuesto en centavos (cents)
       const dailyBudgetCents = Math.round(Number(d.nuevo_presupuesto) * 100);
-      const url = `https://graph.facebook.com/v20.0/${d.campaign_id}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ daily_budget: dailyBudgetCents, access_token: token }),
-      });
+      if (!accountId) throw new Error('No se pudo ejecutar en Meta: Falta configurar el secreto META_AD_ACCOUNT_ID en Supabase.');
+      await verificarObjetoMeta(token, accountId, String(d.campaign_id), 'campaign');
+      const url = `https://graph.facebook.com/v20.0/${encodeURIComponent(d.campaign_id)}`;
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ daily_budget: dailyBudgetCents, access_token: token }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
-        const errorMsg = data.error?.message || `Meta API error (${res.status})`;
-        throw new Error(`Meta rechazó el cambio de presupuesto: ${errorMsg}`);
+        const metaError = extraerErrorMeta(data, res.status);
+        await registrarErrorEscrituraMeta(admin, userId, p, 'ads_cambiar_presupuesto_campana', metaError, { campaign_id: String(d.campaign_id), account_id: String(accountId).replace(/^act_/, ''), requested_daily_budget_brl: d.nuevo_presupuesto });
+        throw new Error(`Meta rechazó el cambio de presupuesto: ${metaError.message || `HTTP ${res.status}`}${metaError.code ? ` (code ${metaError.code}${metaError.error_subcode ? `/${metaError.error_subcode}` : ''})` : ''}${metaError.fbtrace_id ? ` [fbtrace_id ${metaError.fbtrace_id}]` : ''}`);
       }
 
       await admin.from('automation_runs').insert({
@@ -1962,17 +2088,16 @@ export async function executeAdsProposal(
         throw new Error('No se pudo ejecutar en Meta: Falta configurar el secreto META_ADS_TOKEN en Supabase.');
       }
 
+      if (!accountId) throw new Error('No se pudo ejecutar en Meta: Falta configurar el secreto META_AD_ACCOUNT_ID en Supabase.');
+      await verificarObjetoMeta(token, accountId, String(d.adset_id), 'adset');
       const cents = Math.round(Number(d.nuevo_presupuesto) * 100);
-      const url = `https://graph.facebook.com/v20.0/${d.adset_id}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ daily_budget: cents, access_token: token }),
-      });
+      const url = `https://graph.facebook.com/v20.0/${encodeURIComponent(d.adset_id)}`;
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ daily_budget: cents, access_token: token }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
-        const errorMsg = data.error?.message || `Meta API error (${res.status})`;
-        throw new Error(`Meta rechazó el cambio de presupuesto del conjunto: ${errorMsg}`);
+        const metaError = extraerErrorMeta(data, res.status);
+        await registrarErrorEscrituraMeta(admin, userId, p, 'ads_cambiar_presupuesto_adset', metaError, { adset_id: String(d.adset_id), account_id: String(accountId).replace(/^act_/, ''), requested_daily_budget_brl: d.nuevo_presupuesto });
+        throw new Error(`Meta rechazó el cambio de presupuesto del conjunto: ${metaError.message || `HTTP ${res.status}`}${metaError.code ? ` (code ${metaError.code}${metaError.error_subcode ? `/${metaError.error_subcode}` : ''})` : ''}${metaError.fbtrace_id ? ` [fbtrace_id ${metaError.fbtrace_id}]` : ''}`);
       }
 
       await admin.from('automation_runs').insert({
@@ -2120,7 +2245,16 @@ export async function executeAdsProposal(
             }),
           });
           const adsetData = await adsetRes.json().catch(() => ({}));
-          if (adsetRes.ok && adsetData.id) {
+          if (adsetRes.ok && adsetData.id && v.creative_asset_id) {
+            // Variante con creativo del Laboratorio V5: sube la imagen real y crea el anuncio en PAUSED.
+            adsetId = adsetData.id;
+            const pub = await publicarCreativoEnMeta(admin, {
+              creative_id: v.creative_asset_id, adset_id: adsetData.id,
+              nombre_anuncio: `${d.nombre_campana} - ${v.variant_name || 'Variante'}`,
+            });
+            adId = pub.ad_id;
+            creativeId = pub.meta_creative_id;
+          } else if (adsetRes.ok && adsetData.id) {
             adsetId = adsetData.id;
 
             const creativeRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/adcreatives`, {
@@ -2235,6 +2369,26 @@ export async function executeAdsProposal(
         variantes: variantesResult,
         estado_inicial: 'PAUSED',
       };
+    }
+
+    case 'ads_publicar_creativo': {
+      // Revalidar en el momento de ejecutar: el creativo sigue aprobado y el conjunto sigue existiendo.
+      const { data: c } = await admin.from('creatives').select('status, ad_id').eq('id', d.creative_id).maybeSingle();
+      if (!c || c.status !== 'approved' || c.ad_id) {
+        throw new Error('El creativo ya no está aprobado o ya fue vinculado a un anuncio. Genera una propuesta nueva.');
+      }
+      const pub = await publicarCreativoEnMeta(admin, {
+        creative_id: d.creative_id, adset_id: d.adset_id, nombre_anuncio: d.nombre_anuncio,
+      });
+      await admin.from('automation_runs').insert({
+        organization_id: ORG_ID,
+        workflow: 'asistente_meta_ads',
+        ref: p.tipo,
+        ok: true,
+        message: `Creativo ${d.creative_id} publicado como anuncio ${pub.ad_id} en el conjunto ${d.adset_id} (PAUSED)`,
+        details: { proposal_id: p.id, executed_by: userId, accion: p.tipo, ...pub, resultado: 'ok' },
+      });
+      return { ok: true, ...pub, estado_inicial: 'PAUSED' };
     }
 
     default:
