@@ -11,7 +11,7 @@ Solo lectura: no se borró ni cambió ningún dato. Las decisiones están marcad
 
 Sin cambios en `asistente`/`_shared`/`generar-creativo` desde `d835b98`: producción = repositorio para esas tres.
 
-**Brecha real:** estas funciones están desplegadas pero **no tienen código en el repositorio**: `kommo-canal` (sin JWT, firma HMAC de Kommo), `llenar-declaracion-cpf`, `nora-conocimiento`, `diag-firma`, `diag-whatsapp`. Hay que traer su código al repo (con `supabase functions download`, requiere token de acceso) antes de poder modificarlas con seguridad. `diag-whatsapp` ya es un stub que responde 410; `diag-firma` es candidata a retirar.
+**Brecha cerrada (2026-10-01):** el código desplegado de `kommo-canal`, `llenar-declaracion-cpf`, `nora-conocimiento` y `diag-firma` se descargó de Supabase y está ahora en el repositorio (sin secretos). `diag-whatsapp` es un stub que responde 410 y no se copió. Falta decidir si `diag-firma` se retira.
 
 ## 2. Funciones sin JWT (`verify_jwt = false`)
 - `whatsapp-webhook`: público por diseño (Meta); valida el `phone_number_id` y la firma opcional (`WHATSAPP_APP_SECRET`). **Revisar:** hacer obligatoria la firma.
@@ -50,7 +50,7 @@ Sin cambios en `asistente`/`_shared`/`generar-creativo` desde `d835b98`: producc
 | Plantillas de WhatsApp | `whatsapp_plantillas` (sincronizadas con Meta) |
 
 ## 6. Siguientes pasos propuestos (en orden)
-1. Traer al repo el código de `kommo-canal`, `llenar-declaracion-cpf`, `nora-conocimiento` (requiere `SUPABASE_ACCESS_TOKEN`).
+1. ~~Traer al repo el código de las funciones sin fuente~~ (hecho).
 2. Activar protección de contraseñas filtradas (dueño).
 3. Decidir sobre `clientes` y `diag-firma` (borrar o conservar).
 4. Resolver facturación de WhatsApp (error 131042), token de Meta y referral de anuncios.
