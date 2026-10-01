@@ -4,7 +4,7 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import {
   CONCEPTOS, ESTILOS, OBJETIVOS, construirPromptPublicitario, tamanoOpenAI, validarCreativo, validarCambio,
-  tipoImagen, rutaImagen, elegirModeloImagen, sanearError,
+  tipoImagen, rutaImagen, elegirModeloImagen, sanearError, ajustarPromptRegeneracion,
 } from './creative_logic.ts';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
@@ -208,6 +208,14 @@ export async function crearCreativo(admin: SupabaseClient, userId: string, entra
     // Solo se sobrescribe con valores realmente enviados; un campo vacío del formulario no borra lo heredado.
     for (const [k, v] of Object.entries(entrada)) if (v !== undefined && v !== null && v !== '') heredado[k] = v;
     i = heredado as unknown as EntradaCreativo;
+    // El prompt debe reflejar la variable declarada: si no, el registro diría "estilo" y la imagen seguiría igual.
+    if (i.changed_variable === 'estilo' && i.style === padre.style) throw new Error('El estilo elegido es el mismo del creativo de origen.');
+    if (i.changed_variable === 'hook' && (i.hook || '') === (padre.hook || '')) throw new Error('El hook es el mismo del creativo de origen.');
+    if (!(entrada.prompt && entrada.prompt.trim())) {
+      const nuevo = ajustarPromptRegeneracion(padre.prompt_text || '', i.changed_variable!, { style: i.style, hook: i.hook });
+      if (nuevo === null) throw new Error('Para cambiar concepto o composición escribe el prompt nuevo; para estilo o hook indica el valor nuevo.');
+      i.prompt = nuevo;
+    }
   }
 
   const formato = i.format || '1:1';

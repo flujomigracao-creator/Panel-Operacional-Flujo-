@@ -91,3 +91,22 @@ test('elige el modelo de imagen más reciente disponible y cae al respaldo', () 
 test('los errores nunca dejan pasar una clave', () => {
   assert.equal(sanearError('Incorrect API key provided: sk-proj-abcdef123456XYZ'), 'Incorrect API key provided: sk-***');
 });
+
+import { ajustarPromptRegeneracion } from './creative_logic.ts';
+
+test('regenerar: el prompt refleja la variable declarada (no hereda el estilo viejo en silencio)', () => {
+  const base = 'Editorial photo of a traveler';
+  const e = ajustarPromptRegeneracion(base, 'estilo', { style: 'ilustracion' });
+  assert.ok(e.startsWith(base) && e.includes('STYLE OVERRIDE') && e.includes('ilustración vectorial'));
+  assert.notEqual(e, base);
+  const h = ajustarPromptRegeneracion(base, 'hook', { hook: 'CPF sin filas' });
+  assert.ok(h.includes('IDEA OVERRIDE') && h.includes('CPF sin filas'));
+  assert.equal(ajustarPromptRegeneracion(base, 'imagen', {}), base);
+});
+
+test('regenerar: concepto/composición sin prompt nuevo, o estilo/hook sin valor, no se inventan', () => {
+  assert.equal(ajustarPromptRegeneracion('x', 'concepto', {}), null);
+  assert.equal(ajustarPromptRegeneracion('x', 'composicion', {}), null);
+  assert.equal(ajustarPromptRegeneracion('x', 'estilo', {}), null);
+  assert.equal(ajustarPromptRegeneracion('x', 'hook', { hook: '  ' }), null);
+});

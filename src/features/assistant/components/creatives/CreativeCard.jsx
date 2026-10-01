@@ -28,7 +28,7 @@ export default function CreativeCard({ creativo: c, imagenUrl, anuncios, conjunt
   const [adsetId, setAdsetId] = useState('');
   const [publicar, setPublicar] = useState(false);
   const [regenerar, setRegenerar] = useState(false);
-  const [cambio, setCambio] = useState({ variable: 'estilo', estilo: 'ilustracion', hook: '' });
+  const [cambio, setCambio] = useState({ variable: 'estilo', estilo: 'ilustracion', hook: '', prompt: '' });
 
   const tieneDatos = c.ad_id && c.impresiones != null;
   // Un anuncio solo se puede ligar a un creativo: se ofrecen los que aún no tienen uno.
@@ -63,6 +63,8 @@ export default function CreativeCard({ creativo: c, imagenUrl, anuncios, conjunt
     const body = { from_creative_id: c.id, changed_variable: cambio.variable };
     if (cambio.variable === 'estilo') body.style = cambio.estilo;
     if (cambio.variable === 'hook') body.hook = cambio.hook;
+    // Concepto y composición no se pueden deducir: el usuario escribe el prompt nuevo.
+    if (['concepto', 'composicion'].includes(cambio.variable)) body.prompt = cambio.prompt;
     const r = await ejecutar(() => cr.regenerarCreativo(body), 'Nueva versión generada; la anterior se conserva');
     if (r) { setRegenerar(false); onCambio(); }
   };
@@ -154,7 +156,10 @@ export default function CreativeCard({ creativo: c, imagenUrl, anuncios, conjunt
             {cambio.variable === 'hook' && (
               <input value={cambio.hook} onChange={e => setCambio({ ...cambio, hook: e.target.value })} placeholder="Nuevo hook" className="w-full rounded border border-chrome-border bg-chrome-bg px-2 py-1 text-xs text-chrome-text-active" />
             )}
-            <button disabled={busy || (cambio.variable === 'hook' && !cambio.hook.trim())} onClick={regenerarVariante} className="rounded-md bg-brand-primary px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50">
+            {['concepto', 'composicion'].includes(cambio.variable) && (
+              <textarea rows={4} value={cambio.prompt} onChange={e => setCambio({ ...cambio, prompt: e.target.value })} placeholder="Prompt nuevo (obligatorio para este cambio)" className="w-full rounded border border-chrome-border bg-chrome-bg px-2 py-1 font-mono text-xs text-chrome-text-active" />
+            )}
+            <button disabled={busy || (cambio.variable === 'hook' && !cambio.hook.trim()) || (['concepto', 'composicion'].includes(cambio.variable) && !cambio.prompt.trim())} onClick={regenerarVariante} className="rounded-md bg-brand-primary px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50">
               {busy ? 'Generando…' : 'Generar nueva versión'}
             </button>
           </div>

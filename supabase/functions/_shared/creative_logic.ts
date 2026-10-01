@@ -232,6 +232,21 @@ export function tipoImagen(mime: string | undefined): { mime: string; ext: strin
   return null;
 }
 
+/**
+ * Prompt de una regeneración cuando el usuario no escribió uno nuevo: refleja EXACTAMENTE la variable declarada,
+ * para que el registro (changed_variable) y la imagen no se contradigan. Devuelve null si ese cambio exige un prompt nuevo.
+ */
+export function ajustarPromptRegeneracion(promptPadre: string, variable: string, c: { style?: string; hook?: string }): string | null {
+  if (variable === 'imagen') return promptPadre; // mismo prompt, muestra nueva
+  if (variable === 'estilo' && c.style && ESTILOS[c.style]) {
+    return `${promptPadre}\n\nSTYLE OVERRIDE (change ONLY the visual style; keep subject, composition, copy space and brand colors): ${ESTILOS[c.style]}. This replaces any earlier instruction about photographic or illustrative style.`;
+  }
+  if (variable === 'hook' && c.hook && c.hook.trim()) {
+    return `${promptPadre}\n\nIDEA OVERRIDE (change ONLY the central idea; keep style, composition and brand colors): "${c.hook.trim()}". It replaces any earlier central idea.`;
+  }
+  return null; // concepto / composición: requieren un prompt nuevo explícito
+}
+
 /** Valida que una regeneración cambie exactamente una variable declarada. */
 export function validarCambio(v: unknown): string | null {
   if (typeof v !== 'string' || !(VARIABLES_CAMBIO as readonly string[]).includes(v)) {
