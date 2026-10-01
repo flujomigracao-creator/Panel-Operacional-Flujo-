@@ -2091,6 +2091,47 @@ async function verificarObjetoMeta(token: string, accountId: string, objectId: s
   return data;
 }
 
+// ── Compatibilidad con la Marketing API v20 (verificada con validate_only contra la cuenta real) ──
+// El objetivo "OUTCOME_MESSAGES" ya no existe: los anuncios que abren un chat de WhatsApp son OUTCOME_ENGAGEMENT
+// con destination_type WHATSAPP (así están configuradas las campañas reales de la cuenta).
+export function objetivoMeta(o?: string): string {
+  const v = String(o || '').toUpperCase();
+  return v === 'OUTCOME_MESSAGES' || v === 'MESSAGES' ? 'OUTCOME_ENGAGEMENT' : v || 'OUTCOME_ENGAGEMENT';
+}
+export function esObjetivoMensajes(o?: string): boolean {
+  const v = String(o || '').toUpperCase();
+  return v === 'OUTCOME_MESSAGES' || v === 'MESSAGES' || v === 'OUTCOME_ENGAGEMENT';
+}
+/** Estrategia de puja válida en v20 (LOWEST_COST_WITHOUT_BID_CAP fue rechazada por Meta). */
+export const BID_STRATEGY_META = 'LOWEST_COST_WITHOUT_CAP';
+
+/** Mensaje legible de un error de Meta (incluye el texto para el usuario cuando existe). */
+function mensajeMeta(data: any, http: number): string {
+  const e = data?.error || {};
+  return [e.error_user_msg, e.message].filter(Boolean).join(' — ') || `Meta API error (${http})`;
+}
+
+/** Segmentación de plantilla: la de un conjunto real de la cuenta (la que ya funciona); si no hay, Brasil 21-65. */
+async function plantillaTargeting(token: string, accountId: string): Promise<Record<string, unknown>> {
+  try {
+    const r = await fetch(`https://graph.facebook.com/v20.0/${accountId}/adsets?fields=targeting&limit=1`, { headers: { Authorization: `Bearer ${token}` } });
+    const d = await r.json();
+    const t = d?.data?.[0]?.targeting;
+    if (r.ok && t && typeof t === 'object') return t;
+  } catch { /* se usa el respaldo */ }
+  return { geo_locations: { countries: ['BR'] }, age_min: 21, age_max: 65 };
+}
+
+/** ¿La página puede usarse para crear anuncios con este token? true/false; null si no se pudo comprobar. */
+async function paginaDisponible(token: string, accountId: string, pageId: string): Promise<boolean | null> {
+  try {
+    const r = await fetch(`https://graph.facebook.com/v20.0/${accountId}/promote_pages?fields=id&limit=100`, { headers: { Authorization: `Bearer ${token}` } });
+    const d = await r.json();
+    if (!r.ok || d?.error) return null;
+    return (d.data || []).some((p: any) => String(p.id) === String(pageId));
+  } catch { return null; }
+}
+
 // ── Ejecución Determinista de Propuestas de Ads Confirmadas ──
 export async function executeAdsProposal(
   admin: SupabaseClient,
@@ -2270,17 +2311,17 @@ export async function executeAdsProposal(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: d.nombre,
-          objective: d.objetivo,
+          objective: objetivoMeta(d.objetivo),
           status: 'PAUSED', // Se crea pausada por seguridad
           daily_budget: dailyBudgetCents,
-          special_ad_categories: ['NONE'],
+          bid_strategy: BID_STRATEGY_META,
+          special_ad_categories: [],
           access_token: token,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
-        const errorMsg = data.error?.message || `Meta API error (${res.status})`;
-        throw new Error(`Meta rechazó la creación de campaña: ${errorMsg}`);
+        throw new Error(`Meta rechazó la creación de campaña: ${mensajeMeta(data, res.status)}`);
       }
 
       await admin.from('automation_runs').insert({
@@ -2313,42 +2354,57 @@ export async function executeAdsProposal(
       if (!validacion.valid) {
         throw new Error(`Ejecución cancelada por seguridad: ${validacion.error}`);
       }
-
       if (!token || !accountId) {
         throw new Error('No se pudo crear en Meta: Faltan credenciales META_ADS_TOKEN / META_AD_ACCOUNT_ID en Supabase.');
       }
 
+      const objetivoPedido = d.objetivo || 'OUTCOME_MESSAGES';
+      const mensajes = esObjetivoMensajes(objetivoPedido);
+      const pageId = Deno.env.get('META_PAGE_ID');
+
+      // Comprobaciones previas: si algo no puede funcionar, se dice ANTES de crear nada en Meta.
+      if (mensajes) {
+        if (!pageId) throw new Error('Falta el secreto META_PAGE_ID (id de la página de Facebook de los anuncios).');
+        const disponible = await paginaDisponible(token, accountId, pageId);
+        if (disponible === false) {
+          throw new Error(`Meta no permite crear anuncios con la página ${pageId} desde este token: no está asignada al usuario del sistema con permiso para crear anuncios. En Meta Business Suite → Configuración → Usuarios del sistema → asigna la página (acceso total o "Crear anuncios") y vuelve a confirmar. No se creó nada.`);
+        }
+      }
+      const sinCreativo = (d.variantes || []).filter((v: any) => !v.creative_asset_id);
+      if (sinCreativo.length) {
+        throw new Error(`Las variantes ${sinCreativo.map((v: any) => v.variant_name).join(', ')} no tienen un creativo con imagen del Laboratorio. Genera y aprueba los creativos, vincúlalos al experimento y vuelve a proponerlo. No se creó nada.`);
+      }
+
       const dailyBudgetCents = Math.round(Number(d.presupuesto_diario) * 100);
-      const campUrl = `https://graph.facebook.com/v20.0/${accountId}/campaigns`;
-      const campRes = await fetch(campUrl, {
+      const campRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/campaigns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: d.nombre_campana,
-          objective: d.objetivo || 'OUTCOME_MESSAGES',
+          objective: objetivoMeta(objetivoPedido),
           status: 'PAUSED',
-          daily_budget: dailyBudgetCents,
-          special_ad_categories: ['NONE'],
+          daily_budget: dailyBudgetCents, // presupuesto a nivel de campaña, como las campañas reales de la cuenta
+          bid_strategy: BID_STRATEGY_META,
+          special_ad_categories: [],
           access_token: token,
         }),
       });
       const campData = await campRes.json().catch(() => ({}));
       if (!campRes.ok || campData.error) {
-        const errorMsg = campData.error?.message || `Meta API error (${campRes.status})`;
-        throw new Error(`Meta rechazó la creación de la campaña experimental: ${errorMsg}`);
+        const metaError = extraerErrorMeta(campData, campRes.status);
+        await registrarErrorEscrituraMeta(admin, userId, p, 'ads_experimento_v4', metaError, { account_id: String(accountId).replace(/^act_/, ''), objetivo: objetivoMeta(objetivoPedido) });
+        throw new Error(`Meta rechazó la creación de la campaña experimental: ${mensajeMeta(campData, campRes.status)}`);
       }
       const metaCampaignId = campData.id;
 
-      // Crear AdSets y Ads para las variantes
+      // Conjuntos como los de las campañas reales: sin presupuesto propio, destino WhatsApp, página, misma segmentación.
+      const targeting = await plantillaTargeting(token, accountId);
       const variantesResult: any[] = [];
-      const variantes = d.variantes || [];
-      const adsetBudgetCents = variantes.length > 0 ? Math.max(100, Math.round(dailyBudgetCents / variantes.length)) : dailyBudgetCents;
-
-      for (const v of variantes) {
+      for (const v of d.variantes || []) {
         let adsetId: string | null = null;
         let adId: string | null = null;
         let creativeId: string | null = null;
-
+        let errorVariante: string | null = null;
         try {
           const adsetRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/adsets`, {
             method: 'POST',
@@ -2356,96 +2412,55 @@ export async function executeAdsProposal(
             body: JSON.stringify({
               name: `${d.nombre_campana} - ${v.variant_name || 'Variante'}`,
               campaign_id: metaCampaignId,
-              daily_budget: adsetBudgetCents,
               billing_event: 'IMPRESSIONS',
-              optimization_goal: d.objetivo === 'OUTCOME_LEADS' ? 'LEAD_GENERATION' : 'CONVERSATIONS',
-              bid_strategy: 'LOWEST_COST_WITHOUT_BID_CAP',
+              optimization_goal: mensajes ? 'CONVERSATIONS' : (objetivoMeta(objetivoPedido) === 'OUTCOME_LEADS' ? 'LEAD_GENERATION' : 'LINK_CLICKS'),
+              ...(mensajes ? { destination_type: 'WHATSAPP', promoted_object: { page_id: pageId } } : {}),
+              targeting,
               status: 'PAUSED',
-              targeting: { geo_locations: { countries: ['BR'] } },
               access_token: token,
             }),
           });
           const adsetData = await adsetRes.json().catch(() => ({}));
-          if (adsetRes.ok && adsetData.id && v.creative_asset_id) {
-            // Variante con creativo del Laboratorio V5: sube la imagen real y crea el anuncio en PAUSED.
-            adsetId = adsetData.id;
-            const pub = await publicarCreativoEnMeta(admin, {
-              creative_id: v.creative_asset_id, adset_id: adsetData.id,
-              nombre_anuncio: `${d.nombre_campana} - ${v.variant_name || 'Variante'}`,
-            });
-            adId = pub.ad_id;
-            creativeId = pub.meta_creative_id;
-          } else if (adsetRes.ok && adsetData.id) {
-            adsetId = adsetData.id;
-
-            const creativeRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/adcreatives`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name: `Creative - ${v.variant_name || 'Variante'}`,
-                object_story_spec: {
-                  page_id: accountId.replace(/\D/g, ''),
-                  link_data: {
-                    message: v.copy || v.hook || d.nombre_campana,
-                    name: v.hook || d.nombre_campana,
-                    call_to_action: { type: 'LEARN_MORE' },
-                  },
-                },
-                access_token: token,
-              }),
-            });
-            const creativeData = await creativeRes.json().catch(() => ({}));
-            creativeId = creativeData.id || null;
-
-            if (creativeId) {
-              const adRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/ads`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  name: `Ad - ${v.variant_name || 'Variante'}`,
-                  adset_id: adsetId,
-                  creative: { creative_id: creativeId },
-                  status: 'PAUSED',
-                  access_token: token,
-                }),
-              });
-              const adData = await adRes.json().catch(() => ({}));
-              adId = adData.id || null;
-            }
-          }
+          if (!adsetRes.ok || !adsetData.id) throw new Error(`conjunto: ${mensajeMeta(adsetData, adsetRes.status)}`);
+          adsetId = adsetData.id;
+          const pub = await publicarCreativoEnMeta(admin, {
+            creative_id: v.creative_asset_id, adset_id: adsetData.id,
+            nombre_anuncio: `${d.nombre_campana} - ${v.variant_name || 'Variante'}`,
+          });
+          adId = pub.ad_id;
+          creativeId = pub.meta_creative_id;
         } catch (errVar) {
-          console.error(`[Meta Graph API V4] Error creando variante ${v.variant_name}:`, errVar);
+          errorVariante = errVar instanceof Error ? errVar.message : String(errVar);
+          console.error(`[Meta Graph API V4] Error creando variante ${v.variant_name}: ${errorVariante}`);
         }
 
         if (d.experiment_id) {
           await admin
             .from('campaign_variants')
-            .update({
-              campaign_id: metaCampaignId,
-              adset_id: adsetId,
-              ad_id: adId,
-              creative_id: creativeId,
-            })
+            .update({ campaign_id: metaCampaignId, adset_id: adsetId, ad_id: adId, creative_id: creativeId })
             .eq('experiment_id', d.experiment_id)
             .eq('variant_name', v.variant_name);
         }
+        variantesResult.push({ variant_name: v.variant_name, adset_id: adsetId, ad_id: adId, creative_id: creativeId, error: errorVariante });
+      }
 
-        variantesResult.push({
-          variant_name: v.variant_name,
-          adset_id: adsetId,
-          ad_id: adId,
-          creative_id: creativeId,
+      // Si NINGUNA variante quedó creada, no se deja una campaña vacía: se elimina lo que acabamos de crear y se explica por qué.
+      if (!variantesResult.some(x => x.ad_id)) {
+        await fetch(`https://graph.facebook.com/v20.0/${metaCampaignId}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'DELETED', access_token: token }),
+        }).catch(() => null);
+        await admin.from('automation_runs').insert({
+          organization_id: ORG_ID, workflow: 'asistente_meta_ads_v4', ref: p.tipo, ok: false,
+          message: `Experimento V4 "${d.nombre_campana}": ninguna variante se pudo crear; se eliminó la campaña vacía ${metaCampaignId}`,
+          details: { proposal_id: p.id, executed_by: userId, accion: 'ads_experimento_v4', campaign_id: metaCampaignId, variantes: variantesResult, resultado: 'revertido' },
         });
+        throw new Error(`Meta rechazó todas las variantes: ${variantesResult.map(x => `${x.variant_name} → ${x.error}`).join(' | ')}. La campaña vacía se eliminó; no queda nada creado.`);
       }
 
       if (d.experiment_id) {
         await admin
           .from('campaign_experiments')
-          .update({
-            status: 'approved',
-            start_date: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
+          .update({ status: 'approved', start_date: new Date().toISOString(), updated_at: new Date().toISOString() })
           .eq('id', d.experiment_id);
       }
 
@@ -2457,7 +2472,7 @@ export async function executeAdsProposal(
         status: 'PAUSED',
         effective_status: 'PAUSED',
         daily_budget: d.presupuesto_diario,
-        objective: d.objetivo,
+        objective: objetivoMeta(objetivoPedido),
         account_id: accountId,
         synced_at: new Date().toISOString(),
         last_synced_at: new Date().toISOString(),
@@ -2478,7 +2493,7 @@ export async function executeAdsProposal(
           nombre_campana: d.nombre_campana,
           presupuesto_diario: d.presupuesto_diario,
           variantes: variantesResult,
-          resultado: 'ok',
+          resultado: variantesResult.every(x => x.ad_id) ? 'ok' : 'parcial',
         },
       });
 
