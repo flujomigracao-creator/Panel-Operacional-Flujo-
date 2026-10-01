@@ -41,16 +41,35 @@ function rangoAFechas(rango) {
 }
 
 export async function getAdsData(rango) {
+  // 1. Camino normal: la Edge Function (trae Meta real + los límites configurados en la BD).
+  let errorEdge = null;
   try {
     const res = await invoke({ accion: 'ads_data', rango });
     if (res?.ok) return res;
+    if (res?.error) errorEdge = res.error;
   } catch (err) {
-    console.warn('Error consultando ads_data vía edge function:', err.message);
+    errorEdge = err?.message || 'error desconocido';
+    console.warn('[Centro de Inteligencia] La Edge Function ads_data no respondió:', errorEdge);
   }
 
   // Fallback directo a Supabase si la edge function aún no está desplegada en local/remoto.
+  //
+  // OJO: los builders de Supabase (from().select().order()) son "thenable" pero NO exponen
+  // `.catch()`: en @supabase/postgrest-js el PostgrestBuilder solo define `then`. Por eso el
+  // error se lee SIEMPRE del resultado { data, error } del await, nunca de un .catch().
   const periodo = rangoAFechas(rango);
-  const noDisponible = (tabla) => ({ data: [], error: { message: `${tabla} no disponible` } });
+
+  const consultar = async (builder, tabla) => {
+    try {
+      const { data, error } = await builder;
+      if (error) {
+        return { data: null, error: { message: error.message || `${tabla}: error de consulta`, code: error.code || null } };
+      }
+      return { data: data || [], error: null };
+    } catch (err) {
+      return { data: null, error: { message: err?.message || `${tabla}: error de consulta`, code: null } };
+    }
+  };
 
   let qInsights = supabase.from('meta_ads_insights').select('*').order('date', { ascending: false });
   if (periodo.desde) qInsights = qInsights.gte('date', periodo.desde);
@@ -69,10 +88,25 @@ export async function getAdsData(rango) {
   if (periodo.hasta) qPagos = qPagos.lte('paid_at', `${periodo.hasta}T23:59:59`);
 
   const [insightsRes, leadsRes, pagosRes] = await Promise.all([
-    qInsights.catch(() => noDisponible('meta_ads_insights')),
-    qLeads.catch(() => noDisponible('comercial_leads')),
-    qPagos.catch(() => noDisponible('payments')),
+    consultar(qInsights, 'meta_ads_insights'),
+    consultar(qLeads, 'comercial_leads'),
+    consultar(qPagos, 'payments'),
   ]);
+
+  // meta_ads_insights es la fuente principal del panel: si falla, es un error real y se propaga
+  // al componente (que muestra el estado de error). No se disfraza de "sin datos".
+  if (insightsRes.error) {
+    const err = new Error(`No se pudieron leer las métricas de Meta Ads: ${insightsRes.error.message}`);
+    err.origen = errorEdge ? `edge_function (${errorEdge}) + meta_ads_insights` : 'meta_ads_insights';
+    err.detalle = insightsRes.error;
+    throw err;
+  }
+
+  // Las fuentes auxiliares (atribución) no bloquean el panel, pero se informan.
+  const advertencias = [];
+  if (errorEdge) advertencias.push(`La Edge Function del asistente no respondió (${errorEdge}); métricas leídas directamente de Supabase.`);
+  if (leadsRes.error) advertencias.push(`No se pudieron leer los leads comerciales (${leadsRes.error.message}).`);
+  if (pagosRes.error) advertencias.push(`No se pudieron leer los pagos (${pagosRes.error.message}).`);
 
   const rows = insightsRes.data || [];
   const porCampana = {};
@@ -146,9 +180,13 @@ export async function getAdsData(rango) {
   return {
     ok: true,
     periodo,
+    // Consulta hecha sin la Edge Function: el panel lo informa en vez de fingir que todo está igual.
+    origen: errorEdge ? 'supabase_directo' : 'edge_function',
+    advertencias,
     campanas,
     analisis: {
       estado: campanas.length > 0 ? 'analizado' : 'sin_datos',
+      sin_datos: rows.length === 0,
       periodo,
       metricas_globales: {
         gasto_total: Math.round(gastoTotal * 100) / 100,

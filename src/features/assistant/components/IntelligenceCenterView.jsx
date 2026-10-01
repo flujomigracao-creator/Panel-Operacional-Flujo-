@@ -34,8 +34,10 @@ export default function IntelligenceCenterView() {
       const res = await api.getAdsData({ periodo: dateRange });
       setData(res);
     } catch (err) {
-      console.error('Error cargando datos de inteligencia:', err);
-      setError(err.message);
+      // El detalle técnico va a la consola; al usuario se le muestra un mensaje entendible.
+      console.error('[Centro de Inteligencia] Error cargando métricas de Meta Ads:', err?.detalle || err);
+      setError(err?.message || 'Error desconocido al consultar las métricas.');
+      setData(null);
     } finally {
       setLoading(false);
     }
@@ -164,15 +166,44 @@ export default function IntelligenceCenterView() {
       </div>
 
       {loading && !data && (
-        <div className="flex h-64 items-center justify-center">
+        <div className="flex h-64 flex-col items-center justify-center gap-3">
           <LoadingSpinner size="lg" />
+          <p className="text-xs text-chrome-text-muted">Cargando métricas de Meta Ads...</p>
         </div>
       )}
 
-      {error && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-400">
-          <p className="font-semibold">No se pudieron cargar todos los datos de Meta Ads:</p>
-          <p className="mt-1 text-xs">{error}</p>
+      {error && !loading && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4">
+          <p className="text-sm font-semibold text-red-400">No pudimos cargar las métricas de Meta Ads.</p>
+          <p className="mt-1 text-xs text-chrome-text-muted">
+            Intenta nuevamente en unos segundos. El detalle técnico quedó registrado en la consola.
+          </p>
+          <button
+            onClick={loadData}
+            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-chrome-border bg-chrome-bg px-3 py-1.5 text-xs font-medium text-chrome-text hover:border-brand-primary hover:text-brand-primary"
+          >
+            <RefreshCw size={13} /> Reintentar
+          </button>
+        </div>
+      )}
+
+      {/* Sin datos: la consulta funcionó pero no hay filas para el período */}
+      {!error && !loading && data && (data.campanas || []).length === 0 && (
+        <div className="rounded-xl border border-chrome-border bg-chrome-bg-raised p-4 text-sm text-chrome-text-muted">
+          No hay datos de Meta Ads para el período seleccionado
+          {data.periodo?.etiqueta ? ` (${data.periodo.etiqueta})` : ''}.
+        </div>
+      )}
+
+      {/* Fuentes auxiliares que no respondieron: se informa, no se esconde */}
+      {!error && (data?.advertencias || []).length > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-400">
+          <p className="font-semibold">Algunas fuentes no respondieron:</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4">
+            {data.advertencias.map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
+          </ul>
         </div>
       )}
 

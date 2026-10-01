@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "bot": "node bot-polling.js",
-    "test": "node --test supabase/functions/asistente/ads.test.js"
+    "test": "node --test supabase/functions/asistente/ads.test.js src/features/assistant/services/assistantService.test.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
