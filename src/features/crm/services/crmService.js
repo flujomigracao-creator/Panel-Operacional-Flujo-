@@ -317,6 +317,16 @@ export async function sendText(to, mensaje) {
   return invoke('enviar-whatsapp-cliente', { ...target(to), mensaje });
 }
 
+/** Plantillas aprobadas por Meta (nombre, idioma, cuerpo con {{1}}…, nº de variables). */
+export async function listWhatsappTemplates() {
+  return (await invoke('enviar-whatsapp-cliente', { accion: 'plantillas' })).plantillas || [];
+}
+
+/** Envía una plantilla aprobada; `texto` es lo que queda guardado en la conversación. */
+export async function sendTemplate(to, { nombre, idioma, parametros, texto }) {
+  return invoke('enviar-whatsapp-cliente', { ...target(to), plantilla: { nombre, idioma, parametros, texto } });
+}
+
 export async function sendFile(to, file, caption = '') {
   const organizationId = await getMyOrganizationId();
   const ext = file.name.split('.').pop() || 'bin';
