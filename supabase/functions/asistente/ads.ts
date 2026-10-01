@@ -2130,6 +2130,9 @@ async function verificarObjetoMeta(token: string, accountId: string, objectId: s
   const expected = String(accountId).replace(/^act_/, '');
   const actual = String(data?.account_id ?? '').replace(/^act_/, '');
   if (!actual || actual !== expected) throw new Error(`Seguridad: el ${objectType} ${objectId} no pertenece a la cuenta publicitaria configurada.`);
+  if (['DELETED', 'ARCHIVED'].includes(String(data?.status))) {
+    throw new Error(`El ${objectType} ${objectId} ya fue eliminado en Meta (estado ${data.status}); no se puede cambiar ni activar. Si venía de un experimento que falló, no quedó nada creado: usa «Publicar en Meta» en el experimento.`);
+  }
   return data;
 }
 
