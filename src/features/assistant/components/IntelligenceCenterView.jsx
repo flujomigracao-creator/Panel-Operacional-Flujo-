@@ -25,13 +25,20 @@ export default function IntelligenceCenterView() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
-  const [dateRange, setDateRange] = useState('7d'); // '7d' | '14d' | '30d' | 'all'
+  const [dateRange, setDateRange] = useState('7d'); // '7d' | '14d' | '30d' | 'custom'
+  // Período personalizado: se pasan fechas explícitas (YYYY-MM-DD) al servicio.
+  const [rangoCustom, setRangoCustom] = useState({ desde: '', hasta: '' });
+
+  const pedirRango = () =>
+    dateRange === 'custom'
+      ? { desde: rangoCustom.desde || undefined, hasta: rangoCustom.hasta || undefined }
+      : { periodo: dateRange };
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.getAdsData({ periodo: dateRange });
+      const res = await api.getAdsData(pedirRango());
       setData(res);
     } catch (err) {
       // El detalle técnico va a la consola; al usuario se le muestra un mensaje entendible.
@@ -41,7 +48,7 @@ export default function IntelligenceCenterView() {
     } finally {
       setLoading(false);
     }
-  }, [dateRange]);
+  }, [dateRange, rangoCustom.desde, rangoCustom.hasta]);
 
   useEffect(() => {
     loadData();
@@ -126,7 +133,37 @@ export default function IntelligenceCenterView() {
             >
               Este mes
             </button>
+            <button
+              onClick={() => setDateRange('custom')}
+              className={`rounded-md px-3 py-1.5 font-medium transition-colors ${
+                dateRange === 'custom' ? 'bg-brand-primary text-white' : 'text-chrome-text hover:text-chrome-text-active'
+              }`}
+            >
+              Personalizado
+            </button>
           </div>
+
+          {dateRange === 'custom' && (
+            <div className="flex items-center gap-2 text-xs text-chrome-text-muted">
+              <input
+                type="date"
+                value={rangoCustom.desde}
+                max={rangoCustom.hasta || undefined}
+                onChange={(e) => setRangoCustom(r => ({ ...r, desde: e.target.value }))}
+                className="rounded-lg border border-chrome-border bg-chrome-bg-raised px-2 py-1.5 text-chrome-text"
+                aria-label="Desde"
+              />
+              <span>→</span>
+              <input
+                type="date"
+                value={rangoCustom.hasta}
+                min={rangoCustom.desde || undefined}
+                onChange={(e) => setRangoCustom(r => ({ ...r, hasta: e.target.value }))}
+                className="rounded-lg border border-chrome-border bg-chrome-bg-raised px-2 py-1.5 text-chrome-text"
+                aria-label="Hasta"
+              />
+            </div>
+          )}
 
           <button
             onClick={loadData}
@@ -215,6 +252,23 @@ export default function IntelligenceCenterView() {
 
       {data && (
         <>
+          {/* Fuentes de datos: el usuario ve de dónde sale cada número (requisito de la FASE 2) */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-chrome-border/60 bg-chrome-bg-raised/40 px-3 py-2 text-[11px] text-chrome-text-muted">
+            <span className="font-semibold uppercase tracking-wider">Fuentes</span>
+            {[
+              ['Métricas', data.fuentes?.metricas_historicas],
+              ['Estado y presupuesto', data.fuentes?.estado_presupuesto],
+              ['Leads atribuidos', data.fuentes?.leads_atribuidos],
+              ['Leads comerciales', data.fuentes?.leads_comerciales],
+              ['Cobros', data.fuentes?.pagos],
+            ]
+              .filter(([, v]) => Boolean(v))
+              .map(([k, v]) => (
+                <span key={k}>
+                  {k}: <span className="text-chrome-text">{v}</span>
+                </span>
+              ))}
+          </div>
           {/* Métricas Principales (KPI Cards) */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard
@@ -240,13 +294,9 @@ export default function IntelligenceCenterView() {
               tone="default"
             />
             <MetricCard
-              title="Leads Comerciales"
-              value={atribucion.leads_analizados ?? globales.leads_totales ?? null}
-              subtitle={
-                atribucion.leads_analizados === undefined
-                  ? 'Datos no disponibles'
-                  : `${atribucion.leads_en_propuesta_o_pago || 0} en propuesta / pago`
-              }
+              title="Leads comerciales"
+              value={atribucion.leads?.comerciales ?? atribucion.leads_analizados ?? null}
+              subtitle={`${atribucion.leads?.atribuidos_meta ?? 0} atribuidos a Meta Ads · ${atribucion.leads?.no_atribuidos ?? 0} sin atribución`}
               icon={Users}
               tone="default"
             />

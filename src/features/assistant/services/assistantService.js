@@ -25,42 +25,100 @@ export const executeProposal = (proposalId, filas) =>
 export const cancelProposal = (proposalId) =>
   invoke({ accion: 'cancelar', proposal_id: proposalId });
 
-// ── Servicios del Centro de Inteligencia y Meta Ads ──
+// ── Servicios del Centro de Inteligencia y Meta Ads ─
+
+// Leads cuyo `lead_source` declara un origen de Meta: es evidencia de procedencia, pero NO
+// dice qué campaña los generó (para eso están los referidos de meta_ads_referidos).
+const FUENTES_META_LEAD = /(^|[^a-z])(meta|facebook|instagram|fb|ig|messenger|paid_?social)([^a-z]|$)/i;
 
 // Mismo criterio de período que el backend (supabase/functions/asistente/ads.ts):
 // el fallback local no debe mostrar totales históricos cuando el panel pide 7 días.
+// Fecha local (no UTC): toISOString() puede adelantar un día en Brasil (UTC-3) de noche.
+// Mismo patrón que financeService.hoyLocal: sin esto "Últimos 7 días" pedía hasta
+// 2026-10-01 siendo todavía 2026-09-30 (fecha futura que el panel no debería consultar).
+const isoDiaLocal = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 function rangoAFechas(rango) {
   const pedido = typeof rango === 'string' ? rango : rango?.periodo || '7d';
+  // Período personalizado: las fechas explícitas mandan sobre el atajo.
+  const desdePedido = typeof rango === 'string' ? undefined : rango?.desde;
+  const hastaPedido = typeof rango === 'string' ? undefined : rango?.hasta;
+  if (desdePedido || hastaPedido) {
+    const desde = desdePedido || undefined;
+    const hasta = hastaPedido || isoDiaLocal(new Date());
+    return { desde, hasta, etiqueta: desde ? `${desde} — ${hasta}` : `Hasta ${hasta}` };
+  }
   if (pedido === 'all' || pedido === 'todo') return { etiqueta: 'Todo el histórico' };
   const dias = pedido === '30d' ? 30 : pedido === '14d' ? 14 : 7;
   const hoy = new Date();
   const desde = new Date(hoy);
   desde.setDate(desde.getDate() - (dias - 1));
-  // Fecha local (no UTC): toISOString() puede adelantar un día en Brasil (UTC-3) de noche.
-  // Mismo patrón que financeService.hoyLocal: sin esto "Últimos 7 días" pedía hasta
-  // 2026-10-01 siendo todavía 2026-09-30 (fecha futura que el panel no debería consultar).
-  const iso = (d) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  return { desde: iso(desde), hasta: iso(hoy), etiqueta: `Últimos ${dias} días` };
+  return { desde: isoDiaLocal(desde), hasta: isoDiaLocal(hoy), etiqueta: `Últimos ${dias} días` };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fuentes de datos del Centro de Inteligencia (ver docs/architecture/0003):
+//   métricas históricas ....... meta_ads_insights   (Supabase)
+//   estado/presupuesto actual . meta_ads_entities   (sincronizado desde Meta Graph API)
+//   leads atribuidos a Meta ... meta_ads_referidos  (payload crudo del webhook)
+//   leads comerciales ......... comercial_leads      (CRM)
+//   ingresos .................. payments            (cobros)
+//   análisis con IA ........... Edge Function `asistente` (accion 'mensaje')
+//
+// El dashboard NUNCA llama a la Edge Function: un 400 de `asistente` no puede dejar sin
+// métricas a la pantalla. El asistente se usa solo con "Analizar con Asistente".
+// OJO: los builders de Supabase (from().select().order()) son "thenable" pero NO exponen
+// `.catch()`: el error se lee SIEMPRE del resultado { data, error } del await.
+// ── Atribución real de referidos (meta_ads_referidos) ─────────────────────────
+// La tabla solo tiene `ad_id` + el payload crudo del webhook (`raw`/`body`): no hay
+// `created_at` ni `campaign_id`. Por eso NO se reparte "a ojo":
+//   - la fecha sale del payload; sin fecha el referido no entra en el corte del período;
+//   - la campaña sale del payload o del cruce real ad_id → campaign_id;
+//   - lo que no se puede determinar queda como "no atribuido".
+const parseJsonSeguro = (v) => {
+  if (v && typeof v === 'object') return v;
+  if (typeof v === 'string' && v.trim().startsWith('{')) {
+    try { return JSON.parse(v); } catch { return null; }
+  }
+  return null;
+};
+
+const fechaDePayload = (payload) => {
+  if (!payload) return null;
+  const bruto = payload.created_time ?? payload.created_at ?? payload.entry_time ?? payload.timestamp;
+  if (bruto === null || bruto === undefined || bruto === '') return null;
+  const d = new Date(typeof bruto === 'number' ? bruto * 1000 : bruto);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+};
+
+export function atribuirReferidos(filas, rowsInsights, periodo) {
+  const mapa = new Map();
+  for (const r of rowsInsights || []) {
+    if (r?.ad_id && r?.campaign_id && !mapa.has(String(r.ad_id))) mapa.set(String(r.ad_id), String(r.campaign_id));
+  }
+  const porCampana = {};
+  let total = 0;
+  let sinCampana = 0;
+  let sinFecha = 0;
+  let fueraDePeriodo = 0;
+
+  for (const f of filas || []) {
+    const payload = parseJsonSeguro(f?.raw) ?? parseJsonSeguro(f?.body);
+    const dia = fechaDePayload(payload);
+    if (!dia) { sinFecha++; continue; }
+    if (periodo?.desde && dia < periodo.desde) { fueraDePeriodo++; continue; }
+    if (periodo?.hasta && dia > periodo.hasta) { fueraDePeriodo++; continue; }
+
+    const directo = payload?.campaign_id ?? payload?.campaign?.id ?? payload?.adset?.campaign_id ?? payload?.campaign;
+    let cid = directo !== undefined && directo !== null && String(directo).trim() !== '' ? String(directo) : null;
+    if (!cid && f?.ad_id && mapa.has(String(f.ad_id))) cid = mapa.get(String(f.ad_id));
+    if (cid) { porCampana[cid] = (porCampana[cid] || 0) + 1; total++; } else { sinCampana++; }
+  }
+  return { disponible: true, total, por_campana: porCampana, sin_campana: sinCampana, sin_fecha: sinFecha, fuera_de_periodo: fueraDePeriodo };
 }
 
 export async function getAdsData(rango) {
-  // 1. Camino normal: la Edge Function (trae Meta real + los límites configurados en la BD).
-  let errorEdge = null;
-  try {
-    const res = await invoke({ accion: 'ads_data', rango });
-    if (res?.ok) return res;
-    if (res?.error) errorEdge = res.error;
-  } catch (err) {
-    errorEdge = err?.message || 'error desconocido';
-    console.warn('[Centro de Inteligencia] La Edge Function ads_data no respondió:', errorEdge);
-  }
-
-  // Fallback directo a Supabase si la edge function aún no está desplegada en local/remoto.
-  //
-  // OJO: los builders de Supabase (from().select().order()) son "thenable" pero NO exponen
-  // `.catch()`: en @supabase/postgrest-js el PostgrestBuilder solo define `then`. Por eso el
-  // error se lee SIEMPRE del resultado { data, error } del await, nunca de un .catch().
   const periodo = rangoAFechas(rango);
 
   const consultar = async (builder, tabla) => {
@@ -84,9 +142,19 @@ export async function getAdsData(rango) {
   if (periodo.desde) qInsights = qInsights.gte('fecha', periodo.desde);
   if (periodo.hasta) qInsights = qInsights.lte('fecha', periodo.hasta);
 
+  // Estado actual (status, presupuestos, conjuntos y anuncios): lo sincroniza la Edge Function
+  // leyendo la Meta Graph API con credenciales de servidor. El frontend solo lee la caché.
+  const qEntidades = supabase
+    .from('meta_ads_entities')
+    .select('entity_type, entity_id, parent_id, name, status, effective_status, daily_budget, lifetime_budget, objective, account_id, creative_name, synced_at')
+    .limit(2000);
+
+  // Referidos de Meta Ads: la tabla solo guarda `ad_id` y el payload crudo del webhook.
+  const qReferidos = supabase.from('meta_ads_referidos').select('ad_id, raw, body').limit(1000);
+
   let qLeads = supabase
     .from('comercial_leads')
-    .select('id, nombre, tramite_texto, precio, etapa_nombre, client_id, updated_at')
+    .select('id, nombre, tramite_texto, precio, etapa_nombre, client_id, lead_source, updated_at')
     .order('updated_at', { ascending: false })
     .limit(500);
   if (periodo.desde) qLeads = qLeads.gte('updated_at', `${periodo.desde}T00:00:00`);
@@ -96,28 +164,36 @@ export async function getAdsData(rango) {
   if (periodo.desde) qPagos = qPagos.gte('paid_at', `${periodo.desde}T00:00:00`);
   if (periodo.hasta) qPagos = qPagos.lte('paid_at', `${periodo.hasta}T23:59:59`);
 
-  const [insightsRes, leadsRes, pagosRes] = await Promise.all([
+  const [insightsRes, entidadesRes, referidosRes, leadsRes, pagosRes] = await Promise.all([
     consultar(qInsights, 'meta_ads_insights'),
+    consultar(qEntidades, 'meta_ads_entities'),
+    consultar(qReferidos, 'meta_ads_referidos'),
     consultar(qLeads, 'comercial_leads'),
     consultar(qPagos, 'payments'),
   ]);
 
-  // meta_ads_insights es la fuente principal del panel: si falla, es un error real y se propaga
-  // al componente (que muestra el estado de error). No se disfraza de "sin datos".
+  // Las métricas históricas son la fuente principal: si fallan, es un error real y se propaga.
   if (insightsRes.error) {
     const err = new Error(`No se pudieron leer las métricas de Meta Ads: ${insightsRes.error.message}`);
-    err.origen = errorEdge ? `edge_function (${errorEdge}) + meta_ads_insights` : 'meta_ads_insights';
+    err.origen = 'meta_ads_insights';
     err.detalle = insightsRes.error;
     throw err;
   }
 
-  // Las fuentes auxiliares (atribución) no bloquean el panel, pero se informan.
+  // Avisos en lenguaje de negocio: la pantalla no muestra errores técnicos internos.
   const advertencias = [];
-  if (errorEdge) advertencias.push(`La Edge Function del asistente no respondió (${errorEdge}); métricas leídas directamente de Supabase.`);
-  if (leadsRes.error) advertencias.push(`No se pudieron leer los leads comerciales (${leadsRes.error.message}).`);
-  if (pagosRes.error) advertencias.push(`No se pudieron leer los pagos (${pagosRes.error.message}).`);
+  if (entidadesRes.error) advertencias.push('Estado y presupuesto de campañas sin sincronizar con Meta Ads todavía.');
+  if (referidosRes.error) advertencias.push('Sin datos de referidos de Meta Ads: no se puede atribuir leads por campaña.');
+  if (leadsRes.error) advertencias.push('Leads comerciales no disponibles para el período.');
+  if (pagosRes.error) advertencias.push('Cobros no disponibles para el período.');
 
   const rows = insightsRes.data || [];
+  const entidades = entidadesRes.data || [];
+  const campanasCache = new Map(
+    entidades.filter(e => e.entity_type === 'campaign').map(e => [String(e.entity_id), e])
+  );
+  const referred = atribuirReferidos(referidosRes.data || [], rows, periodo);
+
   const porCampana = {};
   let gastoTotal = 0;
   let convTotal = 0;
@@ -128,13 +204,21 @@ export async function getAdsData(rango) {
   for (const r of rows) {
     const cid = r.campaign_id || r.campaign_name || 'default';
     if (!porCampana[cid]) {
+      // Estado y presupuesto vienen de `meta_ads_entities` (sincronizado desde la Graph API).
+      // Si la campaña no está en la caché, quedan sin dato: nunca se inventa 'ACTIVE'.
+      const cache = campanasCache.get(String(cid));
       porCampana[cid] = {
         id: cid,
-        name: r.campaign_name || 'Campaña General',
-        // La tabla local no guarda estado ni presupuesto: si la columna no existe queda null
-        // y la interfaz lo muestra como "Sin estado" — no se inventa 'ACTIVE'.
-        status: r.status || null,
-        daily_budget: r.daily_budget ? Number(r.daily_budget) : undefined,
+        name: r.campaign_name || cache?.name || 'Campaña General',
+        status: cache?.status || null,
+        effective_status: cache?.effective_status || null,
+        objective: cache?.objective || null,
+        daily_budget: cache?.daily_budget != null ? Number(cache.daily_budget) : undefined,
+        lifetime_budget: cache?.lifetime_budget != null ? Number(cache.lifetime_budget) : undefined,
+        estado_actualizado_en: cache?.synced_at || null,
+        // Leads atribuidos a ESTA campaña (evidencia real de meta_ads_referidos). No se suman
+        // los leads comerciales: esos no tienen campaña demostrable.
+        leads_atribuidos: referred.por_campana[cid] || 0,
         metrics: {
           spend: 0,
           impressions: 0,
@@ -150,8 +234,7 @@ export async function getAdsData(rango) {
         },
       };
     }
-    // Métricas con los nombres reales de la tabla local (en español). `r.leads` solo suma si
-    // la tabla tuviera la columna; si no, queda 0 y se avisa en `advertencias`.
+    // Métricas con los nombres reales de la tabla local (en español).
     const sp = Number(r.gasto) || 0;
     const im = Number(r.impresiones) || 0;
     const cl = Number(r.clics) || 0;
@@ -181,35 +264,77 @@ export async function getAdsData(rango) {
     m.costPerLead = m.leads > 0 ? m.spend / m.leads : null;
     m.conversationRate = m.clicks > 0 ? (m.conversations / m.clicks) * 100 : null;
     m.conversionRate = m.leads > 0 && m.conversations > 0 ? (m.leads / m.conversations) * 100 : null;
+    // Costo por lead atribuido: solo si hay referidos con campaña demostrable.
+    m.costPerLeadAtribuido = c.leads_atribuidos > 0 ? m.spend / c.leads_atribuidos : null;
     return c;
   });
 
-  // Transparencia de la fuente local: lo que la tabla no guarda se informa en `advertencias`
-  // en vez de rellenarlo con valores inventados.
+  // Conjuntos y anuncios: estado actual desde la caché de Meta (sin métricas: no se inventan).
+  const conjuntos = entidades
+    .filter(e => e.entity_type === 'adset')
+    .map(e => ({
+      id: e.entity_id,
+      name: e.name || 'Conjunto sin nombre',
+      campaign_id: e.parent_id,
+      status: e.status || null,
+      daily_budget: e.daily_budget != null ? Number(e.daily_budget) : undefined,
+      lifetime_budget: e.lifetime_budget != null ? Number(e.lifetime_budget) : undefined,
+      synced_at: e.synced_at,
+    }));
+  const anuncios = entidades
+    .filter(e => e.entity_type === 'ad')
+    .map(e => ({
+      id: e.entity_id,
+      name: e.name || 'Anuncio sin nombre',
+      adset_id: e.parent_id,
+      status: e.status || null,
+      creative_name: e.creative_name || null,
+      synced_at: e.synced_at,
+    }));
+  const ultimaSync = entidades.reduce((max, e) => (e.synced_at && e.synced_at > max ? e.synced_at : max), '');
+
+  // Avisos de negocio: lo que la fuente no tiene se informa, nunca se rellena con inventos.
   const conEstado = campanas.some(c => c.status);
-  const conLeadsMeta = rows.some(r => r.leads !== undefined);
-  if (rows.length > 0) {
-    if (!conEstado) {
-      advertencias.push('meta_ads_insights no guarda el estado de las campañas ni el presupuesto diario: esos datos solo llegan con la Edge Function (Graph API de Meta).');
-    }
-    if (!conLeadsMeta) {
-      advertencias.push('meta_ads_insights no guarda leads por campaña: el bloque de leads usa los leads comerciales del panel.');
-    }
+  if (rows.length > 0 && !conEstado) {
+    advertencias.push('Estado y presupuesto de campañas sin sincronizar todavía con Meta Ads.');
+  }
+  if (referred.sin_campana > 0 && referred.total === 0) {
+    advertencias.push('Hay referidos de Meta Ads pero no se puede determinar a qué campaña pertenecen.');
   }
 
   const pagos = pagosRes.data || [];
   const totalCobrado = pagos.reduce((acc, p) => acc + Number(p.amount || 0), 0);
   const leadsOk = !leadsRes.error;
+  const leadsComerciales = leadsOk ? leadsRes.data || [] : [];
   const clientesQuePagaron = new Set(pagos.map(p => p.client_id).filter(Boolean)).size;
-  const atribucionEstado = leadsOk && (leadsRes.data || []).length + pagos.length > 0 ? 'estimada' : 'no_disponible';
+  // Un lead comercial NO cuenta como lead de Meta: solo los referidos con campaña real.
+  const declaradosMeta = leadsComerciales.filter(l => FUENTES_META_LEAD.test(String(l.lead_source || ''))).length;
+  const atribucionEstado =
+    referred.total > 0 || declaradosMeta > 0
+      ? 'confirmada'
+      : leadsOk && leadsComerciales.length + pagos.length > 0
+        ? 'estimada'
+        : 'no_disponible';
 
   return {
     ok: true,
     periodo,
-    // Consulta hecha sin la Edge Function: el panel lo informa en vez de fingir que todo está igual.
-    origen: errorEdge ? 'supabase_directo' : 'edge_function',
+    origen: 'supabase_directo',
     advertencias,
     campanas,
+    conjuntos,
+    anuncios,
+    // Fuentes visibles en la interfaz (requisito: el usuario ve de dónde sale cada número).
+    fuentes: {
+      metricas_historicas: 'Meta Ads · Supabase (meta_ads_insights)',
+      estado_presupuesto: ultimaSync
+        ? `Meta Ads (sincronizado ${ultimaSync.slice(0, 10)})`
+        : 'Meta Ads (sin sincronizar)',
+      leads_atribuidos: referred.disponible ? 'Meta Ads + CRM (meta_ads_referidos)' : 'Meta Ads + CRM (sin datos)',
+      leads_comerciales: 'CRM (comercial_leads)',
+      pagos: 'Cobros (payments)',
+      analisis_ia: 'Asistente (Edge Function)',
+    },
     analisis: {
       estado: campanas.length > 0 ? 'analizado' : 'sin_datos',
       sin_datos: rows.length === 0,
@@ -221,26 +346,40 @@ export async function getAdsData(rango) {
         campanas_activas: conEstado ? campanas.filter(c => c.status === 'ACTIVE').length : null,
         clics_totales: clicksTotal,
         impresiones_totales: impTotal,
-        leads_totales: conLeadsMeta ? leadsTotal : null,
+        leads_totales: leadsTotal,
+        leads_atribuidos_meta: referred.total,
       },
       hallazgos: [],
       recomendaciones: [],
     },
     atribucion: {
       periodo,
-      leads_analizados: leadsOk ? (leadsRes.data || []).length : null,
+      // Categorías explícitas: los leads comerciales NO se presentan como leads de Meta Ads.
+      leads: {
+        comerciales: leadsOk ? leadsComerciales.length : null,
+        atribuidos_meta: referred.total,
+        declarados_origen_meta: declaradosMeta,
+        no_atribuidos: leadsOk ? Math.max(0, leadsComerciales.length - declaradosMeta) : null,
+      },
+      leads_analizados: leadsOk ? leadsComerciales.length : null,
+      leads_atribuidos_por_campana: referred.por_campana,
+      referidos_sin_campana: referred.sin_campana,
+      referidos_sin_fecha: referred.sin_fecha,
       leads_en_propuesta_o_pago: leadsOk
-        ? (leadsRes.data || []).filter(l => /propuesta|pago/i.test(String(l.etapa_nombre || ''))).length
+        ? leadsComerciales.filter(l => /propuesta|pago/i.test(String(l.etapa_nombre || ''))).length
         : null,
       clientes_que_pagaron: clientesQuePagaron,
       ingresos_totales_registrados: pagos.length ? Math.round(totalCobrado * 100) / 100 : null,
       inversion_periodo: Math.round(gastoTotal * 100) / 100,
       roas_global_estimado: gastoTotal > 0 ? Math.round((totalCobrado / gastoTotal) * 100) / 100 : null,
+      costo_por_lead_global: referred.total > 0 ? Math.round((gastoTotal / referred.total) * 100) / 100 : null,
       costo_por_cliente_global: clientesQuePagaron > 0 ? Math.round((gastoTotal / clientesQuePagaron) * 100) / 100 : null,
       atribucion_estado: atribucionEstado,
-      nota: 'Fallback local: no hay evidencia de atribución por anuncio. Los cruces son correlación del período.',
+      nota:
+        'Los leads atribuidos por campaña salen de meta_ads_referidos (payload de Meta) y solo se asignan a una campaña cuando hay evidencia. Los leads comerciales sin campaña demostrable quedan como "no atribuidos"; el ROAS es global, no por campaña.',
     },
-    // Ejecutado sin la Edge Function: estos son los valores por defecto del código, no los de la BD.
+    // Límites de seguridad: los valores por defecto del código. La configuración por organización
+    // vive en organization_settings y la lee la Edge Function (`accion: 'ads_data'`).
     limites: {
       maxDailyBudgetChange: 150,
       maxBudgetIncreasePercent: 50,

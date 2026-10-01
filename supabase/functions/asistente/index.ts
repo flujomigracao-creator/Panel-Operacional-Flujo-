@@ -14,6 +14,8 @@ import {
   compareMetaAdsPeriods,
   getAdsLimits,
   resolveAdsDateRange,
+  syncMetaEntidades,
+  listarMetaEntidadesPersistidas,
 } from './ads.ts';
 
 const MODEL = 'openai/gpt-oss-120b';
@@ -108,13 +110,37 @@ Deno.serve(async (req) => {
       // a un rango real para que el selector de período sí cambie los números.
       const periodo = resolveAdsDateRange(body.rango);
       const dateRange = periodo.desde && periodo.hasta ? { desde: periodo.desde, hasta: periodo.hasta } : undefined;
-      const [campanas, analisis, atribucion, limites] = await Promise.all([
+
+      // Primero se refresca el estado actual desde la Graph API (servidor, con credenciales) y se
+      // persiste en `meta_ads_entities`: el dashboard no depende de una llamada en vivo a Meta.
+      const sync = body.sincronizar === false ? null : await syncMetaEntidades(admin);
+
+      const [campanas, analisis, atribucion, limites, entidades] = await Promise.all([
         fetchMetaCampaigns(admin, { dateRange }),
         analyzeMetaAds(admin, { dateRange, incluirAnuncios: body.incluir_anuncios !== false }),
         getMetaAdsAttribution(admin, dateRange),
         getAdsLimits(admin),
+        listarMetaEntidadesPersistidas(admin),
       ]);
-      return json({ ok: true, periodo, campanas, analisis, atribucion, limites });
+
+      return json({
+        ok: true,
+        periodo,
+        campanas,
+        conjuntos: entidades.conjuntos,
+        anuncios: entidades.anuncios,
+        analisis,
+        atribucion,
+        limites,
+        sync,
+        fuentes: {
+          metricas_historicas: 'meta_ads_insights',
+          estado_presupuesto: 'meta_ads_entities (Meta Graph API)',
+          leads_atribuidos: 'meta_ads_referidos',
+          leads_comerciales: 'comercial_leads',
+          pagos: 'payments',
+        },
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return json({ ok: false, error: msg }, 500);

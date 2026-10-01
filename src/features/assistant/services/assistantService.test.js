@@ -122,3 +122,70 @@ test('18. el rango del período no genera fechas futuras por el desfase UTC', ()
     'resolveAdsDateRange debe resolver "hoy" en America/Sao_Paulo (el runtime de la Edge Function es UTC)'
   );
 });
+
+// ── FASE 2: fuentes de datos del Centro de Inteligencia ──
+// El dashboard lee Supabase directamente (nunca la Edge Function) y separa las categorías de
+// leads. Estas guardas impiden volver a mezclar o a depender del asistente para renderizar.
+
+const leerServicio = () => sinComentarios(readFileSync(join(RAIZ, 'src', 'features', 'assistant', 'services', 'assistantService.js'), 'utf8'));
+const cuerpoGetAdsData = () => {
+  const src = leerServicio();
+  return src.slice(src.indexOf('export async function getAdsData'), src.indexOf('export async function compareAdsPeriods'));
+};
+
+test('19. el dashboard carga siempre desde Supabase y no depende del asistente', () => {
+  const cuerpo = cuerpoGetAdsData();
+  assert.ok(!cuerpo.includes('invoke('), 'getAdsData no debe invocar la Edge Function (un 400 de asistente no puede romper el dashboard)');
+  assert.ok(cuerpo.includes("from('meta_ads_insights')"), 'métricas históricas: meta_ads_insights');
+  assert.ok(cuerpo.includes("from('meta_ads_entities')"), 'estado y presupuesto: caché sincronizada desde Meta Graph API');
+  assert.ok(cuerpo.includes("from('meta_ads_referidos')"), 'leads atribuidos: meta_ads_referidos');
+  assert.ok(cuerpo.includes("from('comercial_leads')"), 'leads comerciales: comercial_leads');
+  assert.ok(cuerpo.includes("from('payments')"), 'cobros: payments');
+});
+
+test('20. los leads se separen en comerciales, atribuidos a Meta y no atribuidos', () => {
+  const cuerpo = cuerpoGetAdsData();
+  assert.ok(cuerpo.includes('comerciales:'), 'debe exponer leads comerciales');
+  assert.ok(cuerpo.includes('atribuidos_meta:'), 'debe exponer leads atribuidos a Meta Ads');
+  assert.ok(cuerpo.includes('declarados_origen_meta:'), 'debe distinguir los leads que solo declaran origen Meta');
+  assert.ok(cuerpo.includes('no_atribuidos:'), 'debe exponer los leads sin atribución');
+  // El lead_source es evidencia de procedencia, NO de campaña (patrón declarado en el servicio).
+  assert.ok(leerServicio().includes('FUENTES_META_LEAD'), 'usa el patrón de lead_source solo como procedencia');
+});
+
+test('21. la atribución por campaña solo se hace con evidencia real', () => {
+  const servicio = leerServicio();
+  const ads = sinComentarios(readFileSync(join(RAIZ, 'supabase', 'functions', 'asistente', 'ads.ts'), 'utf8'));
+  for (const src of [servicio, ads]) {
+    assert.ok(src.includes('created_time'), 'la fecha del referido sale del payload de Meta');
+    assert.ok(src.includes('por_campana'), 'los referidos se agrupan por campaña');
+    assert.ok(src.includes('sin_campana'), 'lo que no se puede atribuir queda como sin campaña');
+    assert.ok(src.includes('sin_fecha'), 'los referidos sin fecha no se asignan al período');
+  }
+  assert.ok(ads.includes("select('ad_id, raw, body')"), 'meta_ads_referidos solo tiene ad_id + payload crudo');
+  assert.ok(!ads.includes(".select('id').limit(1000)"), 'no se puede consultar meta_ads_referidos por id: esa columna no existe');
+});
+
+test('22. la sincronización con Meta ocurre en el servidor, nunca en el frontend', () => {
+  const servicio = leerServicio();
+  const ads = sinComentarios(readFileSync(join(RAIZ, 'supabase', 'functions', 'asistente', 'ads.ts'), 'utf8'));
+  const index = sinComentarios(readFileSync(join(RAIZ, 'supabase', 'functions', 'asistente', 'index.ts'), 'utf8'));
+
+  assert.ok(!servicio.includes('graph.facebook.com'), 'el frontend no llama a la Graph API');
+  assert.ok(!servicio.includes('META_ADS_TOKEN'), 'el frontend no maneja tokens de Meta');
+  assert.ok(ads.includes('export async function syncMetaEntidades'), 'la sincronización vive en la Edge Function');
+  assert.ok(ads.includes("upsert(filas, { onConflict: 'entity_type,entity_id' })"), 'el estado se persiste en meta_ads_entities');
+  assert.ok(index.includes('await syncMetaEntidades(admin)'), 'ads_data refresca el estado antes de responder');
+});
+
+test('23. la interfaz no muestra avisos técnicos del asistente y sí muestra las fuentes', () => {
+  const vista = sinComentarios(
+    readFileSync(join(RAIZ, 'src', 'features', 'assistant', 'components', 'IntelligenceCenterView.jsx'), 'utf8')
+  );
+  assert.ok(
+    !vista.includes('La Edge Function del asistente no respondió'),
+    'ese aviso técnico no debe aparecer en el dashboard'
+  );
+  assert.ok(vista.includes('Fuentes'), 'la vista debe indicar de dónde viene cada dato');
+  assert.ok(vista.includes('data.fuentes'), 'la vista debe leer el bloque de fuentes del servicio');
+});

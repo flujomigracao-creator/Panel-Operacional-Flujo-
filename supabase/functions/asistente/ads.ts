@@ -278,6 +278,174 @@ function getMetaConfig() {
   return { token, accountId: cleanAccountId };
 }
 
+// ── Estado actual de campañas / conjuntos / anuncios (persistencia en Supabase) ──
+//
+// Fuente de verdad del `status` y de los presupuestos: META GRAPH API (lado servidor).
+// `meta_ads_insights` solo guarda métricas históricas, así que el estado se persiste aparte en
+// `meta_ads_entities` (migración 20260930000002) y el frontend lo lee de ahí. Cuando Meta no
+// respondió, el estado queda vacío (null): nunca se inventa 'ACTIVE'.
+
+export interface MetaEntityRow {
+  entity_type: 'campaign' | 'adset' | 'ad';
+  entity_id: string;
+  parent_id: string | null;
+  name: string | null;
+  status: string | null;
+  effective_status: string | null;
+  daily_budget: number | null;
+  lifetime_budget: number | null;
+  objective: string | null;
+  account_id: string | null;
+  creative_name: string | null;
+  synced_at: string;
+}
+
+const META_ENTITY_COLS =
+  'entity_type, entity_id, parent_id, name, status, effective_status, daily_budget, lifetime_budget, objective, account_id, creative_name, synced_at';
+
+/** Lee la caché de entidades. Si la migración aún no está aplicada devuelve [] sin romper nada. */
+export async function leerMetaEntidades(
+  admin: SupabaseClient,
+  tipo?: 'campaign' | 'adset' | 'ad'
+): Promise<MetaEntityRow[]> {
+  let q = admin.from('meta_ads_entities').select(META_ENTITY_COLS).limit(2000);
+  if (tipo) q = q.eq('entity_type', tipo);
+  const { data, error } = await q;
+  if (error) return [];
+  return (data || []) as MetaEntityRow[];
+}
+
+/**
+ * Completa estado/presupuesto de las campañas con la última sincronización de Meta.
+ * Solo rellena lo que faltaba: lo que acaba de llegar de la Graph API manda.
+ */
+async function aplicarEstadoPersistido(admin: SupabaseClient, campanas: AdsCampaign[]): Promise<AdsCampaign[]> {
+  const entidades = await leerMetaEntidades(admin, 'campaign');
+  if (!entidades.length) return campanas;
+  const porId = new Map(entidades.map(e => [e.entity_id, e]));
+  return campanas.map(c => {
+    const e = porId.get(c.id);
+    if (!e) return c;
+    return {
+      ...c,
+      name: c.name || e.name || c.name,
+      status: c.status || e.status || '',
+      objective: c.objective || e.objective || undefined,
+      daily_budget: c.daily_budget ?? (e.daily_budget ?? undefined),
+      lifetime_budget: c.lifetime_budget ?? (e.lifetime_budget ?? undefined),
+    } as AdsCampaign;
+  });
+}
+
+/** Lectura directa de Meta SOLO para estado actual (sin insights: estado y presupuestos). */
+async function leerEntidadesMeta(
+  ruta: string,
+  fields: string
+): Promise<{ disponible: boolean; motivo?: string; datos: any[] }> {
+  const { token } = getMetaConfig();
+  if (!token) {
+    return {
+      disponible: false,
+      motivo: 'Faltan las credenciales META_ADS_TOKEN / FB_ACCESS_TOKEN en los secretos de Supabase.',
+      datos: [],
+    };
+  }
+  try {
+    const url = new URL(`https://graph.facebook.com/v20.0/${ruta}`);
+    url.searchParams.set('fields', fields);
+    url.searchParams.set('limit', '500');
+    url.searchParams.set('access_token', token);
+    const r = await fetch(url.toString());
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok || json.error) {
+      return { disponible: false, motivo: json?.error?.message || `Meta Graph API error (${r.status})`, datos: [] };
+    }
+    return { disponible: true, datos: json.data || [] };
+  } catch (e) {
+    return { disponible: false, motivo: e instanceof Error ? e.message : String(e), datos: [] };
+  }
+}
+
+export interface MetaSyncResult {
+  disponible: boolean;
+  motivo?: string;
+  campanas: number;
+  conjuntos: number;
+  anuncios: number;
+  sincronizado_en: string | null;
+}
+
+/**
+ * Sincroniza campañas, conjuntos y anuncios de la Graph API hacia `meta_ads_entities`.
+ * Solo la Edge Function lo ejecuta (service_role): el frontend nunca habla con Meta.
+ */
+export async function syncMetaEntidades(admin: SupabaseClient): Promise<MetaSyncResult> {
+  const { accountId } = getMetaConfig();
+  const ahora = new Date().toISOString();
+  const vacio = (motivo: string): MetaSyncResult => ({
+    disponible: false, motivo, campanas: 0, conjuntos: 0, anuncios: 0, sincronizado_en: null,
+  });
+  if (!accountId) {
+    return vacio('Faltan las credenciales META_ADS_TOKEN / META_AD_ACCOUNT_ID en los secretos de Supabase.');
+  }
+
+  const [campanas, conjuntos, anuncios] = await Promise.all([
+    leerEntidadesMeta(`${accountId}/campaigns`, 'id,name,status,effective_status,daily_budget,lifetime_budget,objective,account_id'),
+    leerEntidadesMeta(`${accountId}/adsets`, 'id,name,status,effective_status,daily_budget,lifetime_budget,campaign_id,account_id'),
+    leerEntidadesMeta(`${accountId}/ads`, 'id,name,status,effective_status,adset_id,campaign_id,account_id,creative{id,name}'),
+  ]);
+  if (!(campanas.disponible || conjuntos.disponible || anuncios.disponible)) {
+    return vacio(campanas.motivo || conjuntos.motivo || anuncios.motivo || 'Meta Graph API no respondió');
+  }
+
+  // La Graph API devuelve presupuestos en centavos: se guardan en BRL como en el resto del panel.
+  const bzl = (v: unknown) => (v === null || v === undefined || v === '' ? null : Number(v) / 100);
+  const filas: Record<string, unknown>[] = [];
+  for (const c of campanas.disponible ? campanas.datos : []) {
+    filas.push({
+      organization_id: ORG_ID, entity_type: 'campaign', entity_id: String(c.id), parent_id: null,
+      name: c.name ?? null, status: c.status ?? null, effective_status: c.effective_status ?? null,
+      daily_budget: bzl(c.daily_budget), lifetime_budget: bzl(c.lifetime_budget),
+      objective: c.objective ?? null, account_id: c.account_id ?? accountId, synced_at: ahora,
+    });
+  }
+  for (const s of conjuntos.disponible ? conjuntos.datos : []) {
+    filas.push({
+      organization_id: ORG_ID, entity_type: 'adset', entity_id: String(s.id),
+      parent_id: s.campaign_id ? String(s.campaign_id) : null,
+      name: s.name ?? null, status: s.status ?? null, effective_status: s.effective_status ?? null,
+      daily_budget: bzl(s.daily_budget), lifetime_budget: bzl(s.lifetime_budget),
+      objective: null, account_id: s.account_id ?? accountId, synced_at: ahora,
+    });
+  }
+  for (const a of anuncios.disponible ? anuncios.datos : []) {
+    filas.push({
+      organization_id: ORG_ID, entity_type: 'ad', entity_id: String(a.id),
+      parent_id: a.adset_id ? String(a.adset_id) : null,
+      name: a.name ?? null, status: a.status ?? null, effective_status: a.effective_status ?? null,
+      daily_budget: null, lifetime_budget: null, objective: null,
+      account_id: a.account_id ?? accountId, creative_name: a.creative?.name ?? null, synced_at: ahora,
+    });
+  }
+  if (!filas.length) return { disponible: true, campanas: 0, conjuntos: 0, anuncios: 0, sincronizado_en: null };
+
+  const { error } = await admin.from('meta_ads_entities').upsert(filas, { onConflict: 'entity_type,entity_id' });
+  if (error) return vacio(`No se pudo guardar meta_ads_entities: ${error.message}`);
+  return {
+    disponible: true,
+    campanas: campanas.disponible ? campanas.datos.length : 0,
+    conjuntos: conjuntos.disponible ? conjuntos.datos.length : 0,
+    anuncios: anuncios.disponible ? anuncios.datos.length : 0,
+    sincronizado_en: ahora,
+  };
+}
+
+/** Conjuntos y anuncios desde la caché persistida (el dashboard no necesita llamar a Meta). */
+export async function listarMetaEntidadesPersistidas(admin: SupabaseClient) {
+  const [conjuntos, anuncios] = await Promise.all([leerMetaEntidades(admin, 'adset'), leerMetaEntidades(admin, 'ad')]);
+  return { conjuntos, anuncios };
+}
+
 export async function fetchMetaCampaigns(
   admin: SupabaseClient,
   options: { dateRange?: { desde?: string; hasta?: string } } = {}
@@ -302,7 +470,8 @@ export async function fetchMetaCampaigns(
       if (r.ok) {
         const json = await r.json();
         const data = json.data || [];
-        return data.map((c: any) => {
+        // Sale de la Graph API; `aplicarEstadoPersistido` solo rellena lo que viniera vacío.
+        const campanas = data.map((c: any) => {
           const ins = c.insights?.data?.[0] || {};
           const actions = ins.actions || [];
           const convAction = actions.find((a: any) =>
@@ -333,6 +502,7 @@ export async function fetchMetaCampaigns(
             }),
           };
         });
+        return aplicarEstadoPersistido(admin, campanas as AdsCampaign[]);
       }
     } catch {
       // Fallback a Supabase si la llamada a Graph API falla
@@ -391,13 +561,17 @@ export async function fetchMetaCampaigns(
     porCampana[cid].leads += Number(r.leads) || 0;
   }
 
-  return Object.values(porCampana).map(c => ({
+  const desdeInsights = Object.values(porCampana).map(c => ({
     id: c.id,
     name: c.name,
+    // '' = estado desconocido: la tabla histórica no lo guarda y no se inventa 'ACTIVE'.
     status: c.status,
     daily_budget: c.daily_budget,
     metrics: calculateAdsMetrics(c),
-  }));
+  })) as AdsCampaign[];
+  // Sin credenciales de Meta, el estado y los presupuestos salen de la última sincronización
+  // persistida en `meta_ads_entities`. Si tampoco hay caché, quedan sin dato (no inventados).
+  return aplicarEstadoPersistido(admin, desdeInsights);
 }
 
 // ── Conjuntos de anuncios y anuncios (nivel de detalle que faltaba) ──
@@ -720,6 +894,111 @@ export async function analyzeMetaAds(
 // `meta_ads_referidos`). Cuando solo hay correlación, se marca como 'estimada'.
 const FUENTES_META = /(^|[^a-z])(meta|facebook|instagram|fb|ig|messenger|paid_?social)([^a-z]|$)/i;
 
+// ── Atribución real de referidos (meta_ads_referidos) ──
+//
+// La tabla NO tiene `created_at` ni `campaign_id`: solo `ad_id` y el payload crudo del webhook
+// (`raw`/`body`). Por eso no se filtra por fecha en SQL ni se reparte "a ojo":
+//   - la fecha sale del propio payload (`created_time`), y si no hay fecha el referido queda
+//     fuera del período del corte (no se inventa que sea de hoy);
+//   - la campaña sale del payload o de cruzar `ad_id` con `meta_ads_insights`;
+//   - lo que no se puede determinar queda como "no atribuido".
+
+const parseJson = (v: unknown): any => {
+  if (v && typeof v === 'object') return v;
+  if (typeof v === 'string' && v.trim().startsWith('{')) {
+    try { return JSON.parse(v); } catch { return null; }
+  }
+  return null;
+};
+
+const fechaDePayload = (payload: any): string | null => {
+  if (!payload) return null;
+  const bruto = payload.created_time ?? payload.created_at ?? payload.entry_time ?? payload.timestamp;
+  if (bruto === null || bruto === undefined || bruto === '') return null;
+  const d = new Date(typeof bruto === 'number' ? bruto * 1000 : bruto);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+};
+
+const dentroDeRango = (dia: string, rango?: { desde?: string; hasta?: string }) => {
+  if (!rango || (!rango.desde && !rango.hasta)) return true;
+  if (rango.desde && dia < rango.desde) return false;
+  if (rango.hasta && dia > rango.hasta) return false;
+  return true;
+};
+
+/** campaign_id de un referido: primero el payload, luego el cruce real ad_id → campaign_id. */
+const campanaDeReferido = (payload: any, adId: string | null, mapa: Map<string, string>): string | null => {
+  const directo = payload?.campaign_id ?? payload?.campaign?.id ?? payload?.adset?.campaign_id ?? payload?.campaign;
+  if (directo !== undefined && directo !== null && String(directo).trim() !== '') return String(directo);
+  if (adId && mapa.has(adId)) return mapa.get(adId)!;
+  return null;
+};
+
+/** Mapa ad_id → campaign_id tomado de datos reales (`meta_ads_insights` y la caché de Meta). */
+async function mapaAdACampana(admin: SupabaseClient): Promise<Map<string, string>> {
+  const mapa = new Map<string, string>();
+  const { data: insights } = await admin.from('meta_ads_insights').select('ad_id, campaign_id').limit(5000);
+  for (const r of insights || []) {
+    if (r?.ad_id && r?.campaign_id && !mapa.has(String(r.ad_id))) mapa.set(String(r.ad_id), String(r.campaign_id));
+  }
+  const entidades = await leerMetaEntidades(admin);
+  const adsetACampana = new Map<string, string>();
+  for (const e of entidades) {
+    if (e.entity_type === 'adset' && e.parent_id) adsetACampana.set(e.entity_id, e.parent_id);
+  }
+  for (const e of entidades) {
+    if (e.entity_type !== 'ad' || !e.parent_id) continue;
+    const campana = adsetACampana.get(e.parent_id);
+    if (campana && !mapa.has(e.entity_id)) mapa.set(e.entity_id, campana);
+  }
+  return mapa;
+}
+
+export interface ReferidosResumen {
+  disponible: boolean;
+  total: number;
+  por_campana: Record<string, number>;
+  sin_campana: number;
+  fuera_de_periodo: number;
+  sin_fecha: number;
+}
+
+/** Lee `meta_ads_referidos` y reparte los referidos por campaña solo con evidencia real. */
+export async function leerReferidosAtribuidos(
+  admin: SupabaseClient,
+  dateRange?: { desde?: string; hasta?: string }
+): Promise<ReferidosResumen> {
+  const vacio: ReferidosResumen = { disponible: false, total: 0, por_campana: {}, sin_campana: 0, fuera_de_periodo: 0, sin_fecha: 0 };
+  const { data: filas, error } = await admin
+    .from('meta_ads_referidos')
+    .select('ad_id, raw, body')
+    .limit(1000);
+  if (error) return vacio;
+
+  const mapa = await mapaAdACampana(admin);
+  const porCampana: Record<string, number> = {};
+  let total = 0;
+  let sinCampana = 0;
+  let fueraDePeriodo = 0;
+  let sinFecha = 0;
+
+  for (const f of filas || []) {
+    const payload = parseJson((f as any)?.raw) ?? parseJson((f as any)?.body);
+    const dia = fechaDePayload(payload);
+    if (!dia) sinFecha++;
+    else if (!dentroDeRango(dia, dateRange)) { fueraDePeriodo++; continue; }
+
+    const campana = campanaDeReferido(payload, (f as any)?.ad_id ? String((f as any).ad_id) : null, mapa);
+    if (campana) {
+      porCampana[campana] = (porCampana[campana] || 0) + 1;
+      total++;
+    } else {
+      sinCampana++;
+    }
+  }
+  return { disponible: true, total, por_campana: porCampana, sin_campana: sinCampana, fuera_de_periodo: fueraDePeriodo, sin_fecha: sinFecha };
+}
+
 export async function getMetaAdsAttribution(
   admin: SupabaseClient,
   dateRange?: { desde?: string; hasta?: string }
@@ -749,27 +1028,16 @@ export async function getMetaAdsAttribution(
   }
   const { data: pagos } = await consultaPagos;
 
-  // Evidencia de atribución real (si la tabla existe y tiene filas en el período).
-  let referidos = 0;
-  let referidosDisponible = false;
-  try {
-    let consulta = admin.from('meta_ads_referidos').select('id').limit(1000);
-    if (conRango) {
-      if (dateRange!.desde) consulta = consulta.gte('created_at', `${dateRange!.desde}T00:00:00`);
-      if (dateRange!.hasta) consulta = consulta.lte('created_at', `${dateRange!.hasta}T23:59:59`);
-    }
-    const { data, error } = await consulta;
-    if (!error) {
-      referidosDisponible = true;
-      referidos = (data || []).length;
-    }
-  } catch {
-    referidosDisponible = false;
-  }
+  // Evidencia de atribución real: referidos de Meta Ads repartidos por campaña SOLO cuando hay
+  // datos que lo permitan (payload del webhook o cruce ad_id → campaign_id).
+  const referidosResumen = await leerReferidosAtribuidos(admin, conRango ? dateRange : undefined);
+  const referidos = referidosResumen.total;
+  const referidosDisponible = referidosResumen.disponible;
 
   const listaLeads = leads || [];
   const listaPagos = pagos || [];
   const totalCobrado = listaPagos.reduce((acc, p) => acc + Number(p.amount || 0), 0);
+  // Leads comerciales con origen declarado de Meta: evidencia de procedência, no de campaña.
   const leadsDeMeta = listaLeads.filter(l => FUENTES_META.test(String((l as any).lead_source || ''))).length;
   const clientesQuePagaron = new Set(listaPagos.map(p => (p as any).client_id).filter(Boolean)).size;
 
@@ -789,6 +1057,26 @@ export async function getMetaAdsAttribution(
     leads_de_meta_confirmados: leadsDeMeta,
     referidos_registrados: referidos,
     meta_ads_referidos_disponible: referidosDisponible,
+    // Categorías separadas (un lead comercial nunca se cuenta como lead de Meta):
+    //   - comerciales: todos los leads del CRM;
+    //   - atribuidos_meta: referidos de Meta Ads con campaña determinable por evidencia real;
+    //   - declarados_origen_meta: leads cuyo lead_source dice Meta, sin campaña identificable;
+    //   - no_atribuidos: el resto.
+    leads: {
+      comerciales: listaLeads.length,
+      atribuidos_meta: referidos,
+      declarados_origen_meta: leadsDeMeta,
+      no_atribuidos: Math.max(0, listaLeads.length - leadsDeMeta),
+    },
+    referidos_por_campana: referidosResumen.por_campana,
+    referidos_sin_campana: referidosResumen.sin_campana,
+    fuentes: {
+      metricas_historicas: 'meta_ads_insights',
+      estado_presupuesto: 'meta_ads_entities (sincronizado desde Meta Graph API)',
+      referidos: 'meta_ads_referidos',
+      leads_comerciales: 'comercial_leads',
+      pagos: 'payments',
+    },
     leads_en_propuesta_o_pago: listaLeads.filter(l => /propuesta|pago/i.test(String(l.etapa_nombre || ''))).length,
     clientes_que_pagaron: clientesQuePagaron,
     ingresos_totales_registrados: Math.round(totalCobrado * 100) / 100,
