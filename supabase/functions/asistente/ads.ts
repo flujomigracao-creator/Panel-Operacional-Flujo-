@@ -1625,6 +1625,7 @@ export const ADS_TOOL_DEFS = [
           creative_ids: { type: 'array', items: { type: 'string' }, description: 'ids de creativos (el primero es el Control)' },
           daily_budget: num('Presupuesto diario total en BRL'),
           name: str('Nombre del experimento (opcional)'),
+          aprobar_seleccion: bool('true cuando el dueño eligió en el chat estos creativos BORRADOR: su elección los aprueba'),
         },
         required: ['hypothesis', 'variable_tested', 'creative_ids', 'daily_budget'],
       },
@@ -1680,6 +1681,14 @@ export const ADS_TOOL_DEFS = [
       name: 'generar_creativo',
       description: 'GENERA la imagen real del anuncio con OpenAI (cuesta dinero, máx. 40 al día) y la guarda como BORRADOR con su prompt versionado. La imagen sale con titular, subtítulo, botón CTA y firma. Genera de a UNA y solo cuando el dueño lo pidió. Después se muestra con markdown ![](image_url). No publica nada en Meta.',
       parameters: { type: 'object', properties: { ...CREATIVO_PROPS, prompt: str('Prompt ya revisado (opcional; si falta se arma con la identidad de marca)'), concept_id: str('Id del concepto registrado (opcional)') }, required: ['servicio', 'titular', 'cta'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generar_opciones_experimento',
+      description: 'Para armar un experimento DESDE EL CHAT sin imágenes previas: crea 2-3 conceptos y GENERA una imagen real por concepto (cuesta dinero; cuenta en el tope diario de 40) y las guarda como BORRADORES. Devuelve la lista numerada con image_url. Muéstralas numeradas con ![](image_url) y pregunta cuáles quiere el dueño; cuando elija, llama a proponer_experimento_creativos con esos creative_id y aprobar_seleccion=true. Úsala solo cuando el dueño pidió el experimento.',
+      parameters: { type: 'object', properties: { servicio: str('CPF | Agendamento PF | RNM | Residência Permanente | Refúgio'), cantidad: num('2 o 3 (por defecto 3)'), objetivo: str('Ej. Conversaciones WhatsApp'), publico: str('Ej. extranjeros recién llegados a Brasil'), formato: str('1:1 | 4:5 | 9:16 (por defecto 1:1)'), estilo: str('Estilo visual (opcional)') }, required: ['servicio'] },
     },
   },
   {
@@ -1963,7 +1972,7 @@ export async function runAdsTool(
     case 'disenar_campana_v4': {
       // Publicar exige un creativo del Laboratorio por variante: sin él la propuesta nunca podría ejecutarse.
       if (!(args.variants || []).length || (args.variants || []).some((v: any) => !v.creative_asset_id)) {
-        return JSON.stringify({ error: 'No se crea la propuesta: cada variante necesita un creativo con imagen del Laboratorio. Usa proponer_experimento_creativos con 2-4 creativos APROBADOS del mismo servicio (genera y aprueba las imágenes primero).' });
+        return JSON.stringify({ error: 'No se crea la propuesta: cada variante necesita un creativo con imagen del Laboratorio. Primero llama a generar_opciones_experimento, muestra las imágenes, deja que el dueño elija y luego usa proponer_experimento_creativos con aprobar_seleccion=true.' });
       }
       const resultado = await proponerExperimentoV4(ctx, {
         name: args.name,
@@ -2038,6 +2047,21 @@ export async function runAdsTool(
         language: args.idioma || 'es', prompt: args.prompt, concept_id: args.concept_id,
       }, 'generar');
       return JSON.stringify({ ok: true, creative_id: r.creativo.id, version: r.creativo.version, formato: r.creativo.format, estado: r.creativo.status, modelo: r.modelo, image_url: r.image_url, nota: 'Borrador guardado. No está en Meta. Muéstralo con ![](image_url); hay que aprobarlo antes de proponer su publicación.' });
+    }
+
+    case 'generar_opciones_experimento': {
+      const cantidad = Math.min(Math.max(Number(args.cantidad) || 3, 2), 3);
+      const c = await proponerConceptos(ctx.admin, ctx.userId, { service: args.servicio, objective: args.objetivo, audience: args.publico, cantidad });
+      // En paralelo para no agotar el tiempo de la petición; una imagen fallida no tumba las demás.
+      const res = await Promise.allSettled(c.conceptos.map((k: any) => crearCreativo(ctx.admin, ctx.userId, {
+        service: args.servicio, objective: args.objetivo, audience: args.publico, concept: k.concept, hook: k.hook, headline: k.headline,
+        primary_text: k.primary_text, cta: k.cta, visual_concept: k.visual_concept, style: args.estilo, format: args.formato || '1:1',
+        language: 'es', concept_id: k.concept_id,
+      }, 'generar')));
+      const opciones = res.map((r, i) => r.status === 'fulfilled'
+        ? { opcion: i + 1, creative_id: r.value.creativo.id, titular: r.value.creativo.headline, hook: r.value.creativo.hook, image_url: r.value.image_url }
+        : { opcion: i + 1, error: r.reason instanceof Error ? r.reason.message : String(r.reason) });
+      return JSON.stringify({ ok: opciones.some((o: any) => o.creative_id), opciones, nota: 'Borradores guardados; nada está en Meta. Muéstralos numerados con ![](image_url) y pregunta cuáles elige el dueño (mínimo 2).' });
     }
 
     case 'regenerar_creativo': {

@@ -139,7 +139,7 @@ export async function publicarCreativoEnMeta(
 
 export async function crearExperimentoCreativos(
   ctx: { admin: SupabaseClient; userId: string; conversationId?: string | null; proposals?: any[] },
-  i: { name?: string; hypothesis: string; variable_tested: string; creative_ids: string[]; daily_budget: number; primary_metric?: string; objective?: string },
+  i: { name?: string; hypothesis: string; variable_tested: string; creative_ids: string[]; daily_budget: number; primary_metric?: string; objective?: string; aprobar_seleccion?: boolean },
 ) {
   const ids = [...new Set(i.creative_ids || [])];
   if (ids.length < 2 || ids.length > 4) throw new Error('Elige entre 2 y 4 creativos (el primero será el Control).');
@@ -149,6 +149,14 @@ export async function crearExperimentoCreativos(
   if (orden.length !== ids.length) throw new Error('Alguno de los creativos no existe.');
   const servicios = new Set(orden.map(c => c.service));
   if (servicios.size > 1) throw new Error('Un experimento compara creativos de un solo servicio; no se mezclan intenciones.');
+  // El dueño eligió estas imágenes en el chat: su elección es la aprobación de los borradores.
+  if (i.aprobar_seleccion) {
+    const borradores = orden.filter(c => c.status === 'draft' && c.image_path);
+    if (borradores.length) {
+      await ctx.admin.from('creatives').update({ status: 'approved', updated_at: new Date().toISOString() }).in('id', borradores.map(c => c.id));
+      for (const c of borradores) c.status = 'approved';
+    }
+  }
   const sinAprobar = orden.filter(c => !['approved', 'published'].includes(c.status));
   if (sinAprobar.length) throw new Error('Todos los creativos deben estar aprobados antes de entrar a un experimento.');
 
