@@ -21,6 +21,7 @@ const TIPO_LABEL = {
   ads_cambiar_presupuesto_campana: 'Meta Ads — Presupuesto',
   ads_cambiar_presupuesto_adset: 'Meta Ads — Presupuesto del conjunto',
   ads_crear_campana: 'Meta Ads — Nueva Campaña',
+  ads_experimento_v4: 'Motor Científico V4 — Experimento de Campaña',
 };
 
 // Tabla de datos encontrados (extracción de la conversación): el usuario elige qué guardar.

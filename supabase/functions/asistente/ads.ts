@@ -3,6 +3,13 @@
 // generación de propuestas y ejecución determinista con auditoría.
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import {
+  analizarFunnelCompleto,
+  consultarAprendizajes,
+  proponerExperimentoV4,
+  medirExperimentoV4,
+  listarExperimentosV4,
+} from './campaign_science.ts';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -271,7 +278,7 @@ export function validateAdsOperation(
 
 // ── Conexión con Meta Graph API / Supabase Fallback ──
 
-function getMetaConfig() {
+export function getMetaConfig() {
   const token = Deno.env.get('META_ADS_TOKEN') || Deno.env.get('FB_ACCESS_TOKEN');
   const accountId = Deno.env.get('META_AD_ACCOUNT_ID') || Deno.env.get('FB_AD_ACCOUNT_ID');
   const cleanAccountId = accountId ? (accountId.startsWith('act_') ? accountId : `act_${accountId}`) : null;
@@ -1444,6 +1451,114 @@ export const ADS_TOOL_DEFS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'diagnosticar_funnel_campanas',
+      description: 'Analiza el funnel completo de marketing y ventas (Meta Ads → Nora/WhatsApp → Kommo Leads → Propuestas → Pagos/Clientes), identificando cuellos de botella y respondiendo a "¿dónde estoy perdiendo dinero?".',
+      parameters: {
+        type: 'object',
+        properties: {
+          periodo: { type: 'string', enum: ['7d', '14d', '30d', 'all'], description: 'Atajo de período (por defecto 7d)' },
+          desde: str('Fecha inicio YYYY-MM-DD'),
+          hasta: str('Fecha fin YYYY-MM-DD'),
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'consultar_aprendizajes_campanas',
+      description: 'Consulta los aprendizajes acumulados de experimentos anteriores en Supabase para fundamentar nuevas hipótesis sobre datos validados.',
+      parameters: {
+        type: 'object',
+        properties: {
+          servicio: str('Filtrar por servicio (ej. CPF, RNM, Residencia)'),
+          audiencia: str('Filtrar por tipo de audiencia'),
+          limite: num('Límite de aprendizajes a devolver (por defecto 15)'),
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'disenar_campana_v4',
+      description: 'Diseña un experimento controlado V4 para un servicio (ej. CPF): define variable única vs control, hipótesis científica, métrica primaria de negocio (costo por cliente pagador / ROAS), variantes de hook/copy y presupuesto, generando propuesta para confirmación humana (NUNCA publica directo).',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: str('Nombre del experimento o campaña'),
+          service: str('Servicio objetivo (ej. CPF, Residencia Mercosur, etc.)'),
+          question: str('¿Qué queremos descubrir? (Pregunta de investigación)'),
+          hypothesis: str('¿Qué creemos que ocurrirá? (Hipótesis empírica)'),
+          variable_tested: str('Variable única que se modifica frente al control'),
+          control_description: str('Descripción del control (lo que permanece igual)'),
+          treatment_description: str('Descripción del tratamiento (la variación introducida)'),
+          objective: { type: 'string', enum: ['OUTCOME_MESSAGES', 'OUTCOME_LEADS', 'OUTCOME_SALES'], description: 'Objetivo publicitario en Meta' },
+          primary_metric: str('Métrica primaria de negocio para evaluar (cost_per_customer, roas, payment_rate)'),
+          secondary_metrics: { type: 'array', items: { type: 'string' }, description: 'Métricas secundarias diagnósticas (ctr, cpc, cpl, conversaciones)' },
+          daily_budget: num('Presupuesto diario en BRL'),
+          variants: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                variant_name: str('Nombre de la variante, ej. Control o Tratamiento A'),
+                hook: str('Gancho inicial / primeros 3 segundos'),
+                copy: str('Texto principal del anuncio'),
+                cta: str('Llamado a la acción, ej. Enviar mensaje por WhatsApp'),
+                creative_reference: str('Referencia visual o descripción del creativo'),
+              },
+              required: ['variant_name', 'hook', 'copy', 'cta'],
+            },
+            description: 'Variantes del experimento (mínimo 2: Control y Tratamiento)',
+          },
+          decision_rules: {
+            type: 'object',
+            properties: {
+              scale_condition: str('Condición para escalar presupuesto'),
+              pause_condition: str('Condición para pausar el experimento'),
+              iterate_condition: str('Condición para iterar'),
+            },
+            required: ['scale_condition', 'pause_condition'],
+          },
+        },
+        required: ['name', 'service', 'question', 'hypothesis', 'variable_tested', 'control_description', 'treatment_description', 'objective', 'primary_metric', 'daily_budget', 'variants'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'medir_experimento_v4',
+      description: 'Mide y compara variantes de un experimento V4 activo usando datos reales de Meta y CRM, evalúa si la hipótesis fue respaldada (supported), no respaldada (not_supported) o inconclusa, y guarda el aprendizaje.',
+      parameters: {
+        type: 'object',
+        properties: {
+          experiment_id: str('UUID del experimento en Supabase'),
+        },
+        required: ['experiment_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'listar_experimentos_v4',
+      description: 'Lista los experimentos de campañas V4 registrados en Supabase con su estado, hipótesis, métrica y resultado empírico.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limite: num('Cantidad máxima de experimentos (por defecto 20)'),
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 // ── Ejecución de Herramientas de Ads en el ciclo del Asistente ──
@@ -1675,6 +1790,54 @@ export async function runAdsTool(
       return JSON.stringify({ ok: true, propuesta_creada: resumen, proposal_id: prop.id });
     }
 
+    case 'diagnosticar_funnel_campanas': {
+      const funnel = await analizarFunnelCompleto(ctx.admin, args);
+      return JSON.stringify(funnel);
+    }
+
+    case 'consultar_aprendizajes_campanas': {
+      const learnings = await consultarAprendizajes(ctx.admin, {
+        service: args.servicio,
+        audience: args.audiencia,
+        limit: args.limite,
+      });
+      return JSON.stringify({ total: learnings.length, aprendizajes: learnings });
+    }
+
+    case 'disenar_campana_v4': {
+      const resultado = await proponerExperimentoV4(ctx, {
+        name: args.name,
+        service: args.service,
+        question: args.question,
+        hypothesis: args.hypothesis,
+        variable_tested: args.variable_tested,
+        control_description: args.control_description,
+        treatment_description: args.treatment_description,
+        objective: args.objective,
+        primary_metric: args.primary_metric,
+        secondary_metrics: args.secondary_metrics,
+        audience_definition: args.audience_definition || {},
+        daily_budget: args.daily_budget,
+        variants: args.variants,
+        decision_rules: args.decision_rules || {
+          scale_condition: 'Costo por cliente menor al objetivo y ROAS > 3',
+          pause_condition: 'Sin conversiones tras 3 días o costo 2x superior al control',
+          iterate_condition: 'Diferencia no concluyente entre variantes',
+        },
+      });
+      return JSON.stringify(resultado);
+    }
+
+    case 'medir_experimento_v4': {
+      const medicion = await medirExperimentoV4(ctx.admin, args.experiment_id);
+      return JSON.stringify(medicion);
+    }
+
+    case 'listar_experimentos_v4': {
+      const experimentos = await listarExperimentosV4(ctx.admin, args.limite || 20);
+      return JSON.stringify({ total: experimentos.length, experimentos });
+    }
+
     default:
       throw new Error(`Herramienta de Ads no reconocida: ${name}`);
   }
@@ -1894,6 +2057,184 @@ export async function executeAdsProposal(
       });
 
       return { ok: true, meta_id: data.id, nombre: d.nombre, estado_inicial: 'PAUSED' };
+    }
+
+    case 'ads_experimento_v4': {
+      const validacion = validateAdsOperation(
+        { tipo: 'crear_campana_ads', montoCreacion: d.presupuesto_diario },
+        limits
+      );
+      if (!validacion.valid) {
+        throw new Error(`Ejecución cancelada por seguridad: ${validacion.error}`);
+      }
+
+      if (!token || !accountId) {
+        throw new Error('No se pudo crear en Meta: Faltan credenciales META_ADS_TOKEN / META_AD_ACCOUNT_ID en Supabase.');
+      }
+
+      const dailyBudgetCents = Math.round(Number(d.presupuesto_diario) * 100);
+      const campUrl = `https://graph.facebook.com/v20.0/${accountId}/campaigns`;
+      const campRes = await fetch(campUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: d.nombre_campana,
+          objective: d.objetivo || 'OUTCOME_MESSAGES',
+          status: 'PAUSED',
+          daily_budget: dailyBudgetCents,
+          special_ad_categories: ['NONE'],
+          access_token: token,
+        }),
+      });
+      const campData = await campRes.json().catch(() => ({}));
+      if (!campRes.ok || campData.error) {
+        const errorMsg = campData.error?.message || `Meta API error (${campRes.status})`;
+        throw new Error(`Meta rechazó la creación de la campaña experimental: ${errorMsg}`);
+      }
+      const metaCampaignId = campData.id;
+
+      // Crear AdSets y Ads para las variantes
+      const variantesResult: any[] = [];
+      const variantes = d.variantes || [];
+      const adsetBudgetCents = variantes.length > 0 ? Math.max(100, Math.round(dailyBudgetCents / variantes.length)) : dailyBudgetCents;
+
+      for (const v of variantes) {
+        let adsetId: string | null = null;
+        let adId: string | null = null;
+        let creativeId: string | null = null;
+
+        try {
+          const adsetRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/adsets`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: `${d.nombre_campana} - ${v.variant_name || 'Variante'}`,
+              campaign_id: metaCampaignId,
+              daily_budget: adsetBudgetCents,
+              billing_event: 'IMPRESSIONS',
+              optimization_goal: d.objetivo === 'OUTCOME_LEADS' ? 'LEAD_GENERATION' : 'CONVERSATIONS',
+              bid_strategy: 'LOWEST_COST_WITHOUT_BID_CAP',
+              status: 'PAUSED',
+              targeting: { geo_locations: { countries: ['BR'] } },
+              access_token: token,
+            }),
+          });
+          const adsetData = await adsetRes.json().catch(() => ({}));
+          if (adsetRes.ok && adsetData.id) {
+            adsetId = adsetData.id;
+
+            const creativeRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/adcreatives`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: `Creative - ${v.variant_name || 'Variante'}`,
+                object_story_spec: {
+                  page_id: accountId.replace(/\D/g, ''),
+                  link_data: {
+                    message: v.copy || v.hook || d.nombre_campana,
+                    name: v.hook || d.nombre_campana,
+                    call_to_action: { type: 'LEARN_MORE' },
+                  },
+                },
+                access_token: token,
+              }),
+            });
+            const creativeData = await creativeRes.json().catch(() => ({}));
+            creativeId = creativeData.id || null;
+
+            if (creativeId) {
+              const adRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/ads`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  name: `Ad - ${v.variant_name || 'Variante'}`,
+                  adset_id: adsetId,
+                  creative: { creative_id: creativeId },
+                  status: 'PAUSED',
+                  access_token: token,
+                }),
+              });
+              const adData = await adRes.json().catch(() => ({}));
+              adId = adData.id || null;
+            }
+          }
+        } catch (errVar) {
+          console.error(`[Meta Graph API V4] Error creando variante ${v.variant_name}:`, errVar);
+        }
+
+        if (d.experiment_id) {
+          await admin
+            .from('campaign_variants')
+            .update({
+              campaign_id: metaCampaignId,
+              adset_id: adsetId,
+              ad_id: adId,
+              creative_id: creativeId,
+            })
+            .eq('experiment_id', d.experiment_id)
+            .eq('variant_name', v.variant_name);
+        }
+
+        variantesResult.push({
+          variant_name: v.variant_name,
+          adset_id: adsetId,
+          ad_id: adId,
+          creative_id: creativeId,
+        });
+      }
+
+      if (d.experiment_id) {
+        await admin
+          .from('campaign_experiments')
+          .update({
+            status: 'approved',
+            start_date: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', d.experiment_id);
+      }
+
+      await admin.from('meta_ads_entities').upsert({
+        organization_id: ORG_ID,
+        entity_type: 'campaign',
+        entity_id: metaCampaignId,
+        name: d.nombre_campana,
+        status: 'PAUSED',
+        effective_status: 'PAUSED',
+        daily_budget: d.presupuesto_diario,
+        objective: d.objetivo,
+        account_id: accountId,
+        synced_at: new Date().toISOString(),
+        last_synced_at: new Date().toISOString(),
+      }, { onConflict: 'account_id,entity_type,entity_id' });
+
+      await admin.from('automation_runs').insert({
+        organization_id: ORG_ID,
+        workflow: 'asistente_meta_ads_v4',
+        ref: p.tipo,
+        ok: true,
+        message: `Experimento V4 "${d.nombre_campana}" creado en Meta con ID ${metaCampaignId} (Pausado por seguridad)`,
+        details: {
+          proposal_id: p.id,
+          experiment_id: d.experiment_id,
+          executed_by: userId,
+          accion: 'ads_experimento_v4',
+          campaign_id: metaCampaignId,
+          nombre_campana: d.nombre_campana,
+          presupuesto_diario: d.presupuesto_diario,
+          variantes: variantesResult,
+          resultado: 'ok',
+        },
+      });
+
+      return {
+        ok: true,
+        meta_id: metaCampaignId,
+        campaign_id: metaCampaignId,
+        nombre: d.nombre_campana,
+        variantes: variantesResult,
+        estado_inicial: 'PAUSED',
+      };
     }
 
     default:

@@ -469,3 +469,45 @@ export async function loadConversation(conversationId) {
     propuestas: (m.proposal_ids || []).map(id => byId[id]).filter(Boolean),
   }));
 }
+
+// ── Motor Científico V4: Experimentos y Aprendizajes (Lectura directa de Supabase) ──
+
+export async function getCampaignExperiments(limit = 20) {
+  const { data, error } = await supabase
+    .from('campaign_experiments')
+    .select(`
+      id, name, service, status, hypothesis, objective, primary_metric, secondary_metrics, budget,
+      start_date, end_date, control_description, treatment_description, created_at,
+      campaign_variants(id, variant_name, hook, copy, cta, campaign_id, adset_id, ad_id),
+      campaign_hypotheses(id, hypothesis, result, confidence, decision),
+      campaign_measurements(id, date, spend, impressions, clicks, ctr, cpc, conversations, cost_per_lead, roas)
+    `)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error('[Campaign Experiments] Error:', error.message);
+    return [];
+  }
+  return data || [];
+}
+
+export async function getCampaignLearnings(service) {
+  let q = supabase
+    .from('campaign_learnings')
+    .select('*')
+    .order('confidence', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(30);
+
+  if (service) {
+    q = q.ilike('service', `%${service}%`);
+  }
+
+  const { data, error } = await q;
+  if (error) {
+    console.error('[Campaign Learnings] Error:', error.message);
+    return [];
+  }
+  return data || [];
+}
