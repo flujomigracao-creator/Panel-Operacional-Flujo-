@@ -25,10 +25,12 @@ create table if not exists public.meta_ads_entities (
   daily_budget numeric,                                     -- en BRL (la API devuelve centavos)
   lifetime_budget numeric,
   objective text,
-  account_id text,
+  account_id text not null,                                       -- cuenta publicitaria de Meta (act_…)
   creative_name text,
   synced_at timestamptz not null default now(),
-  primary key (entity_type, entity_id)
+  -- Identidad lógica: cuenta + tipo + id de Meta. Una campaña de otra cuenta nunca colisiona
+  -- y sincronizar N veces siempre actualiza el mismo registro (UPSERT), nunca duplica.
+  primary key (account_id, entity_type, entity_id)
 );
 
 create index if not exists meta_ads_entities_org_type_idx

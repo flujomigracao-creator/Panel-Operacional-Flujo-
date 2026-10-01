@@ -180,7 +180,7 @@ test('22. la sincronización con Meta ocurre en el servidor, nunca en el fronten
   assert.ok(!servicio.includes('graph.facebook.com'), 'el frontend no llama a la Graph API');
   assert.ok(!servicio.includes('META_ADS_TOKEN'), 'el frontend no maneja tokens de Meta');
   assert.ok(ads.includes('export async function syncMetaEntidades'), 'la sincronización vive en la Edge Function');
-  assert.ok(ads.includes("upsert(filas, { onConflict: 'entity_type,entity_id' })"), 'el estado se persiste en meta_ads_entities');
+  assert.ok(ads.includes("upsert(filas, { onConflict: 'account_id,entity_type,entity_id' })"), 'el estado se persiste en meta_ads_entities por cuenta + tipo + id (sin duplicados)');
   assert.ok(index.includes('await syncMetaEntidades(admin)'), 'ads_data refresca el estado antes de responder');
 });
 
@@ -215,7 +215,7 @@ test('25. cada intento de sincronización queda registrado, incluidos los fallid
   // Si Meta falla entero, la caché NO se toca (el panel sigue viendo el último estado válido):
   // el guardado (upsert) está después de esa guarda.
   assert.ok(
-    ads.indexOf('fallos.length === lecturas.length') < ads.indexOf("upsert(filas, { onConflict: 'entity_type,entity_id' })"),
+    ads.indexOf('fallos.length === lecturas.length') < ads.indexOf("upsert(filas, { onConflict: 'account_id,entity_type,entity_id' })"),
     'un fallo total debe detectarse ANTES de escribir, para no sobrescribir el estado ya sincronizado'
   );
 });

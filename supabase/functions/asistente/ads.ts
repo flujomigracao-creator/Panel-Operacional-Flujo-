@@ -564,9 +564,9 @@ export async function syncMetaEntidades(admin: SupabaseClient): Promise<MetaSync
     return { ...vacio(motivo), account_id: accountId, errores: fallos };
   }
 
-  // Identidad lógica: (entity_type, entity_id). Los ids de Meta son únicos por cuenta, así que
-  // sincronizar N veces NO duplica campañas: siempre es un UPSERT del mismo registro.
-  const { error } = await admin.from('meta_ads_entities').upsert(filas, { onConflict: 'entity_type,entity_id' });
+  // Identidad lógica: (account_id, entity_type, entity_id) — la misma clave que la PK de la tabla.
+  // Sincronizar N veces NO duplica campañas: siempre es un UPSERT del mismo registro.
+  const { error } = await admin.from('meta_ads_entities').upsert(filas, { onConflict: 'account_id,entity_type,entity_id' });
   if (error) {
     const motivo = `No se pudo guardar meta_ads_entities: ${error.message}`;
     console.error('[Meta Ads sync]', motivo);
