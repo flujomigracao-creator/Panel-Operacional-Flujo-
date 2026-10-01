@@ -2456,7 +2456,7 @@ export async function executeAdsProposal(
               campaign_id: metaCampaignId,
               billing_event: 'IMPRESSIONS',
               optimization_goal: mensajes ? 'CONVERSATIONS' : (objetivoMeta(objetivoPedido) === 'OUTCOME_LEADS' ? 'LEAD_GENERATION' : 'LINK_CLICKS'),
-              ...(mensajes ? { destination_type: 'WHATSAPP', promoted_object: { page_id: pageId } } : {}),
+              ...(mensajes ? { destination_type: 'WHATSAPP', promoted_object: { page_id: pageId, whatsapp_phone_number: Deno.env.get('WHATSAPP_ADS_NUMBER') || '5548984553306' } } : {}),
               targeting,
               status: 'PAUSED',
               access_token: token,
