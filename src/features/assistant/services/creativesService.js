@@ -15,6 +15,11 @@ export const CONCEPTOS = {
   mensaje_directo: 'Mensaje directo',
   variacion_ganadora: 'Variación del ganador',
 };
+export const OBJETIVOS = { conversaciones: 'Conversaciones WhatsApp', leads: 'Leads', clientes: 'Clientes', otro: 'Otro' };
+export const ESTILOS = { fotografia_realista: 'Fotografía realista', ilustracion: 'Ilustración', minimalista_corporativo: 'Minimalista corporativo', documento_destacado: 'Documento destacado' };
+export const IDIOMAS = { es: 'Español', pt: 'Portugués' };
+/** Una regeneración cambia UNA sola variable (regla del método científico). */
+export const VARIABLES_CAMBIO = { estilo: 'Estilo visual', hook: 'Hook', concepto: 'Concepto', composicion: 'Composición', imagen: 'Solo nueva imagen (mismo prompt)' };
 export const ESTADO_LABEL = { draft: 'Borrador', approved: 'Aprobado', published: 'Publicado', archived: 'Archivado' };
 
 export { METRICAS, formatear, mejoresIndices, resumirPorServicio } from './creativesFormat';
@@ -48,9 +53,23 @@ export async function urlsDeImagenes(paths) {
   return Object.fromEntries((data || []).filter(d => d.signedUrl).map(d => [d.path, d.signedUrl]));
 }
 
-export const proponerConceptos = (body) => invoke({ accion: 'creative_conceptos', ...body });
-export const generarCreativo = (body) => invoke({ accion: 'creative_generar', ...body });
-export const subirCreativo = (body) => invoke({ accion: 'creative_subir', ...body });
+// Generación con OpenAI: función `generar-creativo` (la clave vive solo en el backend).
+async function invokeCreativo(body) {
+  const { data, error } = await supabase.functions.invoke('generar-creativo', { body });
+  if (error) {
+    let msg = error.message;
+    try { const d = await error.context?.json?.(); if (d?.error) msg = d.error; } catch { /* sin JSON */ }
+    throw new Error(msg);
+  }
+  if (data?.ok === false) throw new Error(data.error || 'No se pudo completar la acción');
+  return data;
+}
+export const configCreativos = () => invokeCreativo({ accion: 'config' });
+export const proponerConceptos = (body) => invokeCreativo({ accion: 'conceptos', ...body });
+export const generarPrompt = (body) => invokeCreativo({ accion: 'prompt', ...body });
+export const generarCreativo = (body) => invokeCreativo({ accion: 'generar', ...body });
+export const regenerarCreativo = (body) => invokeCreativo({ accion: 'regenerar', ...body });
+export const subirCreativo = (body) => invokeCreativo({ accion: 'subir', ...body });
 export const actualizarCreativo = (id, patch) => invoke({ accion: 'creative_actualizar', id, ...patch });
 export const guardarPrompt = (body) => invoke({ accion: 'creative_prompt_guardar', ...body });
 export const proponerPublicacion = (creative_id, adset_id) => invoke({ accion: 'creative_proponer_publicacion', creative_id, adset_id });

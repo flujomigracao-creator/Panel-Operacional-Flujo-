@@ -9,94 +9,19 @@
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { ORG_ID, getMetaConfig, META_GRAPH_VERSION } from './ads.ts';
-import { consultarAprendizajes, proponerExperimentoV4, type ExperimentDesignParams } from './campaign_science.ts';
-import {
-  CONCEPTOS, construirPromptPublicitario, tamanoOpenAI, aspectoGemini,
-  validarCreativo, tipoImagen, evaluarGanador, UMBRALES_POR_DEFECTO, type MetricasVariante,
-} from './creative_logic.ts';
-
-const MAX_GENERADOS_POR_DIA = 40; // tope de costo: cada generación de imagen se paga al proveedor
-const MAX_BYTES_IMAGEN = 8 * 1024 * 1024;
+import { proponerExperimentoV4, type ExperimentDesignParams } from './campaign_science.ts';
+import { validarCreativo, evaluarGanador, UMBRALES_POR_DEFECTO, type MetricasVariante } from '../_shared/creative_logic.ts';
+import { resolverPrompt } from '../_shared/creative_store.ts';
 
 const CAMPOS_CREATIVO = 'id, service, objective, concept, format, prompt_id, prompt_text, prompt_version, hook, headline, primary_text, cta, visual_concept, image_path, image_source, status, parent_creative_id, campaign_id, adset_id, ad_id, meta_creative_id, created_at';
 
-const b64ToBytes = (b64: string) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 const bytesToB64 = (bytes: Uint8Array) => {
   let s = '';
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
 };
 
-// ── Generación de imagen ───────────────────────────────────────────────────────────
-
-export async function generarImagen(prompt: string, formato: string): Promise<{ bytes: Uint8Array; mime: string; proveedor: string }> {
-  const openai = Deno.env.get('OPENAI_API_KEY');
-  const gemini = Deno.env.get('GEMINI_API_KEY');
-  if (openai) {
-    const r = await fetch('https://api.openai.com/v1/images/generations', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${openai}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: Deno.env.get('IMAGE_MODEL') || 'gpt-image-1', prompt, size: tamanoOpenAI(formato), n: 1 }),
-    });
-    const d = await r.json().catch(() => ({}));
-    const b64 = d?.data?.[0]?.b64_json;
-    if (!r.ok || !b64) throw new Error(`El proveedor de imágenes rechazó la solicitud: ${d?.error?.message || r.status}`);
-    return { bytes: b64ToBytes(b64), mime: 'image/png', proveedor: 'openai' };
-  }
-  if (gemini) {
-    const modelo = Deno.env.get('IMAGE_MODEL') || 'gemini-2.5-flash-image';
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': gemini, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: aspectoGemini(formato) } },
-      }),
-    });
-    const d = await r.json().catch(() => ({}));
-    const parte = (d?.candidates?.[0]?.content?.parts || []).find((p: any) => p.inlineData?.data);
-    if (!r.ok || !parte) throw new Error(`El proveedor de imágenes rechazó la solicitud: ${d?.error?.message || r.status}`);
-    return { bytes: b64ToBytes(parte.inlineData.data), mime: parte.inlineData.mimeType || 'image/png', proveedor: 'gemini' };
-  }
-  throw new Error('No hay proveedor de imágenes configurado. Define OPENAI_API_KEY o GEMINI_API_KEY en Supabase (Edge Functions → Secrets). Mientras tanto puedes subir una imagen propia.');
-}
-
-async function guardarImagen(admin: SupabaseClient, creativeId: string, bytes: Uint8Array, mime: string): Promise<string> {
-  const t = tipoImagen(mime);
-  if (!t) throw new Error('Formato de imagen no permitido (usa PNG, JPG o WebP).');
-  if (bytes.length > MAX_BYTES_IMAGEN) throw new Error('La imagen supera 8 MB.');
-  const path = `${ORG_ID}/${creativeId}.${t.ext}`;
-  const { error } = await admin.storage.from('creatives').upload(path, bytes, { contentType: t.mime, upsert: true });
-  if (error) throw new Error(`No se pudo guardar la imagen: ${error.message}`);
-  return path;
-}
-
-// ── Biblioteca de prompts (con versiones) ──────────────────────────────────────────
-
-async function resolverPrompt(
-  admin: SupabaseClient, userId: string,
-  i: { service: string; concept?: string; prompt: string; prompt_id?: string; prompt_name?: string; variables?: Record<string, string> },
-): Promise<{ id: string; version: number }> {
-  if (i.prompt_id) {
-    const { data: ant } = await admin.from('creative_prompts').select('id, prompt, version, name, service, concept, variables').eq('id', i.prompt_id).maybeSingle();
-    if (!ant) throw new Error('El prompt de la biblioteca no existe.');
-    if (ant.prompt === i.prompt) return { id: ant.id, version: ant.version };
-    // El texto cambió: se guarda como una versión nueva, sin pisar la anterior.
-    const { data: ultima } = await admin.from('creative_prompts').select('version').eq('organization_id', ORG_ID).eq('name', ant.name).eq('service', ant.service).order('version', { ascending: false }).limit(1).maybeSingle();
-    const { data: nuevo, error } = await admin.from('creative_prompts').insert({
-      organization_id: ORG_ID, name: ant.name, service: ant.service, concept: i.concept ?? ant.concept, prompt: i.prompt,
-      version: (ultima?.version ?? ant.version) + 1, variables: i.variables ?? ant.variables ?? {}, parent_prompt_id: ant.id, created_by: userId,
-    }).select('id, version').single();
-    if (error || !nuevo) throw new Error(`No se pudo versionar el prompt: ${error?.message}`);
-    return nuevo;
-  }
-  const { data, error } = await admin.from('creative_prompts').insert({
-    organization_id: ORG_ID, name: i.prompt_name || `${i.service} · ${i.concept || 'general'}`, service: i.service,
-    concept: i.concept || null, prompt: i.prompt, version: 1, variables: i.variables || {}, created_by: userId,
-  }).select('id, version').single();
-  if (error || !data) throw new Error(`No se pudo guardar el prompt: ${error?.message}`);
-  return data;
-}
+// ── Biblioteca de prompts (con versiones): la lógica vive en _shared/creative_store.ts ──
 
 export async function guardarPrompt(admin: SupabaseClient, userId: string, i: any) {
   const err = validarCreativo({ service: i.service });
@@ -105,102 +30,6 @@ export async function guardarPrompt(admin: SupabaseClient, userId: string, i: an
   const p = await resolverPrompt(admin, userId, i);
   const { data } = await admin.from('creative_prompts').select('*').eq('id', p.id).single();
   return { ok: true, prompt: data };
-}
-
-// ── Crear creativos (generados por IA o subidos) ───────────────────────────────────
-
-interface CreativoInput {
-  service: string; objective?: string; concept?: string; format?: string;
-  hook?: string; headline?: string; primary_text?: string; cta?: string; visual_concept?: string;
-  prompt?: string; prompt_id?: string; prompt_name?: string; variables?: Record<string, string>;
-  parent_creative_id?: string; image_base64?: string; mime?: string; concept_id?: string;
-}
-
-async function crearCreativo(admin: SupabaseClient, userId: string, i: CreativoInput, modo: 'generar' | 'subir') {
-  const formato = i.format || '1:1';
-  const err = validarCreativo({ service: i.service, format: formato });
-  if (err) throw new Error(err);
-
-  let bytes: Uint8Array; let mime: string; let proveedor: string | null = null;
-  const promptTexto = (i.prompt && i.prompt.trim()) || construirPromptPublicitario({ servicio: i.service, concepto: i.concept, hook: i.hook, visual_concept: i.visual_concept, variables: i.variables });
-
-  if (modo === 'generar') {
-    const hoy = new Date(); hoy.setUTCHours(0, 0, 0, 0);
-    const { count } = await admin.from('creatives').select('id', { count: 'exact', head: true }).eq('organization_id', ORG_ID).eq('image_source', 'generated').gte('created_at', hoy.toISOString());
-    if ((count ?? 0) >= MAX_GENERADOS_POR_DIA) throw new Error(`Se alcanzó el tope de ${MAX_GENERADOS_POR_DIA} imágenes generadas hoy (control de costo). Vuelve mañana o sube imágenes propias.`);
-    const g = await generarImagen(promptTexto, formato);
-    bytes = g.bytes; mime = g.mime; proveedor = g.proveedor;
-  } else {
-    if (!i.image_base64) throw new Error('Falta la imagen.');
-    bytes = b64ToBytes(i.image_base64.replace(/^data:[^,]+,/, '')); mime = i.mime || 'image/png';
-  }
-
-  const prompt = await resolverPrompt(admin, userId, { service: i.service, concept: i.concept, prompt: promptTexto, prompt_id: i.prompt_id, prompt_name: i.prompt_name, variables: i.variables });
-  const id = crypto.randomUUID();
-  const image_path = await guardarImagen(admin, id, bytes, mime);
-  const { data, error } = await admin.from('creatives').insert({
-    id, organization_id: ORG_ID, service: i.service, objective: i.objective || null, concept: i.concept || null, format: formato,
-    prompt_id: prompt.id, prompt_text: promptTexto, prompt_version: prompt.version,
-    hook: i.hook || null, headline: i.headline || null, primary_text: i.primary_text || null, cta: i.cta || null, visual_concept: i.visual_concept || null,
-    image_path, image_source: modo === 'generar' ? 'generated' : 'uploaded', parent_creative_id: i.parent_creative_id || null, concept_id: i.concept_id || null, created_by: userId,
-  }).select(CAMPOS_CREATIVO).single();
-  if (error || !data) {
-    await admin.storage.from('creatives').remove([image_path]);
-    throw new Error(`No se pudo guardar el creativo: ${error?.message}`);
-  }
-  if (i.concept_id) await admin.from('creative_concepts').update({ status: 'used' }).eq('id', i.concept_id);
-  return { ok: true, creativo: data, proveedor };
-}
-
-export const generarCreativo = (admin: SupabaseClient, userId: string, i: CreativoInput) => crearCreativo(admin, userId, i, 'generar');
-export const subirCreativo = (admin: SupabaseClient, userId: string, i: CreativoInput) => crearCreativo(admin, userId, i, 'subir');
-
-// ── Ideación de conceptos con IA (usa aprendizajes y resultados reales, sin copiar anuncios) ──
-
-export async function proponerConceptos(
-  admin: SupabaseClient, groq: (p: Record<string, unknown>) => Promise<any>, model: string,
-  i: { service: string; objective?: string; cantidad?: number },
-  userId?: string,
-) {
-  const err = validarCreativo({ service: i.service });
-  if (err) throw new Error(err);
-  const cantidad = Math.min(Math.max(Number(i.cantidad) || 3, 1), 5);
-
-  const aprendizajes = await consultarAprendizajes(admin, { service: i.service, limit: 8 });
-  const { data: top } = await admin.from('creative_resultados').select('concept, hook, ctr, costo_por_conversacion, costo_por_cliente, conversaciones, clientes_pagaron')
-    .eq('service', i.service).not('impresiones', 'is', null).gt('impresiones', 1000).order('conversaciones', { ascending: false, nullsFirst: false }).limit(5);
-  const tieneHistorial = (top || []).length > 0 || aprendizajes.length > 0;
-
-  const contexto = tieneHistorial
-    ? `Patrones aprendidos (úsalos como guía, NO copies ningún anuncio): ${JSON.stringify(aprendizajes.map((a: any) => ({ aprendizaje: a.learning, confianza: a.confidence })))}. Resultados reales recientes: ${JSON.stringify(top)}.`
-    : 'Aún no hay historial de resultados de creativos para este servicio: son hipótesis nuevas, no basadas en datos.';
-
-  const r = await groq({
-    model, temperature: 0.7, response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: 'Eres estratega creativo de publicidad en Meta Ads para Flujo de Migração, empresa que ayuda a extranjeros con trámites migratorios en Brasil. Respondes SOLO JSON. Texto del anuncio en español neutro, claro, sin promesas de resultado garantizado ni lenguaje que suplante a organismos oficiales.' },
-      { role: 'user', content: `Servicio: ${i.service}. Objetivo: ${i.objective || 'conversaciones de WhatsApp'}. ${contexto}\nDevuelve {"conceptos":[...${cantidad} objetos]}. Cada objeto: {"concept": uno de ${JSON.stringify(CONCEPTOS)}, "hook": frase corta, "headline": máx 40 caracteres, "primary_text": máx 300 caracteres, "cta": texto de botón corto, "visual_concept": descripción de la escena en 1-2 frases}. Usa conceptos visuales distintos entre sí.` },
-    ],
-  });
-  let parsed: any = {};
-  try { parsed = JSON.parse(r.choices?.[0]?.message?.content || '{}'); } catch { /* respuesta inválida */ }
-  const conceptos = (Array.isArray(parsed.conceptos) ? parsed.conceptos : []).slice(0, cantidad).map((c: any) => {
-    const concept = (CONCEPTOS as readonly string[]).includes(c.concept) ? c.concept : 'mensaje_directo';
-    return {
-      concept, hook: String(c.hook || '').slice(0, 120), headline: String(c.headline || '').slice(0, 40),
-      primary_text: String(c.primary_text || '').slice(0, 300), cta: String(c.cta || '').slice(0, 30),
-      visual_concept: String(c.visual_concept || '').slice(0, 300),
-      prompt: construirPromptPublicitario({ servicio: i.service, concepto: concept, hook: c.hook, visual_concept: c.visual_concept }),
-    };
-  });
-  if (!conceptos.length) throw new Error('La IA no devolvió conceptos válidos. Inténtalo de nuevo.');
-  // Cada concepto queda registrado, se genere o no su imagen.
-  const { data: guardados } = await admin.from('creative_concepts').insert(conceptos.map((c: any) => ({
-    organization_id: ORG_ID, service: i.service, objective: i.objective || null, concept: c.concept, hook: c.hook, headline: c.headline,
-    primary_text: c.primary_text, cta: c.cta, visual_concept: c.visual_concept, prompt: c.prompt, based_on_data: tieneHistorial, created_by: userId || null,
-  }))).select('id');
-  const conId = conceptos.map((c: any, k: number) => ({ ...c, concept_id: guardados?.[k]?.id ?? null }));
-  return { ok: true, conceptos: conId, basado_en_datos: tieneHistorial };
 }
 
 // ── Actualizar / aprobar / vincular a anuncios REALES de Meta ──────────────────────

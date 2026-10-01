@@ -34,3 +34,12 @@ más los de Meta ya existentes. Sin proveedor de imagen se pueden subir imágene
 - Vista `lead_atribucion_anuncio`: lead → anuncio → conjunto → campaña → creativo/servicio → pagos, solo con evidencia real.
 - Función `estado-meta` (JWT): estado real de la cuenta de Meta; el panel muestra token vencido, permisos, cuenta restringida o problema de pago.
 - Despliegue: `.github/workflows/deploy-functions.yml` (manual; requiere el secreto `SUPABASE_ACCESS_TOKEN`).
+
+## Generación con OpenAI (función `generar-creativo`)
+- Acciones: `config`, `conceptos`, `prompt`, `generar`, `regenerar`, `subir` (JWT obligatorio). Texto e imagen usan la API de OpenAI.
+- `OPENAI_API_KEY` solo vive en los secretos de Supabase (backend). Modelos: `IMAGE_MODEL` / `OPENAI_TEXT_MODEL` configurables; si no se definen, se elige el `gpt-image-N` más reciente que devuelve `/v1/models` (respaldo `gpt-image-1`).
+- Código compartido en `supabase/functions/_shared/` (`creative_logic.ts`, `creative_store.ts`); `asistente` conserva solo propuestas, experimentos y medición.
+- Imágenes: bucket privado `creatives`, ruta `{servicio}/{creative_id}/v{version}/image.{ext}`; el panel las ve con URL firmada.
+- Regenerar crea un creativo NUEVO (`root_creative_id`, `parent_creative_id`, `version`) y exige declarar UNA variable cambiada (`changed_variable`): estilo, hook, concepto, composición o imagen. Nunca se sobrescribe una imagen.
+- `creative_generations` registra modelo, usuario, uso devuelto por OpenAI y errores. `cost_usd` queda `null` mientras la API no informe costo (no se estima).
+- Tope de 40 imágenes por día. Formatos 4:5 y 9:16 se generan en 1024×1536 (OpenAI no ofrece esas proporciones exactas) y Meta las recorta.

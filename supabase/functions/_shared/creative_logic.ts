@@ -26,10 +26,24 @@ const ENFOQUE_CONCEPTO: Record<string, string> = {
   variacion_ganadora: 'variación del enfoque visual que históricamente mejor ha funcionado, sin copiarlo',
 };
 
-// Identidad visual de Flujo de Migração (tokens del panel: azul profundo + acento dorado).
+// Identidad visual de Flujo de Migração: azul confianza #1E3A8A dominante, verde, dorado y blanco.
 export const IDENTIDAD_VISUAL =
-  'Paleta institucional: azul profundo (#1e40af) como color dominante, acento dorado (#d4a72c), blancos limpios. ' +
-  'Estética profesional, confiable y cálida; tipografía sans-serif moderna; mucho aire; sin elementos recargados.';
+  'Paleta institucional: azul confianza (#1E3A8A) como color dominante, acentos en verde y dorado (#d4a72c), blancos limpios. ' +
+  'Estética corporativa limpia, profesional y cálida; tipografía sans-serif moderna; mucho aire; evita el aspecto genérico de imagen generada por IA.';
+
+/** Estilos visuales admitidos: cambiar el estilo es UNA variable controlada de un experimento. */
+export const ESTILOS: Record<string, string> = {
+  fotografia_realista: 'fotografía realista, luz natural, personas reales y cercanas, aspecto editorial',
+  ilustracion: 'ilustración vectorial plana, formas limpias, paleta de marca',
+  minimalista_corporativo: 'diseño gráfico minimalista corporativo, composición geométrica sobria',
+  documento_destacado: 'el documento como protagonista sobre fondo limpio, sin datos reales',
+};
+
+export const IDIOMAS = ['es', 'pt'] as const;
+export const OBJETIVOS = ['conversaciones', 'leads', 'clientes', 'otro'] as const;
+
+/** Variables que puede cambiar una regeneración. Solo UNA por regeneración (regla del método científico). */
+export const VARIABLES_CAMBIO = ['estilo', 'hook', 'concepto', 'composicion', 'imagen'] as const;
 
 export const REGLAS_PUBLICITARIAS =
   'Imagen publicitaria profesional para Meta Ads. Sin logos de gobiernos ni de la Polícia Federal, sin sellos oficiales falsos, ' +
@@ -42,6 +56,12 @@ export interface PromptInput {
   hook?: string;
   visual_concept?: string;
   variables?: Record<string, string>;
+  objetivo?: string;
+  publico?: string;
+  cta?: string;
+  estilo?: string;
+  idioma?: string;
+  referencia_visual?: string;
 }
 
 export function construirPromptPublicitario(i: PromptInput): string {
@@ -52,7 +72,13 @@ export function construirPromptPublicitario(i: PromptInput): string {
     `Anuncio para Flujo de Migração, empresa que ayuda a extranjeros a ${enfoque}.`,
     concepto && `Concepto visual: ${concepto}.`,
     i.visual_concept && `Escena: ${i.visual_concept}.`,
+    i.publico && `Público: ${i.publico}.`,
+    i.objetivo && `Objetivo del anuncio: ${i.objetivo}.`,
+    i.estilo && `Estilo visual: ${ESTILOS[i.estilo] || i.estilo}.`,
+    i.referencia_visual && `Referencia visual: ${i.referencia_visual}.`,
     i.hook && `Idea central que debe transmitir (sin escribirla como texto largo): "${i.hook}".`,
+    i.cta && `Debe sugerir visualmente la acción: "${i.cta}" (sin texto largo dentro de la imagen).`,
+    i.idioma && `Si aparece texto, en ${i.idioma === 'pt' ? 'portugués de Brasil' : 'español'}.`,
     IDENTIDAD_VISUAL,
     REGLAS_PUBLICITARIAS,
   ].filter(Boolean) as string[];
@@ -204,4 +230,30 @@ export function tipoImagen(mime: string | undefined): { mime: string; ext: strin
   if (m === 'image/jpeg' || m === 'image/jpg') return { mime: 'image/jpeg', ext: 'jpg' };
   if (m === 'image/webp') return { mime: m, ext: 'webp' };
   return null;
+}
+
+/** Valida que una regeneración cambie exactamente una variable declarada. */
+export function validarCambio(v: unknown): string | null {
+  if (typeof v !== 'string' || !(VARIABLES_CAMBIO as readonly string[]).includes(v)) {
+    return `Declara UNA variable que cambia: ${VARIABLES_CAMBIO.join(', ')}.`;
+  }
+  return null;
+}
+
+/** Ruta de almacenamiento: {servicio}/{creative_id}/v{version}/image.{ext} (sin duplicar imágenes). */
+export function rutaImagen(servicio: string, creativeId: string, version: number, ext: string): string {
+  const slug = servicio.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return `${slug}/${creativeId}/v${version}/image.${ext}`;
+}
+
+/** Elige el modelo de imagen más reciente de una lista de ids (gpt-image-N); configurable y con respaldo. */
+export function elegirModeloImagen(ids: string[], respaldo = 'gpt-image-1'): string {
+  const cand = ids.map(id => ({ id, m: /^gpt-image-(\d+(?:\.\d+)?)$/.exec(id) })).filter(x => x.m).map(x => ({ id: x.id, v: parseFloat(x.m![1]) }));
+  if (!cand.length) return respaldo;
+  return cand.sort((a, b) => b.v - a.v)[0].id;
+}
+
+/** Quita cualquier fragmento parecido a una clave antes de registrar o devolver un error. */
+export function sanearError(msg: string): string {
+  return String(msg || '').replace(/sk-[A-Za-z0-9_*-]{6,}/g, 'sk-***').slice(0, 400);
 }

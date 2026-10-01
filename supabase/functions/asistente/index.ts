@@ -20,8 +20,8 @@ import {
   META_GRAPH_VERSION,
 } from './ads.ts';
 import {
-  generarCreativo, subirCreativo, actualizarCreativo, guardarPrompt, proponerPublicacion,
-  crearExperimentoCreativos, cerrarExperimentoCreativos, proponerConceptos,
+  actualizarCreativo, guardarPrompt, proponerPublicacion,
+  crearExperimentoCreativos, cerrarExperimentoCreativos,
 } from './creatives.ts';
 
 const MODEL = 'openai/gpt-oss-120b';
@@ -114,25 +114,12 @@ Deno.serve(async (req) => {
   if (typeof body.accion === 'string' && body.accion.startsWith('creative_')) {
     try {
       const a = body.accion;
-      if (a === 'creative_generar') return json(await generarCreativo(admin, u.id, body));
-      if (a === 'creative_subir') return json(await subirCreativo(admin, u.id, body));
       if (a === 'creative_actualizar') return json(await actualizarCreativo(admin, String(body.id), body));
       if (a === 'creative_prompt_guardar') return json(await guardarPrompt(admin, u.id, body));
       if (a === 'creative_proponer_publicacion') return json(await proponerPublicacion({ admin, userId: u.id }, body));
       if (a === 'creative_experimento') return json({ ok: true, ...(await crearExperimentoCreativos({ admin, userId: u.id }, body)) });
       if (a === 'creative_cerrar_experimento') return json(await cerrarExperimentoCreativos(admin, String(body.experiment_id), { concluirInconcluso: body.concluir_inconcluso === true }));
-      if (a === 'creative_conceptos') {
-        const key = Deno.env.get('GROQ_API_KEY');
-        if (!key) return json({ ok: false, error: 'Falta configurar el secreto GROQ_API_KEY en Supabase.' }, 500);
-        const llamar = async (payload: Record<string, unknown>) => {
-          const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-          });
-          if (!r.ok) throw new Error('Groq ' + r.status);
-          return await r.json();
-        };
-        return json(await proponerConceptos(admin, llamar, MODEL, body, u.id));
-      }
+      // La generación de conceptos, prompts e imágenes (OpenAI) vive en la función `generar-creativo`.
       return json({ ok: false, error: 'Acción de creativos desconocida' }, 400);
     } catch (e) {
       return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 422);

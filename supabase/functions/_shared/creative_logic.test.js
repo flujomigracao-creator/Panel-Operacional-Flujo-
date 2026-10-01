@@ -51,7 +51,7 @@ test('prueba z: iguales ≈ p 1; muy distintas ≈ p muy bajo; sin muestra = nul
 test('el prompt conserva la identidad de marca, separa el servicio y sustituye variables', () => {
   const p = construirPromptPublicitario({ servicio: 'CPF', concepto: 'persona', hook: 'Tu CPF sin filas', variables: {} });
   assert.match(p, /CPF/);
-  assert.match(p, /#1e40af/);
+  assert.match(p, /#1E3A8A/);
   assert.match(p, /Tu CPF sin filas/);
   assert.doesNotMatch(p, /Refúgio|RNM/);
   assert.equal(construirPromptPublicitario({ servicio: 'RNM', visual_concept: 'en {{lugar}}', variables: { lugar: 'São Paulo' } }).includes('São Paulo'), true);
@@ -64,4 +64,30 @@ test('validación de servicio, formato e imagen', () => {
   assert.equal(tipoImagen('image/jpg').ext, 'jpg');
   assert.equal(tipoImagen('image/svg+xml'), null);
   assert.equal(tamanoOpenAI('9:16'), '1024x1536');
+});
+
+import { validarCambio, rutaImagen, elegirModeloImagen, sanearError } from './creative_logic.ts';
+
+test('el prompt incluye público, estilo, objetivo, CTA e idioma y mantiene la marca', () => {
+  const p = construirPromptPublicitario({ servicio: 'CPF', concepto: 'persona', publico: 'extranjeros recién llegados a Brasil', objetivo: 'conversaciones por WhatsApp', estilo: 'ilustracion', cta: 'Escríbenos por WhatsApp', idioma: 'pt' });
+  for (const t of ['extranjeros recién llegados', 'conversaciones por WhatsApp', 'ilustración vectorial', 'Escríbenos por WhatsApp', 'portugués', '#1E3A8A', 'verde']) assert.ok(p.includes(t), t);
+});
+
+test('una regeneración exige declarar UNA variable válida', () => {
+  assert.equal(validarCambio('estilo'), null);
+  assert.match(validarCambio('estilo y hook'), /Declara UNA variable/);
+  assert.match(validarCambio(undefined), /Declara UNA variable/);
+});
+
+test('ruta de imagen versionada, sin acentos ni espacios', () => {
+  assert.equal(rutaImagen('Residência Permanente', 'abc', 3, 'png'), 'residencia-permanente/abc/v3/image.png');
+});
+
+test('elige el modelo de imagen más reciente disponible y cae al respaldo', () => {
+  assert.equal(elegirModeloImagen(['gpt-4o', 'gpt-image-1', 'gpt-image-1.5', 'dall-e-3']), 'gpt-image-1.5');
+  assert.equal(elegirModeloImagen(['gpt-4o']), 'gpt-image-1');
+});
+
+test('los errores nunca dejan pasar una clave', () => {
+  assert.equal(sanearError('Incorrect API key provided: sk-proj-abcdef123456XYZ'), 'Incorrect API key provided: sk-***');
 });

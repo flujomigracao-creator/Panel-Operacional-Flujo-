@@ -19,7 +19,7 @@ import {
   resolveAdsDateRange,
   type AdsDateRange,
 } from './ads.ts';
-import { evaluarGanador, UMBRALES_POR_DEFECTO } from './creative_logic.ts';
+import { evaluarGanador, UMBRALES_POR_DEFECTO } from '../_shared/creative_logic.ts';
 
 // ── Tipos y Esquemas del Motor Científico V4 ──
 

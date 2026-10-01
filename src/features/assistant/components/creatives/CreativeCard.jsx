@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCircle2, Archive, Link2, Send, Loader2, ImageOff } from 'lucide-react';
+import { CheckCircle2, Archive, Link2, Send, Loader2, ImageOff, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import * as cr from '../../services/creativesService';
 
@@ -27,6 +27,8 @@ export default function CreativeCard({ creativo: c, imagenUrl, anuncios, conjunt
   const [adId, setAdId] = useState('');
   const [adsetId, setAdsetId] = useState('');
   const [publicar, setPublicar] = useState(false);
+  const [regenerar, setRegenerar] = useState(false);
+  const [cambio, setCambio] = useState({ variable: 'estilo', estilo: 'ilustracion', hook: '' });
 
   const tieneDatos = c.ad_id && c.impresiones != null;
   // Un anuncio solo se puede ligar a un creativo: se ofrecen los que aún no tienen uno.
@@ -56,6 +58,15 @@ export default function CreativeCard({ creativo: c, imagenUrl, anuncios, conjunt
     if (r) { setVincular(false); onCambio(); }
   };
 
+  // Regenerar = versión NUEVA (v2, v3…) cambiando UNA variable declarada. La imagen anterior se conserva.
+  const regenerarVariante = async () => {
+    const body = { from_creative_id: c.id, changed_variable: cambio.variable };
+    if (cambio.variable === 'estilo') body.style = cambio.estilo;
+    if (cambio.variable === 'hook') body.hook = cambio.hook;
+    const r = await ejecutar(() => cr.regenerarCreativo(body), 'Nueva versión generada; la anterior se conserva');
+    if (r) { setRegenerar(false); onCambio(); }
+  };
+
   const pedirPublicacion = async () => {
     if (!adsetId) return;
     const r = await ejecutar(() => cr.proponerPublicacion(c.id, adsetId));
@@ -79,6 +90,9 @@ export default function CreativeCard({ creativo: c, imagenUrl, anuncios, conjunt
           <p className="text-sm font-semibold text-chrome-text-active">{c.headline || 'Sin titular'}</p>
           <p className="mt-0.5 text-[11px] text-chrome-text-muted">
             {cr.CONCEPTOS[c.concept] || c.concept || 'Sin concepto'} · {cr.FORMATO_LABEL[c.format]} · prompt v{c.prompt_version ?? '—'}
+          </p>
+          <p className="text-[11px] text-chrome-text-muted">
+            Versión v{c.version ?? 1}{c.changed_variable ? ` · cambió: ${cr.VARIABLES_CAMBIO[c.changed_variable] || c.changed_variable}` : ''}{c.model ? ` · ${c.model}` : ''}
           </p>
         </div>
 
@@ -118,8 +132,33 @@ export default function CreativeCard({ creativo: c, imagenUrl, anuncios, conjunt
               <Archive size={12} /> Archivar
             </button>
           )}
+          {c.image_path && c.status !== 'archived' && (
+            <button disabled={busy} onClick={() => setRegenerar(v => !v)} className="inline-flex items-center gap-1 rounded-md border border-chrome-border px-2 py-1 text-[11px] text-chrome-text hover:bg-chrome-bg disabled:opacity-50">
+              <RefreshCw size={12} /> Regenerar variante
+            </button>
+          )}
           {busy && <Loader2 size={14} className="animate-spin text-chrome-text-muted" />}
         </div>
+
+        {regenerar && (
+          <div className="space-y-1.5 rounded-md border border-chrome-border p-2">
+            <p className="text-[11px] text-chrome-text-muted">Se crea una versión nueva (v{(c.version ?? 1) + 1}+). Cambia UNA sola variable para saber qué produjo la diferencia.</p>
+            <select value={cambio.variable} onChange={e => setCambio({ ...cambio, variable: e.target.value })} className="w-full rounded border border-chrome-border bg-chrome-bg px-2 py-1 text-xs text-chrome-text-active">
+              {Object.entries(cr.VARIABLES_CAMBIO).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+            {cambio.variable === 'estilo' && (
+              <select value={cambio.estilo} onChange={e => setCambio({ ...cambio, estilo: e.target.value })} className="w-full rounded border border-chrome-border bg-chrome-bg px-2 py-1 text-xs text-chrome-text-active">
+                {Object.entries(cr.ESTILOS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
+            )}
+            {cambio.variable === 'hook' && (
+              <input value={cambio.hook} onChange={e => setCambio({ ...cambio, hook: e.target.value })} placeholder="Nuevo hook" className="w-full rounded border border-chrome-border bg-chrome-bg px-2 py-1 text-xs text-chrome-text-active" />
+            )}
+            <button disabled={busy || (cambio.variable === 'hook' && !cambio.hook.trim())} onClick={regenerarVariante} className="rounded-md bg-brand-primary px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50">
+              {busy ? 'Generando…' : 'Generar nueva versión'}
+            </button>
+          </div>
+        )}
 
         {vincular && (
           <div className="space-y-1.5 rounded-md border border-chrome-border p-2">
