@@ -11,7 +11,7 @@ Solo lectura: no se borró ni cambió ningún dato. Las decisiones están marcad
 
 Sin cambios en `asistente`/`_shared`/`generar-creativo` desde `d835b98`: producción = repositorio para esas tres.
 
-**Brecha cerrada (2026-10-01):** el código desplegado de `kommo-canal`, `llenar-declaracion-cpf`, `nora-conocimiento` y `diag-firma` se descargó de Supabase y está ahora en el repositorio (sin secretos). `diag-whatsapp` es un stub que responde 410 y no se copió. Falta decidir si `diag-firma` se retira.
+**Brecha cerrada (2026-10-01):** el código desplegado de `kommo-canal`, `llenar-declaracion-cpf`, `nora-conocimiento` y `diag-firma` se descargó de Supabase y está ahora en el repositorio (sin secretos). `diag-whatsapp` es un stub que responde 410 y no se copió. `diag-firma` (eco de prueba, sin referencias) se retiró de producción y del repo.
 
 ## 2. Funciones sin JWT (`verify_jwt = false`)
 - `whatsapp-webhook`: público por diseño (Meta); valida el `phone_number_id` y la firma opcional (`WHATSAPP_APP_SECRET`). **Revisar:** hacer obligatoria la firma.
@@ -52,6 +52,6 @@ Sin cambios en `asistente`/`_shared`/`generar-creativo` desde `d835b98`: producc
 ## 6. Siguientes pasos propuestos (en orden)
 1. ~~Traer al repo el código de las funciones sin fuente~~ (hecho).
 2. Activar protección de contraseñas filtradas (dueño).
-3. Decidir sobre `clientes` y `diag-firma` (borrar o conservar).
+3. `diag-firma` retirada. `clientes` (vacía, sin FKs/vistas/funciones) se conserva por ahora: 8 componentes legacy del panel (ClientView, ClientViewEditModal, ClientViewExtractionModal, GlobalBotListener, MantenimientoSettings, useClientViewEdit) aún la consultan; borrarla exige retirar antes ese código.
 4. Resolver facturación de WhatsApp (error 131042), token de Meta y referral de anuncios.
 5. Embudo Nora → pago por servicio y estado de salud del sistema.
