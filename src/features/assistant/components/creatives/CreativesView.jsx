@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Image as ImageIcon, BookText, GitCompare, RefreshCw } from 'lucide-react';
+import { Plus, Image as ImageIcon, BookText, GitCompare, RefreshCw, BarChart3 } from 'lucide-react';
 import * as cr from '../../services/creativesService';
 import { executeProposal, cancelProposal } from '../../services/assistantService';
 import ProposalCard from '../ProposalCard';
@@ -7,6 +7,7 @@ import CreativeCard from './CreativeCard';
 import CreativeCreator from './CreativeCreator';
 import PromptLibrary from './PromptLibrary';
 import CreativeComparer from './CreativeComparer';
+import ConversionUnificada from './ConversionUnificada';
 import { LoadingSpinner } from '@/shared/components/ui/LoadingSpinner';
 
 const ORDENES = [
@@ -86,6 +87,7 @@ export default function CreativesView() {
     { key: 'galeria', label: `Creativos (${creativos.filter(c => c.status !== 'archived').length})`, icon: ImageIcon },
     { key: 'crear', label: 'Crear creativo', icon: Plus },
     { key: 'prompts', label: `Biblioteca de prompts (${prompts.length})`, icon: BookText },
+    { key: 'conversion', label: 'Conversión y origen', icon: BarChart3 },
     { key: 'comparar', label: `Comparar (${seleccion.length})`, icon: GitCompare },
   ];
 
@@ -150,6 +152,7 @@ export default function CreativesView() {
 
       {sub === 'crear' && <CreativeCreator prompts={prompts} onCreado={() => { cargar(); setSub('galeria'); }} />}
       {sub === 'prompts' && <PromptLibrary prompts={prompts} onCambio={cargar} />}
+      {sub === 'conversion' && <ConversionUnificada creativos={creativos} prompts={prompts} imagenes={imagenes} />}
       {sub === 'comparar' && (
         <CreativeComparer creativos={creativos} seleccion={seleccion} imagenes={imagenes}
           onQuitar={id => marcar(id, false)} onPropuesta={p => { setPropuesta(p); setSub('galeria'); }} />

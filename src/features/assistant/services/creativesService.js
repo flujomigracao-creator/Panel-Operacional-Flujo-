@@ -22,10 +22,30 @@ export const IDIOMAS = { es: 'Español', pt: 'Portugués' };
 export const VARIABLES_CAMBIO = { estilo: 'Estilo visual', hook: 'Hook', concepto: 'Concepto', composicion: 'Composición', imagen: 'Solo nueva imagen (mismo prompt)' };
 export const ESTADO_LABEL = { draft: 'Borrador', approved: 'Aprobado', published: 'Publicado', archived: 'Archivado' };
 
-export { METRICAS, formatear, mejoresIndices, resumirPorServicio } from './creativesFormat';
+export { METRICAS, formatear, mejoresIndices, resumirPorServicio, unirConversion, resumenCobertura } from './creativesFormat';
 
 export async function listarCreativos() {
   const { data, error } = await supabase.from('creative_resultados').select('*').order('created_at', { ascending: false }).limit(300);
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+/** Origen de cada lead (anuncio → campaña → creativo → prompt → pagos). Sin evidencia: 'sin_origen'. */
+export async function listarOrigenLeads() {
+  const { data, error } = await supabase.from('origen_leads').select('*').order('created_at', { ascending: false }).limit(400);
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+export async function leerCobertura() {
+  const { data, error } = await supabase.from('cobertura_atribucion').select('*').maybeSingle();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/** Tendencias de mercado guardadas por el agente (hipótesis con fuentes, no evidencia). */
+export async function listarTendencias() {
+  const { data, error } = await supabase.from('ad_trends').select('id, service, topic, summary, sources, status, created_at').order('created_at', { ascending: false }).limit(40);
   if (error) throw new Error(error.message);
   return data || [];
 }
@@ -64,6 +84,7 @@ async function invokeCreativo(body) {
   if (data?.ok === false) throw new Error(data.error || 'No se pudo completar la acción');
   return data;
 }
+export const buscarTendencias = (body) => invokeCreativo({ accion: 'tendencias', ...body });
 export const configCreativos = () => invokeCreativo({ accion: 'config' });
 export const proponerConceptos = (body) => invokeCreativo({ accion: 'conceptos', ...body });
 export const generarPrompt = (body) => invokeCreativo({ accion: 'prompt', ...body });

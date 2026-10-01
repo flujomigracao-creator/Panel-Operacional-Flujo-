@@ -57,3 +57,40 @@ export function resumirPorServicio(creativos = [], experimentos = []) {
     };
   });
 }
+
+/** Une cada creativo con el nombre/versión de su prompt y lo ordena por lo que realmente convierte (clientes, luego conversaciones). */
+export function unirConversion(creativos = [], prompts = []) {
+  const porPrompt = new Map(prompts.map(p => [p.id, p]));
+  const num = v => (v === null || v === undefined ? null : Number(v));
+  return creativos
+    .filter(c => c.status !== 'archived')
+    .map(c => ({ ...c, prompt_nombre: porPrompt.get(c.prompt_id)?.name ?? null }))
+    .sort((a, b) => {
+      const ka = [num(a.clientes_pagaron), num(a.conversaciones)];
+      const kb = [num(b.clientes_pagaron), num(b.conversaciones)];
+      for (let i = 0; i < 2; i++) {
+        if (ka[i] === null && kb[i] === null) continue;
+        if (ka[i] === null) return 1; // sin dato va al final, no se trata como 0
+        if (kb[i] === null) return -1;
+        if (ka[i] !== kb[i]) return kb[i] - ka[i];
+      }
+      return 0;
+    });
+}
+
+/** Texto honesto sobre lo que se puede afirmar del origen de los clientes. */
+export function resumenCobertura(cob) {
+  if (!cob) return { estado: 'desconocido', texto: 'No se pudo leer la cobertura de atribución.' };
+  const leads = Number(cob.leads) || 0;
+  const conAnuncio = Number(cob.con_anuncio) || 0;
+  if (conAnuncio === 0) {
+    return {
+      estado: 'esperando',
+      texto: `ESPERANDO TRÁFICO REAL: de ${leads} leads, ninguno tiene anuncio de origen demostrable (referidos de Meta recibidos: ${Number(cob.referidos_recibidos) || 0}). Hasta que llegue un chat con datos de anuncio no se puede decir qué anuncio trajo a cada cliente.`,
+    };
+  }
+  return {
+    estado: 'parcial',
+    texto: `${conAnuncio} de ${leads} leads (${Math.round((conAnuncio / leads) * 100)} %) tienen anuncio de origen demostrable; ${Number(cob.cerrados_con_anuncio) || 0} de ${Number(cob.cerrados) || 0} cerrados. El resto figura como sin origen: no se adivina.`,
+  };
+}

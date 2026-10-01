@@ -143,3 +143,16 @@ test('regenerar con otro hook obliga a que el titular dibujado cambie', () => {
   const h = ajustarPromptRegeneracion('base', 'hook', { hook: 'CPF sin complicaciones' });
   assert.ok(h.includes('headline text must now read exactly "CPF sin complicaciones"'));
 });
+
+import { asegurarTextos, textosLiterales } from './creative_logic.ts';
+
+test('asegurarTextos: si la IA reescribió un texto, se añade el literal exacto; si están todos, no toca nada', () => {
+  const t = textosLiterales({ titular: 'Tu CPF sin complicaciones', hook: 'Recién llegado a Brasil? Empieza aquí', cta: 'Escríbenos por WhatsApp' });
+  assert.deepEqual(t, ['Tu CPF sin complicaciones', 'Recién llegado a Brasil? Empieza aquí', 'Escríbenos por WhatsApp', 'Flujo de Migração']);
+  const completo = 'x "Tu CPF sin complicaciones" y "Recién llegado a Brasil? Empieza aquí" z "Escríbenos por WhatsApp" w "Flujo de Migração"';
+  assert.equal(asegurarTextos(completo, t), completo);
+  const roto = 'x "Tu CPF sin complicaciones" y "Escribenos por WhatsApp"';
+  const r = asegurarTextos(roto, t);
+  assert.ok(r.startsWith(roto) && r.includes('VERBATIM') && r.includes('"Escríbenos por WhatsApp"') && r.includes('"Flujo de Migração"'));
+  assert.ok(!r.includes('· "Tu CPF sin complicaciones"'));
+});

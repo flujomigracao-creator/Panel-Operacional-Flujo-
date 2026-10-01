@@ -62,6 +62,27 @@ export const DISENO_FORMATO: Record<string, string> = {
  * Textos que la IA debe DIBUJAR dentro del anuncio. Un anuncio sin titular ni botón de acción no vende:
  * se piden literales, cortos y legibles en móvil. CTA y firma siempre presentes.
  */
+/** Textos literales que DEBEN aparecer dibujados en el anuncio (titular, subtítulo, CTA y firma). */
+export function textosLiterales(i: { titular?: string; hook?: string; cta?: string; idioma?: string }): string[] {
+  const pt = i.idioma === 'pt';
+  const titular = (i.titular || i.hook || '').trim();
+  const subtitulo = i.hook && i.titular && i.hook.trim() !== i.titular.trim() && i.hook.trim().length <= 60 ? i.hook.trim() : '';
+  const cta = (i.cta || '').trim() || (pt ? 'Fale conosco no WhatsApp' : 'Escríbenos por WhatsApp');
+  return [titular, subtitulo, cta, 'Flujo de Migração'].filter(Boolean);
+}
+
+/**
+ * La IA que redacta el prompt puede reescribir o traducir un texto. Si falta alguno de los literales exigidos,
+ * se añade un bloque final con el texto exacto: el anuncio nunca sale sin titular, CTA o firma correctos.
+ */
+export function asegurarTextos(prompt: string, textos: string[]): string {
+  const norm = (s: string) => s.normalize('NFC');
+  const p = norm(prompt);
+  const faltan = textos.filter(t => !p.includes(norm(t)));
+  if (!faltan.length) return prompt;
+  return `${prompt}\n\nON-IMAGE TEXT, VERBATIM (render exactly, correct spelling and accents, highly legible): ${faltan.map(t => `"${t}"`).join(' · ')}.`;
+}
+
 export function textoEnImagen(i: { titular?: string; hook?: string; cta?: string; idioma?: string }): string[] {
   const pt = i.idioma === 'pt';
   const titular = (i.titular || i.hook || '').trim();

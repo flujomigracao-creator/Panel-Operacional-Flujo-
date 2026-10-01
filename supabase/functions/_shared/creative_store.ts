@@ -4,7 +4,7 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import {
   CONCEPTOS, ESTILOS, OBJETIVOS, construirPromptPublicitario, tamanosCandidatos, validarCreativo, validarCambio,
-  tipoImagen, rutaImagen, elegirModeloImagen, sanearError, ajustarPromptRegeneracion,
+  tipoImagen, rutaImagen, elegirModeloImagen, sanearError, ajustarPromptRegeneracion, asegurarTextos, textosLiterales,
 } from './creative_logic.ts';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
@@ -21,7 +21,7 @@ let cacheModelos: { ids: string[]; at: number } | null = null;
 const clave = () => Deno.env.get('OPENAI_API_KEY') || null;
 export const openaiConfigurado = () => !!clave();
 
-async function openai(ruta: string, init: RequestInit = {}) {
+export async function openai(ruta: string, init: RequestInit = {}) {
   const key = clave();
   if (!key) throw new Error('Falta el secreto OPENAI_API_KEY en Supabase (Edge Functions → Secrets).');
   const r = await fetch(`${OPENAI}${ruta}`, { ...init, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', ...(init.headers || {}) } });
@@ -51,7 +51,7 @@ export async function modeloTexto(): Promise<string> {
 }
 
 // ── Bitácora de generaciones (modelo, usuario, uso). El costo solo se guarda si OpenAI lo informa. ──
-async function registrarGeneracion(admin: SupabaseClient, g: { creative_id?: string | null; user_id: string; kind: 'concepts' | 'prompt' | 'image'; model: string; status: 'ok' | 'error'; usage?: unknown; error?: string }) {
+export async function registrarGeneracion(admin: SupabaseClient, g: { creative_id?: string | null; user_id: string; kind: 'concepts' | 'prompt' | 'image' | 'trends'; model: string; status: 'ok' | 'error'; usage?: unknown; error?: string }) {
   const { error } = await admin.from('creative_generations').insert({
     organization_id: ORG_ID, creative_id: g.creative_id ?? null, user_id: g.user_id, kind: g.kind, model: g.model,
     status: g.status, usage: g.usage ?? null, error: g.error ? sanearError(g.error) : null,
@@ -81,9 +81,12 @@ export async function proponerConceptos(admin: SupabaseClient, userId: string, i
   const { data: top } = await admin.from('creative_resultados').select('concept, hook, ctr, costo_por_conversacion, costo_por_cliente, conversaciones, clientes_pagaron')
     .eq('service', i.service).gt('impresiones', 1000).order('conversaciones', { ascending: false, nullsFirst: false }).limit(5);
   const hayHistorial = (aprend || []).length > 0 || (top || []).length > 0;
-  const contexto = hayHistorial
+  // Tendencias de mercado guardadas: hipótesis con fuentes, NO evidencia del negocio.
+  const { data: tend } = await admin.from('ad_trends').select('topic, summary').or(`service.eq.${i.service},service.is.null`).neq('status', 'discarded').order('created_at', { ascending: false }).limit(5);
+  const textoTend = (tend || []).length ? ` Tendencias de mercado recientes (HIPÓTESIS con fuentes, no evidencia propia; úsalas solo como inspiración): ${JSON.stringify((tend || []).map((t: any) => ({ tema: t.topic, resumen: String(t.summary).slice(0, 220) })))}.` : '';
+  const contexto = (hayHistorial
     ? `Patrones aprendidos (guía, NO copies anuncios): ${JSON.stringify(aprend)}. Resultados reales recientes: ${JSON.stringify(top)}.`
-    : 'Aún no hay historial de resultados de este servicio: son hipótesis nuevas, no conclusiones basadas en datos.';
+    : 'Aún no hay historial de resultados de este servicio: son hipótesis nuevas, no conclusiones basadas en datos.') + textoTend;
   let r;
   try {
     r = await chatJson(
@@ -128,8 +131,10 @@ export async function generarPrompt(admin: SupabaseClient, userId: string, d: Da
       'Eres director de arte de anuncios en Meta Ads. Conviertes un brief en UN prompt de generación de imagen en inglés, concreto y profesional: composición, encuadre, luz, jerarquía visual, espacio libre para el texto del anuncio, identidad de marca (azul #1E3A8A dominante, verde, dorado, blanco). IMPORTANTE: el anuncio debe llevar texto integrado en la imagen. Copia LITERALMENTE, entre comillas y sin traducir ni reescribir, el TITULAR, el SUBTÍTULO (si existe), el texto del BOTÓN CTA y la FIRMA del brief; indica dónde va cada uno (titular grande arriba, botón CTA redondeado abajo, firma en una esquina), alto contraste y tipografía gruesa legible en móvil, ortografía impecable. Ningún otro texto aparte de esos; sin logos oficiales ni sellos de gobierno, sin datos reales en documentos. Respondes SOLO JSON {"prompt": "..."}.',
       `Brief:\n${base}\nFormato: ${d.format || '1:1'} (Meta Ads).`,
     );
-    const prompt = String(r.json.prompt || '').trim();
-    if (!prompt) throw new Error('OpenAI no devolvió un prompt.');
+    const crudo = String(r.json.prompt || '').trim();
+    if (!crudo) throw new Error('OpenAI no devolvió un prompt.');
+    // Garantiza titular, CTA y firma literales aunque la IA los haya reescrito.
+    const prompt = asegurarTextos(crudo, textosLiterales({ titular: d.headline, hook: d.hook, cta: d.cta, idioma: d.language }));
     await registrarGeneracion(admin, { user_id: userId, kind: 'prompt', model: r.model, status: 'ok', usage: r.usage });
     return { ok: true, prompt, model: r.model, base };
   } catch (e) {

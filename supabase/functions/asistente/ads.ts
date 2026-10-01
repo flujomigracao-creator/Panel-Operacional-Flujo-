@@ -18,6 +18,8 @@ import {
   cerrarExperimentoCreativos,
   publicarCreativoEnMeta,
 } from './creatives.ts';
+import { crearCreativo, generarPrompt, proponerConceptos } from '../_shared/creative_store.ts';
+import { buscarTendencias, listarTendencias } from '../_shared/trends.ts';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -1288,6 +1290,22 @@ const nullableStr = (description: string) => ({ type: ['string', 'null'], descri
 const num = (description: string) => ({ type: 'number', description });
 const bool = (description: string) => ({ type: 'boolean', description });
 
+// Propiedades comunes de un creativo (nombres en español para el modelo).
+const CREATIVO_PROPS: Record<string, unknown> = {
+  servicio: str('CPF | Agendamento PF | RNM | Residência Permanente | Refúgio'),
+  objetivo: { type: 'string', enum: ['conversaciones', 'leads', 'clientes', 'otro'], description: 'Objetivo del anuncio' },
+  publico: str('Público, ej. extranjeros recién llegados a Brasil'),
+  concepto: { type: 'string', enum: ['persona', 'documento', 'problema_solucion', 'institucional', 'mensaje_directo', 'variacion_ganadora'] },
+  titular: str('Titular que se dibuja grande en la imagen (máx. 40 caracteres)'),
+  hook: str('Subtítulo/hook breve bajo el titular (máx. 60 caracteres)'),
+  texto_principal: str('Texto principal del anuncio en Meta (máx. 300 caracteres)'),
+  cta: str('Texto del botón de acción, ej. Escríbenos por WhatsApp'),
+  escena: str('Escena visual en 1-2 frases'),
+  estilo: { type: 'string', enum: ['fotografia_realista', 'ilustracion', 'minimalista_corporativo', 'documento_destacado'] },
+  formato: { type: 'string', enum: ['1:1', '4:5', '9:16'] },
+  idioma: { type: 'string', enum: ['es', 'pt'] },
+};
+
 export const ADS_TOOL_DEFS = [
   {
     type: 'function',
@@ -1627,6 +1645,62 @@ export const ADS_TOOL_DEFS = [
   {
     type: 'function',
     function: {
+      name: 'buscar_tendencias',
+      description: 'Busca en la web tendencias RECIENTES útiles para anuncios (formatos y hooks que funcionan, cambios de normas, dolores de la comunidad migrante, novedades de Meta Ads) y las guarda con sus fuentes. Son HIPÓTESIS de mercado, no evidencia del negocio: úsalas para proponer experimentos, nunca como prueba.',
+      parameters: { type: 'object', properties: { servicio: str('CPF | Agendamento PF | RNM | Residência Permanente | Refúgio (opcional)'), tema: str('Foco concreto, ej. urgencia en citas de la Polícia Federal (opcional)') }, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'consultar_tendencias',
+      description: 'Lista las tendencias de mercado ya buscadas y guardadas (con fuentes). Consúltalas antes de proponer conceptos para no repetir búsquedas.',
+      parameters: { type: 'object', properties: { servicio: str('Filtrar por servicio (opcional)'), limite: num('Máximo (por defecto 15)') }, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'proponer_conceptos_creativos',
+      description: 'Genera 1-5 conceptos publicitarios (hook, titular, texto, CTA, escena) para un servicio, usando aprendizajes, resultados reales y tendencias guardadas. Quedan registrados. No gasta en Meta.',
+      parameters: { type: 'object', properties: { servicio: str('CPF | Agendamento PF | RNM | Residência Permanente | Refúgio'), objetivo: str('Ej. Conversaciones WhatsApp'), publico: str('Ej. extranjeros recién llegados a Brasil'), cantidad: num('1 a 5 (por defecto 3)') }, required: ['servicio'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generar_prompt_creativo',
+      description: 'Redacta el prompt de imagen profesional de un anuncio a partir de sus datos. El prompt EXIGE titular grande, botón CTA y firma de marca dentro de la imagen. Úsalo para que el dueño revise el prompt antes de generar.',
+      parameters: { type: 'object', properties: CREATIVO_PROPS, required: ['servicio', 'titular', 'cta'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generar_creativo',
+      description: 'GENERA la imagen real del anuncio con OpenAI (cuesta dinero, máx. 40 al día) y la guarda como BORRADOR con su prompt versionado. La imagen sale con titular, subtítulo, botón CTA y firma. Genera de a UNA y solo cuando el dueño lo pidió. Después se muestra con markdown ![](image_url). No publica nada en Meta.',
+      parameters: { type: 'object', properties: { ...CREATIVO_PROPS, prompt: str('Prompt ya revisado (opcional; si falta se arma con la identidad de marca)'), concept_id: str('Id del concepto registrado (opcional)') }, required: ['servicio', 'titular', 'cta'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'regenerar_creativo',
+      description: 'Crea una VERSIÓN NUEVA (v2, v3…) de un creativo cambiando UNA sola variable declarada (estilo, hook, concepto, composicion o imagen). Conserva la anterior. Para concepto/composicion hay que dar el prompt nuevo.',
+      parameters: { type: 'object', properties: { creative_id: str('Id del creativo de origen'), variable: { type: 'string', enum: ['estilo', 'hook', 'concepto', 'composicion', 'imagen'], description: 'La única variable que cambia' }, estilo: str('Nuevo estilo si variable=estilo'), hook: str('Nuevo hook si variable=hook'), prompt: str('Prompt nuevo si variable=concepto o composicion') }, required: ['creative_id', 'variable'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'origen_clientes',
+      description: 'UNIFICA el embudo: para cada lead/cliente que cierra Nora, de dónde vino y qué anuncio tocó (anuncio → campaña → creativo → prompt) con sus pagos. Incluye la COBERTURA de atribución (cuántos leads tienen origen demostrable). Si el origen es sin_origen se dice tal cual: no se adivina.',
+      parameters: { type: 'object', properties: { solo_cerrados: bool('Solo leads ganados o con pagos'), origen: { type: 'string', enum: ['anuncio', 'meta_declarado', 'sin_origen'], description: 'Filtrar por tipo de origen' }, limite: num('Máximo de filas (por defecto 25)') }, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'cerrar_experimento_creativos',
       description: 'Mide un experimento con datos reales y, solo si hay volumen, periodo y diferencia suficientes, declara ganador y guarda el aprendizaje. Con pocos datos responde "insuficiente" o "tendencia" y deja el experimento abierto.',
       parameters: { type: 'object', properties: { experiment_id: str('Id del experimento'), concluir_inconcluso: bool('true SOLO si el dueño pidió cerrar sin ganador: queda INCONCLUSO y no se guarda aprendizaje') }, required: ['experiment_id'] },
@@ -1936,6 +2010,53 @@ export async function runAdsTool(
       const r = await proponerPublicacion(ctx, args);
       ctx.proposals.push(r.propuesta);
       return JSON.stringify({ propuesta_creada: true, proposal_id: r.propuesta.id, resumen: r.propuesta.resumen });
+    }
+
+    case 'buscar_tendencias':
+      return JSON.stringify(await buscarTendencias(ctx.admin, ctx.userId, { service: args.servicio, tema: args.tema }));
+
+    case 'consultar_tendencias':
+      return JSON.stringify(await listarTendencias(ctx.admin, { service: args.servicio, limite: args.limite }));
+
+    case 'proponer_conceptos_creativos':
+      return JSON.stringify(await proponerConceptos(ctx.admin, ctx.userId, { service: args.servicio, objective: args.objetivo, audience: args.publico, cantidad: args.cantidad }));
+
+    case 'generar_prompt_creativo':
+      return JSON.stringify(await generarPrompt(ctx.admin, ctx.userId, {
+        service: args.servicio, objective: args.objetivo, audience: args.publico, concept: args.concepto, hook: args.hook, headline: args.titular,
+        cta: args.cta, visual_concept: args.escena, style: args.estilo, format: args.formato || '1:1', language: args.idioma || 'es',
+      }));
+
+    case 'generar_creativo': {
+      const r = await crearCreativo(ctx.admin, ctx.userId, {
+        service: args.servicio, objective: args.objetivo, audience: args.publico, concept: args.concepto, hook: args.hook, headline: args.titular,
+        primary_text: args.texto_principal, cta: args.cta, visual_concept: args.escena, style: args.estilo, format: args.formato || '1:1',
+        language: args.idioma || 'es', prompt: args.prompt, concept_id: args.concept_id,
+      }, 'generar');
+      return JSON.stringify({ ok: true, creative_id: r.creativo.id, version: r.creativo.version, formato: r.creativo.format, estado: r.creativo.status, modelo: r.modelo, image_url: r.image_url, nota: 'Borrador guardado. No está en Meta. Muéstralo con ![](image_url); hay que aprobarlo antes de proponer su publicación.' });
+    }
+
+    case 'regenerar_creativo': {
+      const r = await crearCreativo(ctx.admin, ctx.userId, {
+        from_creative_id: args.creative_id, changed_variable: args.variable, style: args.estilo, hook: args.hook, prompt: args.prompt,
+      } as any, 'regenerar');
+      return JSON.stringify({ ok: true, creative_id: r.creativo.id, version: r.creativo.version, cambio: r.creativo.changed_variable, image_url: r.image_url, nota: 'Versión nueva; la anterior se conserva.' });
+    }
+
+    case 'origen_clientes': {
+      let q = ctx.admin.from('origen_leads').select('lead_id, nombre, tramite_texto, etapa_nombre, ganado, origen, ad_name, campaign_name, creative_headline, creative_style, creative_version, prompt_name, prompt_version, pagos, ingresos, created_at').order('created_at', { ascending: false }).limit(Math.min(Number(args.limite) || 25, 100));
+      if (args.origen) q = q.eq('origen', args.origen);
+      if (args.solo_cerrados) q = q.or('ganado.eq.true,pagos.gt.0');
+      const [{ data, error }, { data: cob }] = await Promise.all([q, ctx.admin.from('cobertura_atribucion').select('*').maybeSingle()]);
+      if (error) throw new Error(error.message);
+      const sinAnuncio = !!cob && Number(cob.con_anuncio) === 0;
+      return JSON.stringify({
+        cobertura: cob || null,
+        interpretacion: sinAnuncio
+          ? 'ESPERANDO TRÁFICO REAL: ningún lead tiene anuncio de origen demostrable (meta_ads_referidos recibió ' + (cob?.referidos_recibidos ?? 0) + ' referidos). No se puede afirmar qué anuncio trajo a ningún cliente; no lo adivines.'
+          : 'Solo los leads con origen = anuncio tienen atribución demostrable; el resto es sin_origen.',
+        total_filas: (data || []).length, leads: data || [],
+      });
     }
 
     case 'cerrar_experimento_creativos':
