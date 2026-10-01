@@ -16,6 +16,8 @@ import {
   resolveAdsDateRange,
   syncMetaEntidades,
   listarMetaEntidadesPersistidas,
+  leerUltimaSincronizacion,
+  META_GRAPH_VERSION,
 } from './ads.ts';
 
 const MODEL = 'openai/gpt-oss-120b';
@@ -103,7 +105,25 @@ Deno.serve(async (req) => {
     return r.ok ? json(data) : json({ error: data?.error?.message || ('Groq ' + r.status) }, 502);
   }
 
-  // 2c. Consultas directas de Meta Ads para el Centro de Inteligencia
+  // 2d. Sincronización explícita desde Meta Graph API (botón "Sincronizar con Meta Ads" del panel).
+  //     Es la ÚNICA vía para traer estado y presupuestos: el frontend nunca ve credenciales.
+  if (body.accion === 'ads_sync') {
+    try {
+      const sync = await syncMetaEntidades(admin);
+      const ultima = await leerUltimaSincronizacion(admin);
+      return json({
+        ok: sync.disponible,
+        graph_version: META_GRAPH_VERSION,
+        sync,
+        ultima_sincronizacion: ultima,
+      }, sync.disponible ? 200 : 502);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return json({ ok: false, error: msg }, 500);
+    }
+  }
+
+// 2c. Consultas directas de Meta Ads para el Centro de Inteligencia
   if (body.accion === 'ads_data') {
     try {
       // El panel manda { periodo: '7d' | '14d' | '30d' } o { desde, hasta }: aquí se resuelve

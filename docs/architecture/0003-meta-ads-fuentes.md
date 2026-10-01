@@ -27,10 +27,37 @@ esta tabla y el código que la consulta, no al revés.
 4. **Fechas en hora de São Paulo.** El "hoy" se resuelve con fecha local en el navegador y con
    `America/Sao_Paulo` en la Edge Function: `toISOString()` puede devolver mañana por la noche.
 
+## Sincronización real con Meta Ads
+
+```
+Frontend → Edge Function `asistente` (accion: 'ads_sync') → Meta Graph API → meta_ads_entities
+```
+
+- **Endpoints**: `v20.0/{account_id}/campaigns`, `/adsets`, `/ads` (versión que ya usa el proyecto).
+- **Campos**: `id, name, status, effective_status, daily_budget, lifetime_budget, objective,
+  account_id` (+ `adset_id`/`campaign_id` en sus colecciones y `creative{name}` en anuncios).
+- **Paginación**: se sigue `paging.next` hasta agotar las páginas (tope de seguridad: 25).
+- **Presupuestos**: la Graph API entrega centavos; se guardan en **BRL** (`10000 → R$ 100,00`),
+  que es la unidad del panel.
+- **Identidad**: `UPSERT` sobre `(entity_type, entity_id)`. Los ids de Meta son únicos por
+  cuenta, así que sincronizar muchas veces nunca duplica campañas.
+- **Sin datos inventados**: si Meta falla, la caché **no se toca** y el panel sigue viendo el
+  último estado válido.
+- **Bitácora**: cada intento (bueno o fallido) se guarda en `meta_ads_sync_log` con `endpoint`,
+  `http_status`, `mensaje` y marca de tiempo. El panel muestra "Última sincronización: …" o
+  "nunca", y el aviso solo desaparece cuando hay datos reales.
+- **Credenciales**: `META_ADS_TOKEN` / `META_AD_ACCOUNT_ID` viven **solo** en los secretos de
+  Supabase (Edge Functions). Nunca en el frontend.
+
+Comprobación rápida sin credenciales: `supabase functions invoke asistente --data '{"accion":"ads_sync"}'`
+devuelve `ok:false` con el motivo (p. ej. credenciales ausentes) y lo deja registrado en la bitácora.
+
 ## Migraciones
 
 - `20260930000001_meta_ads_insights_access.sql` — `GRANT SELECT` de `meta_ads_insights` a
   `authenticated`/`service_role` (la tabla no lo tenía) e índice por `fecha`.
-- `20260930000002_meta_ads_entities.sql` — crea `meta_ads_entities` (caché del estado actual
-  que devuelve la Graph API), con índices, RLS por organización y escritura solo de
-  `service_role`.
+- `20260930000002_meta_ads_entities.sql` — crea `meta_ads_entities` (estado actual de campañas,
+  conjuntos y anuncios sincronizado desde la Graph API), con índices, RLS por organización y
+  escritura solo de `service_role`.
+- `20260930000003_meta_ads_sync_log.sql` — añade `last_synced_at` a `meta_ads_entities` y crea
+  `meta_ads_sync_log` (bitácora de sincronizaciones con endpoint, código HTTP y mensaje).

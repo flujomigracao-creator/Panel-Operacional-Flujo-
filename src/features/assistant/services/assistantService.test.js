@@ -130,12 +130,17 @@ test('18. el rango del período no genera fechas futuras por el desfase UTC', ()
 const leerServicio = () => sinComentarios(readFileSync(join(RAIZ, 'src', 'features', 'assistant', 'services', 'assistantService.js'), 'utf8'));
 const cuerpoGetAdsData = () => {
   const src = leerServicio();
-  return src.slice(src.indexOf('export async function getAdsData'), src.indexOf('export async function compareAdsPeriods'));
+  // Solo el cuerpo de carga: la acción de sincronización es un atajo explícito aparte.
+  const fin = src.indexOf('export async function sincronizarMetaAds');
+  return src.slice(src.indexOf('export async function getAdsData'), fin > 0 ? fin : src.indexOf('export async function compareAdsPeriods'));
 };
 
 test('19. el dashboard carga siempre desde Supabase y no depende del asistente', () => {
   const cuerpo = cuerpoGetAdsData();
+  const servicio = leerServicio();
   assert.ok(!cuerpo.includes('invoke('), 'getAdsData no debe invocar la Edge Function (un 400 de asistente no puede romper el dashboard)');
+  assert.ok(!servicio.includes("accion: 'ads_data'"), 'la carga del dashboard no pide datos al asistente');
+  assert.ok(servicio.includes("accion: 'ads_sync'"), 'la única llamada al asistente para Meta Ads es la sincronización explícita');
   assert.ok(cuerpo.includes("from('meta_ads_insights')"), 'métricas históricas: meta_ads_insights');
   assert.ok(cuerpo.includes("from('meta_ads_entities')"), 'estado y presupuesto: caché sincronizada desde Meta Graph API');
   assert.ok(cuerpo.includes("from('meta_ads_referidos')"), 'leads atribuidos: meta_ads_referidos');
@@ -188,4 +193,55 @@ test('23. la interfaz no muestra avisos técnicos del asistente y sí muestra la
   );
   assert.ok(vista.includes('Fuentes'), 'la vista debe indicar de dónde viene cada dato');
   assert.ok(vista.includes('data.fuentes'), 'la vista debe leer el bloque de fuentes del servicio');
+});
+
+// ── Sincronización real con Meta Graph API ──
+
+test('24. la sincronización sigue la paginación de la Graph API', () => {
+  const ads = sinComentarios(readFileSync(join(RAIZ, 'supabase', 'functions', 'asistente', 'ads.ts'), 'utf8'));
+  assert.ok(ads.includes("export const META_GRAPH_VERSION = 'v20.0'"), 'usa la versión de Graph API del proyecto');
+  assert.ok(ads.includes('json.paging?.next'), 'debe seguir el enlace de paginación de Meta');
+  assert.ok(ads.includes('while (url)'), 'debe recorrer todas las páginas, no solo la primera');
+  assert.ok(ads.includes('limit=500'), 'debe pedir páginas de tamaño razonable');
+});
+
+test('25. cada intento de sincronización queda registrado, incluidos los fallidos', () => {
+  const ads = sinComentarios(readFileSync(join(RAIZ, 'supabase', 'functions', 'asistente', 'ads.ts'), 'utf8'));
+  assert.ok(ads.includes('meta_ads_sync_log'), 'la bitácora de sincronización debe existir');
+  assert.ok(ads.includes('export async function registrarSync'), 'debe existir el registro de cada intento');
+  assert.ok(ads.includes('errores:'), 'debe guardar endpoint, código HTTP y mensaje de Meta');
+  assert.ok(ads.includes('console.error(\'[Meta Ads sync]'), 'los fallos se registran en el log del servidor');
+  // Si Meta falla entero, la caché NO se toca (el panel sigue viendo el último estado válido):
+  // el guardado (upsert) está después de esa guarda.
+  assert.ok(
+    ads.indexOf('fallos.length === lecturas.length') < ads.indexOf("upsert(filas, { onConflict: 'entity_type,entity_id' })"),
+    'un fallo total debe detectarse ANTES de escribir, para no sobrescribir el estado ya sincronizado'
+  );
+});
+
+test('26. la sincronización se dispara con la acción ads_sync y desde el servidor', () => {
+  const index = sinComentarios(readFileSync(join(RAIZ, 'supabase', 'functions', 'asistente', 'index.ts'), 'utf8'));
+  const servicio = leerServicio();
+  const vista = sinComentarios(
+    readFileSync(join(RAIZ, 'src', 'features', 'assistant', 'components', 'IntelligenceCenterView.jsx'), 'utf8')
+  );
+  assert.ok(index.includes("body.accion === 'ads_sync'"), 'la Edge Function debe exponer la acción ads_sync');
+  assert.ok(index.includes('await syncMetaEntidades(admin)'), 'ads_sync ejecuta la sincronización real');
+  assert.ok(servicio.includes("invoke({ accion: 'ads_sync' })"), 'el servicio llama a ads_sync');
+  assert.ok(vista.includes('api.sincronizarMetaAds()'), 'el panel ofrece sincronizar con un botón');
+  assert.ok(vista.includes('Última sincronización:'), 'el panel muestra la última sincronización');
+  assert.ok(vista.includes("'nunca'"), 'si nunca se sincronizó, debe decirlo explícitamente');
+});
+
+test('27. presupuesto en BRL y status/effective_status/last_synced_at separados', () => {
+  const ads = sinComentarios(readFileSync(join(RAIZ, 'supabase', 'functions', 'asistente', 'ads.ts'), 'utf8'));
+  const servicio = leerServicio();
+  // Graph API entrega centavos; el panel trabaja en BRL (10000 -> R$100,00).
+  assert.ok(ads.includes('Number(v) / 100'), 'los presupuestos deben convertirse de centavos a BRL');
+  assert.ok(ads.includes('status: c.status ?? null'), 'status se guarda por separado');
+  assert.ok(ads.includes('effective_status: c.effective_status ?? null'), 'effective_status se guarda por separado');
+  assert.ok(ads.includes('last_synced_at: sello'), 'last_synced_at se actualiza en cada sincronización');
+  assert.ok(servicio.includes('estado_operacional:'), 'el panel distingue el estado operacional');
+  // El aviso de "sin sincronizar" solo desaparece con datos reales, no por ocultarlo.
+  assert.ok(servicio.includes("estado: ultimoIntento ? (ultimoIntento.ok ? 'sincronizado' : 'fallida') : 'nunca'"), 'el aviso depende del estado real de la bitácora');
 });

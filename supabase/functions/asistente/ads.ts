@@ -337,41 +337,144 @@ async function aplicarEstadoPersistido(admin: SupabaseClient, campanas: AdsCampa
   });
 }
 
-/** Lectura directa de Meta SOLO para estado actual (sin insights: estado y presupuestos). */
-async function leerEntidadesMeta(
-  ruta: string,
-  fields: string
-): Promise<{ disponible: boolean; motivo?: string; datos: any[] }> {
+/** Versión de la Graph API que ya usa el proyecto (no cambiarla sin motivo). */
+export const META_GRAPH_VERSION = 'v20.0';
+
+export interface MetaLectura {
+  disponible: boolean;
+  endpoint: string;
+  http_status: number | null;
+  mensaje?: string;
+  motivo?: string;
+  paginas: number;
+  datos: any[];
+}
+
+/**
+ * Lee una colección de la Graph API siguiendo la paginación (`paging.next`).
+ * Meta devuelve las campañas en varias páginas: sin esto la sincronización se quedaría
+ * con la primera tanda y el resto de campañas nunca se guardaría.
+ */
+async function leerEntidadesMeta(ruta: string, fields: string): Promise<MetaLectura> {
   const { token } = getMetaConfig();
+  const endpoint = `${META_GRAPH_VERSION}/${ruta}`;
   if (!token) {
     return {
       disponible: false,
-      motivo: 'Faltan las credenciales META_ADS_TOKEN / FB_ACCESS_TOKEN en los secretos de Supabase.',
+      endpoint,
+      http_status: null,
+      mensaje: 'Faltan las credenciales META_ADS_TOKEN / FB_ACCESS_TOKEN en los secretos de Supabase.',
+      motivo: 'sin_credenciales',
+      paginas: 0,
       datos: [],
     };
   }
+
+  const datos: any[] = [];
+  let paginas = 0;
+  let status: number | null = null;
+  let url: string | null =
+    `https://graph.facebook.com/${META_GRAPH_VERSION}/${ruta}` +
+    `?fields=${encodeURIComponent(fields)}&limit=500&access_token=${encodeURIComponent(token)}`;
+
   try {
-    const url = new URL(`https://graph.facebook.com/v20.0/${ruta}`);
-    url.searchParams.set('fields', fields);
-    url.searchParams.set('limit', '500');
-    url.searchParams.set('access_token', token);
-    const r = await fetch(url.toString());
-    const json = await r.json().catch(() => ({}));
-    if (!r.ok || json.error) {
-      return { disponible: false, motivo: json?.error?.message || `Meta Graph API error (${r.status})`, datos: [] };
+    while (url) {
+      if (paginas >= 25) break; // tope de seguridad: nadie tiene 12.500 campañas en una cuenta
+      const r = await fetch(url);
+      status = r.status;
+      const json = await r.json().catch(() => ({}));
+      if (!r.ok || json?.error) {
+        return {
+          disponible: false,
+          endpoint,
+          http_status: r.status,
+          mensaje: json?.error?.message || `Meta Graph API respondió ${r.status}`,
+          motivo: 'error_graph_api',
+          paginas,
+          datos,
+        };
+      }
+      datos.push(...(json.data || []));
+      paginas++;
+      // Solo se sigue el `next` que devuelve Meta (ya incluye el token de la propia respuesta).
+      const next = json.paging?.next;
+      url = typeof next === 'string' && next.startsWith('https://graph.facebook.com/') ? next : null;
     }
-    return { disponible: true, datos: json.data || [] };
+    return { disponible: true, endpoint, http_status: status, paginas, datos };
   } catch (e) {
-    return { disponible: false, motivo: e instanceof Error ? e.message : String(e), datos: [] };
+    return {
+      disponible: false,
+      endpoint,
+      http_status: status,
+      mensaje: e instanceof Error ? e.message : String(e),
+      motivo: 'excepcion',
+      paginas,
+      datos,
+    };
   }
+}
+
+/** Error de una lectura de la Graph API (endpoint + código HTTP + mensaje), para la bitácora. */
+export interface MetaSyncError {
+  endpoint: string | null;
+  http_status: number | null;
+  mensaje: string;
+}
+
+/**
+ * Bitácora de sincronizaciones (`meta_ads_sync_log`). Se escribe SIEMPRE, también cuando
+ * Meta falla: así el panel puede decir "no se pudo sincronizar" y la fecha del último acierto
+ * sin borrar los datos válidos que ya había.
+ */
+export async function registrarSync(
+  admin: SupabaseClient,
+  datos: {
+    ok: boolean;
+    account_id?: string | null;
+    errores?: MetaSyncError[];
+    campanas?: number;
+    conjuntos?: number;
+    anuncios?: number;
+    iniciado_en: string;
+  }
+) {
+  const fin = new Date().toISOString();
+  const { error } = await admin.from('meta_ads_sync_log').insert({
+    organization_id: ORG_ID,
+    account_id: datos.account_id || null,
+    ok: datos.ok,
+    campanas: datos.campanas || 0,
+    conjuntos: datos.conjuntos || 0,
+    anuncios: datos.anuncios || 0,
+    errores: datos.errores || [],
+    iniciado_en: datos.iniciado_en,
+    terminado_en: fin,
+  });
+  if (error) console.error('[Meta Ads sync] no se pudo escribir meta_ads_sync_log:', error.message);
+}
+
+/** Último intento de sincronización registrado (lo usa el dashboard). */
+export async function leerUltimaSincronizacion(admin: SupabaseClient) {
+  const { data } = await admin
+    .from('meta_ads_sync_log')
+    .select('ok, account_id, campanas, conjuntos, anuncios, errores, iniciado_en, terminado_en')
+    .order('iniciado_en', { ascending: false })
+    .limit(1);
+  return (data || [])[0] || null;
 }
 
 export interface MetaSyncResult {
   disponible: boolean;
   motivo?: string;
+  account_id: string | null;
+  endpoint: string | null;
+  http_status: number | null;
+  errores: MetaSyncError[];
+  paginas: number;
   campanas: number;
   conjuntos: number;
   anuncios: number;
+  iniciado_en: string;
   sincronizado_en: string | null;
 }
 
@@ -381,12 +484,25 @@ export interface MetaSyncResult {
  */
 export async function syncMetaEntidades(admin: SupabaseClient): Promise<MetaSyncResult> {
   const { accountId } = getMetaConfig();
-  const ahora = new Date().toISOString();
-  const vacio = (motivo: string): MetaSyncResult => ({
-    disponible: false, motivo, campanas: 0, conjuntos: 0, anuncios: 0, sincronizado_en: null,
+  const iniciadoEn = new Date().toISOString();
+  const vacio = (motivo: string, endpoint: string | null = null, http: number | null = null): MetaSyncResult => ({
+    disponible: false,
+    motivo,
+    account_id: accountId || null,
+    endpoint,
+    http_status: http,
+    errores: [{ endpoint, http_status: http, mensaje: motivo }],
+    paginas: 0,
+    campanas: 0,
+    conjuntos: 0,
+    anuncios: 0,
+    iniciado_en: iniciadoEn,
+    sincronizado_en: null,
   });
   if (!accountId) {
-    return vacio('Faltan las credenciales META_ADS_TOKEN / META_AD_ACCOUNT_ID en los secretos de Supabase.');
+    const r = vacio('Faltan las credenciales META_ADS_TOKEN / META_AD_ACCOUNT_ID en los secretos de Supabase.');
+    await registrarSync(admin, { ok: false, account_id: null, errores: r.errores, iniciado_en: iniciadoEn });
+    return r;
   }
 
   const [campanas, conjuntos, anuncios] = await Promise.all([
@@ -394,19 +510,31 @@ export async function syncMetaEntidades(admin: SupabaseClient): Promise<MetaSync
     leerEntidadesMeta(`${accountId}/adsets`, 'id,name,status,effective_status,daily_budget,lifetime_budget,campaign_id,account_id'),
     leerEntidadesMeta(`${accountId}/ads`, 'id,name,status,effective_status,adset_id,campaign_id,account_id,creative{id,name}'),
   ]);
-  if (!(campanas.disponible || conjuntos.disponible || anuncios.disponible)) {
-    return vacio(campanas.motivo || conjuntos.motivo || anuncios.motivo || 'Meta Graph API no respondió');
+
+  const lecturas = [campanas, conjuntos, anuncios];
+  const fallos: MetaSyncError[] = lecturas
+    .filter(l => !l.disponible)
+    .map(l => ({ endpoint: l.endpoint, http_status: l.http_status, mensaje: l.mensaje || l.motivo || 'error desconocido' }));
+
+  // Si falló TODO, no se toca la caché: el panel sigue viendo el último estado válido.
+  if (fallos.length === lecturas.length) {
+    console.error('[Meta Ads sync] Graph API falló en todas las colecciones:', JSON.stringify(fallos));
+    await registrarSync(admin, { ok: false, account_id: accountId, errores: fallos, iniciado_en: iniciadoEn });
+    return vacio(fallos[0].mensaje, fallos[0].endpoint, fallos[0].http_status);
   }
+  // Fallos parciales: se registra y se sigue con lo que sí se pudo leer.
+  if (fallos.length) console.warn('[Meta Ads sync] fallos parciales:', JSON.stringify(fallos));
 
   // La Graph API devuelve presupuestos en centavos: se guardan en BRL como en el resto del panel.
   const bzl = (v: unknown) => (v === null || v === undefined || v === '' ? null : Number(v) / 100);
+  const sello = new Date().toISOString();
   const filas: Record<string, unknown>[] = [];
   for (const c of campanas.disponible ? campanas.datos : []) {
     filas.push({
       organization_id: ORG_ID, entity_type: 'campaign', entity_id: String(c.id), parent_id: null,
       name: c.name ?? null, status: c.status ?? null, effective_status: c.effective_status ?? null,
       daily_budget: bzl(c.daily_budget), lifetime_budget: bzl(c.lifetime_budget),
-      objective: c.objective ?? null, account_id: c.account_id ?? accountId, synced_at: ahora,
+      objective: c.objective ?? null, account_id: c.account_id ?? accountId, synced_at: sello, last_synced_at: sello,
     });
   }
   for (const s of conjuntos.disponible ? conjuntos.datos : []) {
@@ -415,7 +543,7 @@ export async function syncMetaEntidades(admin: SupabaseClient): Promise<MetaSync
       parent_id: s.campaign_id ? String(s.campaign_id) : null,
       name: s.name ?? null, status: s.status ?? null, effective_status: s.effective_status ?? null,
       daily_budget: bzl(s.daily_budget), lifetime_budget: bzl(s.lifetime_budget),
-      objective: null, account_id: s.account_id ?? accountId, synced_at: ahora,
+      objective: null, account_id: s.account_id ?? accountId, synced_at: sello, last_synced_at: sello,
     });
   }
   for (const a of anuncios.disponible ? anuncios.datos : []) {
@@ -424,19 +552,63 @@ export async function syncMetaEntidades(admin: SupabaseClient): Promise<MetaSync
       parent_id: a.adset_id ? String(a.adset_id) : null,
       name: a.name ?? null, status: a.status ?? null, effective_status: a.effective_status ?? null,
       daily_budget: null, lifetime_budget: null, objective: null,
-      account_id: a.account_id ?? accountId, creative_name: a.creative?.name ?? null, synced_at: ahora,
+      account_id: a.account_id ?? accountId, creative_name: a.creative?.name ?? null, synced_at: sello, last_synced_at: sello,
     });
   }
-  if (!filas.length) return { disponible: true, campanas: 0, conjuntos: 0, anuncios: 0, sincronizado_en: null };
+  const nCampanas = campanas.disponible ? campanas.datos.length : 0;
+  const nConjuntos = conjuntos.disponible ? conjuntos.datos.length : 0;
+  const nAnuncios = anuncios.disponible ? anuncios.datos.length : 0;
+  if (!filas.length) {
+    const motivo = fallos[0]?.mensaje || 'Meta no devolvió ninguna campaña en esta cuenta.';
+    await registrarSync(admin, { ok: false, account_id: accountId, errores: fallos, iniciado_en: iniciadoEn });
+    return { ...vacio(motivo), account_id: accountId, errores: fallos };
+  }
 
+  // Identidad lógica: (entity_type, entity_id). Los ids de Meta son únicos por cuenta, así que
+  // sincronizar N veces NO duplica campañas: siempre es un UPSERT del mismo registro.
   const { error } = await admin.from('meta_ads_entities').upsert(filas, { onConflict: 'entity_type,entity_id' });
-  if (error) return vacio(`No se pudo guardar meta_ads_entities: ${error.message}`);
+  if (error) {
+    const motivo = `No se pudo guardar meta_ads_entities: ${error.message}`;
+    console.error('[Meta Ads sync]', motivo);
+    await registrarSync(admin, {
+      ok: false,
+      account_id: accountId,
+      errores: [...fallos, { endpoint: 'supabase:meta_ads_entities', http_status: null, mensaje: motivo }],
+      campanas: nCampanas,
+      conjuntos: nConjuntos,
+      anuncios: nAnuncios,
+      iniciado_en: iniciadoEn,
+    });
+    return vacio(motivo);
+  }
+
+  const fin = new Date().toISOString();
+  await registrarSync(admin, {
+    ok: fallos.length === 0,
+    account_id: accountId,
+    errores: fallos,
+    campanas: nCampanas,
+    conjuntos: nConjuntos,
+    anuncios: nAnuncios,
+    iniciado_en: iniciadoEn,
+  });
+  console.log(
+    `[Meta Ads sync] ${nCampanas} campañas, ${nConjuntos} conjuntos, ${nAnuncios} anuncios ` +
+    `(páginas ${campanas.paginas}/${conjuntos.paginas}/${anuncios.paginas})`
+  );
+
   return {
     disponible: true,
-    campanas: campanas.disponible ? campanas.datos.length : 0,
-    conjuntos: conjuntos.disponible ? conjuntos.datos.length : 0,
-    anuncios: anuncios.disponible ? anuncios.datos.length : 0,
-    sincronizado_en: ahora,
+    account_id: accountId,
+    endpoint: campanas.endpoint,
+    http_status: campanas.http_status,
+    errores: fallos,
+    paginas: campanas.paginas,
+    campanas: nCampanas,
+    conjuntos: nConjuntos,
+    anuncios: nAnuncios,
+    iniciado_en: iniciadoEn,
+    sincronizado_en: fin,
   };
 }
 

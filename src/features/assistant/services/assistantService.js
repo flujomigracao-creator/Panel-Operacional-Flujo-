@@ -146,11 +146,19 @@ export async function getAdsData(rango) {
   // leyendo la Meta Graph API con credenciales de servidor. El frontend solo lee la caché.
   const qEntidades = supabase
     .from('meta_ads_entities')
-    .select('entity_type, entity_id, parent_id, name, status, effective_status, daily_budget, lifetime_budget, objective, account_id, creative_name, synced_at')
+    .select('entity_type, entity_id, parent_id, name, status, effective_status, daily_budget, lifetime_budget, objective, account_id, creative_name, synced_at, last_synced_at')
     .limit(2000);
 
   // Referidos de Meta Ads: la tabla solo guarda `ad_id` y el payload crudo del webhook.
   const qReferidos = supabase.from('meta_ads_referidos').select('ad_id, raw, body').limit(1000);
+
+  // Bitácora de sincronizaciones con Meta: permite mostrar "Última sincronización" y por qué
+  // falló el último intento, sin adivinar.
+  const qSync = supabase
+    .from('meta_ads_sync_log')
+    .select('ok, account_id, campanas, conjuntos, anuncios, errores, iniciado_en, terminado_en')
+    .order('iniciado_en', { ascending: false })
+    .limit(5);
 
   let qLeads = supabase
     .from('comercial_leads')
@@ -164,12 +172,13 @@ export async function getAdsData(rango) {
   if (periodo.desde) qPagos = qPagos.gte('paid_at', `${periodo.desde}T00:00:00`);
   if (periodo.hasta) qPagos = qPagos.lte('paid_at', `${periodo.hasta}T23:59:59`);
 
-  const [insightsRes, entidadesRes, referidosRes, leadsRes, pagosRes] = await Promise.all([
+  const [insightsRes, entidadesRes, referidosRes, leadsRes, pagosRes, syncRes] = await Promise.all([
     consultar(qInsights, 'meta_ads_insights'),
     consultar(qEntidades, 'meta_ads_entities'),
     consultar(qReferidos, 'meta_ads_referidos'),
     consultar(qLeads, 'comercial_leads'),
     consultar(qPagos, 'payments'),
+    consultar(qSync, 'meta_ads_sync_log'),
   ]);
 
   // Las métricas históricas son la fuente principal: si fallan, es un error real y se propaga.
@@ -215,7 +224,9 @@ export async function getAdsData(rango) {
         objective: cache?.objective || null,
         daily_budget: cache?.daily_budget != null ? Number(cache.daily_budget) : undefined,
         lifetime_budget: cache?.lifetime_budget != null ? Number(cache.lifetime_budget) : undefined,
-        estado_actualizado_en: cache?.synced_at || null,
+        estado_actualizado_en: cache?.last_synced_at || cache?.synced_at || null,
+        // Estado operacional de Meta (puede diferir de `status`, p. ej.learning / in_process).
+        estado_operacional: cache?.effective_status || null,
         // Leads atribuidos a ESTA campaña (evidencia real de meta_ads_referidos). No se suman
         // los leads comerciales: esos no tienen campaña demostrable.
         leads_atribuidos: referred.por_campana[cid] || 0,
@@ -294,11 +305,33 @@ export async function getAdsData(rango) {
   const ultimaSync = entidades.reduce((max, e) => (e.synced_at && e.synced_at > max ? e.synced_at : max), '');
 
   // Avisos de negocio: lo que la fuente no tiene se informa, nunca se rellena con inventos.
+  // Estado de la sincronización con Meta (bitácora real, no suposiciones).
+  const intentos = syncRes.data || [];
+  const ultimoIntento = intentos[0] || null;
+  const ultimaOk = intentos.find(i => i.ok) || null;
+  const sincronizacion = {
+    estado: ultimoIntento ? (ultimoIntento.ok ? 'sincronizado' : 'fallida') : 'nunca',
+    ultima_ok: ultimaOk?.terminado_en || ultimaOk?.iniciado_en || null,
+    ultimo_intento: ultimoIntento?.iniciado_en || null,
+    campanas: ultimaOk?.campanas ?? null,
+    conjuntos: ultimaOk?.conjuntos ?? null,
+    anuncios: ultimaOk?.anuncios ?? null,
+    account_id: ultimaOk?.account_id || null,
+    error_ultimo: ultimoIntento && !ultimoIntento.ok
+      ? (Array.isArray(ultimoIntento.errores) && ultimoIntento.errores.length
+        ? ultimoIntento.errores[0].mensaje
+        : 'Error desconocido de la Graph API')
+      : null,
+  };
   const conEstado = campanas.some(c => c.status);
-  if (rows.length > 0 && !conEstado) {
-    advertencias.push('Estado y presupuesto de campañas sin sincronizar todavía con Meta Ads.');
+  if (sincronizacion.estado === 'nunca') {
+    advertencias.push('Estado y presupuesto sin sincronizar: todavía no se ha sincronizado con Meta Ads.');
+  } else if (sincronizacion.estado === 'fallida') {
+    advertencias.push(
+      `No se pudo sincronizar Meta Ads. Última sincronización disponible: ${sincronizacion.ultima_ok ? sincronizacion.ultima_ok.slice(0, 16).replace('T', ' ') : 'nunca'}.`
+    );
   }
-  if (referred.sin_campana > 0 && referred.total === 0) {
+  if (referidos.sin_campana > 0 && referred.total === 0) {
     advertencias.push('Hay referidos de Meta Ads pero no se puede determinar a qué campaña pertenecen.');
   }
 
@@ -324,6 +357,7 @@ export async function getAdsData(rango) {
     campanas,
     conjuntos,
     anuncios,
+    sincronizacion,
     // Fuentes visibles en la interfaz (requisito: el usuario ve de dónde sale cada número).
     fuentes: {
       metricas_historicas: 'Meta Ads · Supabase (meta_ads_insights)',
@@ -388,6 +422,21 @@ export async function getAdsData(rango) {
       origen: 'local_por_defecto',
     },
   };
+}
+
+/**
+ * Sincroniza estado, presupuestos, conjuntos y anuncios desde la Meta Graph API.
+ * Única acción del panel que llama a la Edge Function para Meta Ads: las credenciales viven
+ * en los secretos de Supabase y nunca chegam al navegador.
+ */
+export async function sincronizarMetaAds() {
+  const res = await invoke({ accion: 'ads_sync' });
+  if (!res?.ok) {
+    const err = new Error(res?.error || res?.sync?.motivo || 'No se pudo sincronizar Meta Ads.');
+    err.sync = res?.sync || null;
+    throw err;
+  }
+  return res;
 }
 
 export async function compareAdsPeriods(actualRange, previoRange) {

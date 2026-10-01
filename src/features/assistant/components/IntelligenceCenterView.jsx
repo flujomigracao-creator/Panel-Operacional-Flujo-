@@ -28,6 +28,26 @@ export default function IntelligenceCenterView() {
   const [dateRange, setDateRange] = useState('7d'); // '7d' | '14d' | '30d' | 'custom'
   // Período personalizado: se pasan fechas explícitas (YYYY-MM-DD) al servicio.
   const [rangoCustom, setRangoCustom] = useState({ desde: '', hasta: '' });
+  const [sincronizando, setSincronizando] = useState(false);
+  const [syncMsg, setSyncMsg] = useState(null);
+
+  // Sincronización real con Meta Graph API (la hace la Edge Function con credenciales de servidor).
+  const sincronizar = async () => {
+    setSincronizando(true);
+    setSyncMsg(null);
+    try {
+      const res = await api.sincronizarMetaAds();
+      setSyncMsg({
+        ok: true,
+        texto: `Sincronizado con Meta Ads: ${res.sync?.campanas ?? 0} campañas, ${res.sync?.conjuntos ?? 0} conjuntos y ${res.sync?.anuncios ?? 0} anuncios.`,
+      });
+      await loadData();
+    } catch (err) {
+      setSyncMsg({ ok: false, texto: `No se pudo sincronizar Meta Ads: ${err.message}` });
+    } finally {
+      setSincronizando(false);
+    }
+  };
 
   const pedirRango = () =>
     dateRange === 'custom'
@@ -84,6 +104,7 @@ export default function IntelligenceCenterView() {
   const hallazgos = data?.analisis?.hallazgos || [];
   const atribucion = data?.atribucion || {};
   const limites = data?.limites || {};
+  const sincronizacion = data?.sincronizacion || null;
 
   return (
     <div className="flex-1 space-y-6 overflow-y-auto p-6">
@@ -174,7 +195,35 @@ export default function IntelligenceCenterView() {
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             <span>Actualizar</span>
           </button>
+
+          <button
+            onClick={sincronizar}
+            disabled={sincronizando}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-brand-primary/30 bg-brand-primary/10 px-3 py-1.5 text-xs font-medium text-brand-primary hover:bg-brand-primary/20 disabled:opacity-50"
+            title="Traer estado, presupuestos, conjuntos y anuncios desde Meta Ads"
+          >
+            <RefreshCw size={13} className={sincronizando ? 'animate-spin' : ''} />
+            <span>{sincronizando ? 'Sincronizando…' : 'Sincronizar con Meta'}</span>
+          </button>
+
+          <span className="text-[11px] text-chrome-text-muted">
+            Última sincronización:{' '}
+            {sincronizacion?.ultima_ok ? new Date(sincronizacion.ultima_ok).toLocaleString('es') : 'nunca'}
+            {sincronizacion?.campanas != null ? ` · ${sincronizacion.campanas} campañas` : ''}
+          </span>
         </div>
+
+        {syncMsg && (
+          <div
+            className={`rounded-lg border px-3 py-2 text-xs ${
+              syncMsg.ok
+                ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
+                : 'border-amber-500/30 bg-amber-500/5 text-amber-400'
+            }`}
+          >
+            {syncMsg.texto}
+          </div>
+        )}
       </div>
 
       {/* Barra de Acciones Rápidas con el Asistente */}
