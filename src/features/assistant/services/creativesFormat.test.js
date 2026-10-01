@@ -25,3 +25,21 @@ test('el comparador cubre las métricas pedidas', () => {
   const claves = METRICAS.map(m => m.key);
   for (const k of ['impresiones', 'ctr', 'conversaciones', 'costo_por_conversacion', 'clientes_pagaron', 'costo_por_cliente']) assert.ok(claves.includes(k), k);
 });
+
+import { resumirPorServicio } from './creativesFormat.js';
+
+test('resumirPorServicio suma datos reales y deja null cuando no hay ninguno', () => {
+  const r = resumirPorServicio(
+    [
+      { service: 'CPF', conversaciones: 7, clientes_pagaron: 1, ingresos: 100, leads: 2 },
+      { service: 'CPF', conversaciones: 3, clientes_pagaron: null, ingresos: null, leads: null },
+      { service: 'RNM', conversaciones: null, clientes_pagaron: null, ingresos: null, leads: null },
+    ],
+    [{ service: 'CPF', status: 'completed' }, { service: 'CPF', status: 'running' }],
+  );
+  const cpf = r.find(x => x.servicio === 'CPF');
+  assert.deepEqual([cpf.creativos, cpf.experimentos, cpf.concluidos, cpf.conversaciones, cpf.clientes, cpf.ingresos], [2, 2, 1, 10, 1, 100]);
+  const rnm = r.find(x => x.servicio === 'RNM');
+  assert.equal(rnm.conversaciones, null);
+  assert.equal(rnm.clientes, null);
+});

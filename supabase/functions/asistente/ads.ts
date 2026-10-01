@@ -1629,7 +1629,7 @@ export const ADS_TOOL_DEFS = [
     function: {
       name: 'cerrar_experimento_creativos',
       description: 'Mide un experimento con datos reales y, solo si hay volumen, periodo y diferencia suficientes, declara ganador y guarda el aprendizaje. Con pocos datos responde "insuficiente" o "tendencia" y deja el experimento abierto.',
-      parameters: { type: 'object', properties: { experiment_id: str('Id del experimento') }, required: ['experiment_id'] },
+      parameters: { type: 'object', properties: { experiment_id: str('Id del experimento'), concluir_inconcluso: bool('true SOLO si el dueño pidió cerrar sin ganador: queda INCONCLUSO y no se guarda aprendizaje') }, required: ['experiment_id'] },
     },
   },
 ];
@@ -1939,7 +1939,7 @@ export async function runAdsTool(
     }
 
     case 'cerrar_experimento_creativos':
-      return JSON.stringify(await cerrarExperimentoCreativos(ctx.admin, args.experiment_id));
+      return JSON.stringify(await cerrarExperimentoCreativos(ctx.admin, args.experiment_id, { concluirInconcluso: args.concluir_inconcluso === true }));
 
     default:
       throw new Error(`Herramienta de Ads no reconocida: ${name}`);

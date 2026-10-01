@@ -12,7 +12,7 @@ import { ORG_ID, getMetaConfig, META_GRAPH_VERSION } from './ads.ts';
 import { consultarAprendizajes, proponerExperimentoV4, type ExperimentDesignParams } from './campaign_science.ts';
 import {
   CONCEPTOS, construirPromptPublicitario, tamanoOpenAI, aspectoGemini,
-  validarCreativo, tipoImagen, evaluarGanador, type MetricasVariante,
+  validarCreativo, tipoImagen, evaluarGanador, UMBRALES_POR_DEFECTO, type MetricasVariante,
 } from './creative_logic.ts';
 
 const MAX_GENERADOS_POR_DIA = 40; // tope de costo: cada generación de imagen se paga al proveedor
@@ -113,7 +113,7 @@ interface CreativoInput {
   service: string; objective?: string; concept?: string; format?: string;
   hook?: string; headline?: string; primary_text?: string; cta?: string; visual_concept?: string;
   prompt?: string; prompt_id?: string; prompt_name?: string; variables?: Record<string, string>;
-  parent_creative_id?: string; image_base64?: string; mime?: string;
+  parent_creative_id?: string; image_base64?: string; mime?: string; concept_id?: string;
 }
 
 async function crearCreativo(admin: SupabaseClient, userId: string, i: CreativoInput, modo: 'generar' | 'subir') {
@@ -142,12 +142,13 @@ async function crearCreativo(admin: SupabaseClient, userId: string, i: CreativoI
     id, organization_id: ORG_ID, service: i.service, objective: i.objective || null, concept: i.concept || null, format: formato,
     prompt_id: prompt.id, prompt_text: promptTexto, prompt_version: prompt.version,
     hook: i.hook || null, headline: i.headline || null, primary_text: i.primary_text || null, cta: i.cta || null, visual_concept: i.visual_concept || null,
-    image_path, image_source: modo === 'generar' ? 'generated' : 'uploaded', parent_creative_id: i.parent_creative_id || null, created_by: userId,
+    image_path, image_source: modo === 'generar' ? 'generated' : 'uploaded', parent_creative_id: i.parent_creative_id || null, concept_id: i.concept_id || null, created_by: userId,
   }).select(CAMPOS_CREATIVO).single();
   if (error || !data) {
     await admin.storage.from('creatives').remove([image_path]);
     throw new Error(`No se pudo guardar el creativo: ${error?.message}`);
   }
+  if (i.concept_id) await admin.from('creative_concepts').update({ status: 'used' }).eq('id', i.concept_id);
   return { ok: true, creativo: data, proveedor };
 }
 
@@ -159,6 +160,7 @@ export const subirCreativo = (admin: SupabaseClient, userId: string, i: Creativo
 export async function proponerConceptos(
   admin: SupabaseClient, groq: (p: Record<string, unknown>) => Promise<any>, model: string,
   i: { service: string; objective?: string; cantidad?: number },
+  userId?: string,
 ) {
   const err = validarCreativo({ service: i.service });
   if (err) throw new Error(err);
@@ -192,7 +194,13 @@ export async function proponerConceptos(
     };
   });
   if (!conceptos.length) throw new Error('La IA no devolvió conceptos válidos. Inténtalo de nuevo.');
-  return { ok: true, conceptos, basado_en_datos: tieneHistorial };
+  // Cada concepto queda registrado, se genere o no su imagen.
+  const { data: guardados } = await admin.from('creative_concepts').insert(conceptos.map((c: any) => ({
+    organization_id: ORG_ID, service: i.service, objective: i.objective || null, concept: c.concept, hook: c.hook, headline: c.headline,
+    primary_text: c.primary_text, cta: c.cta, visual_concept: c.visual_concept, prompt: c.prompt, based_on_data: tieneHistorial, created_by: userId || null,
+  }))).select('id');
+  const conId = conceptos.map((c: any, k: number) => ({ ...c, concept_id: guardados?.[k]?.id ?? null }));
+  return { ok: true, conceptos: conId, basado_en_datos: tieneHistorial };
 }
 
 // ── Actualizar / aprobar / vincular a anuncios REALES de Meta ──────────────────────
@@ -332,6 +340,7 @@ export async function crearExperimentoCreativos(
       variant_name: idx === 0 ? 'Control' : `Variante ${String.fromCharCode(65 + idx - 1)}`,
       hook: c.hook || c.headline || '', copy: c.primary_text || '', cta: c.cta || '',
       creative_reference: c.image_path, creative_asset_id: c.id,
+      variable_changed: idx === 0 ? 'control' : i.variable_tested,
     })),
     decision_rules: {
       scale_condition: 'Ganador con confianza media o alta (volumen, periodo y consistencia suficientes).',
@@ -346,7 +355,7 @@ export async function crearExperimentoCreativos(
 
 // ── Cierre de experimento: medir con datos reales y aprender SOLO si hay evidencia ──
 
-export async function cerrarExperimentoCreativos(admin: SupabaseClient, experimentId: string) {
+export async function cerrarExperimentoCreativos(admin: SupabaseClient, experimentId: string, opts: { concluirInconcluso?: boolean } = {}) {
   const { data: exp } = await admin.from('campaign_experiments').select('*').eq('id', experimentId).maybeSingle();
   if (!exp) throw new Error('Experimento no encontrado.');
   const { data: variantes } = await admin.from('campaign_variants').select('id, variant_name, ad_id, creative_asset_id').eq('experiment_id', experimentId);
@@ -379,7 +388,15 @@ export async function cerrarExperimentoCreativos(admin: SupabaseClient, experime
     });
   }
 
-  const evaluacion = evaluarGanador(metricas, nDias);
+  // Umbrales congelados al crear el experimento (si no existen, los de por defecto).
+  const umbrales = { ...UMBRALES_POR_DEFECTO, ...(exp.decision_thresholds || {}) };
+  const evaluacion = evaluarGanador(metricas, nDias, umbrales);
+  if (evaluacion.veredicto !== 'ganador' && opts.concluirInconcluso) {
+    // El dueño decide cerrar sin ganador: queda INCONCLUSO, sin aprendizaje.
+    await admin.from('campaign_hypotheses').update({ result: 'inconclusive', confidence: 0.3, evidence: { ...evaluacion }, decision: `Inconcluso: ${evaluacion.motivo}` }).eq('experiment_id', experimentId);
+    await admin.from('campaign_experiments').update({ status: 'completed', end_date: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', experimentId);
+    return { ok: true, ...evaluacion, veredicto: 'inconcluso', mensaje: `Experimento cerrado como INCONCLUSO. ${evaluacion.motivo} No se guardó ningún aprendizaje.` };
+  }
   if (evaluacion.veredicto !== 'ganador') {
     return { ok: true, ...evaluacion, mensaje: `Sin ganador declarado. ${evaluacion.motivo} El experimento sigue abierto.` };
   }

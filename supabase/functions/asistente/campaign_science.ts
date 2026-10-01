@@ -19,7 +19,7 @@ import {
   resolveAdsDateRange,
   type AdsDateRange,
 } from './ads.ts';
-import { evaluarGanador } from './creative_logic.ts';
+import { evaluarGanador, UMBRALES_POR_DEFECTO } from './creative_logic.ts';
 
 // ── Tipos y Esquemas del Motor Científico V4 ──
 
@@ -90,6 +90,7 @@ export interface ExperimentVariantInput {
   cta: string;
   creative_reference?: string;
   creative_asset_id?: string; // creativo del Laboratorio V5 (public.creatives)
+  variable_changed?: string; // qué cambió frente al control ('control' para el control)
   audience_definition?: Record<string, unknown>;
 }
 
@@ -497,6 +498,7 @@ export async function proponerExperimentoV4(
       budget: params.daily_budget,
       control_description: params.control_description,
       treatment_description: params.treatment_description,
+      decision_thresholds: UMBRALES_POR_DEFECTO,
       created_by: ctx.userId,
     })
     .select('id, name, service, status, hypothesis')
@@ -515,6 +517,7 @@ export async function proponerExperimentoV4(
     cta: v.cta,
     creative_reference: v.creative_reference || null,
     creative_asset_id: v.creative_asset_id || null,
+    variable_changed: v.variable_changed || null,
     audience_definition: v.audience_definition || params.audience_definition || {},
   }));
 

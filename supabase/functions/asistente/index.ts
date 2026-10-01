@@ -120,7 +120,7 @@ Deno.serve(async (req) => {
       if (a === 'creative_prompt_guardar') return json(await guardarPrompt(admin, u.id, body));
       if (a === 'creative_proponer_publicacion') return json(await proponerPublicacion({ admin, userId: u.id }, body));
       if (a === 'creative_experimento') return json({ ok: true, ...(await crearExperimentoCreativos({ admin, userId: u.id }, body)) });
-      if (a === 'creative_cerrar_experimento') return json(await cerrarExperimentoCreativos(admin, String(body.experiment_id)));
+      if (a === 'creative_cerrar_experimento') return json(await cerrarExperimentoCreativos(admin, String(body.experiment_id), { concluirInconcluso: body.concluir_inconcluso === true }));
       if (a === 'creative_conceptos') {
         const key = Deno.env.get('GROQ_API_KEY');
         if (!key) return json({ ok: false, error: 'Falta configurar el secreto GROQ_API_KEY en Supabase.' }, 500);
@@ -131,7 +131,7 @@ Deno.serve(async (req) => {
           if (!r.ok) throw new Error('Groq ' + r.status);
           return await r.json();
         };
-        return json(await proponerConceptos(admin, llamar, MODEL, body));
+        return json(await proponerConceptos(admin, llamar, MODEL, body, u.id));
       }
       return json({ ok: false, error: 'Acción de creativos desconocida' }, 400);
     } catch (e) {

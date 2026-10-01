@@ -31,3 +31,29 @@ export function mejoresIndices(valores, mejor) {
   if (validos.every(v => v === objetivo)) return [];
   return nums.map((v, i) => (v === objetivo ? i : -1)).filter(i => i >= 0);
 }
+
+/**
+ * Resumen de aprendizaje por servicio con datos reales: experimentos, creativos y embudo.
+ * Suma solo valores presentes; si ningún creativo del servicio tiene dato, el total es null (no 0).
+ */
+export function resumirPorServicio(creativos = [], experimentos = []) {
+  const suma = (lista, k) => {
+    const v = lista.map(c => c[k]).filter(x => x !== null && x !== undefined).map(Number);
+    return v.length ? v.reduce((a, b) => a + b, 0) : null;
+  };
+  const servicios = [...new Set([...creativos.map(c => c.service), ...experimentos.map(e => e.service)].filter(Boolean))];
+  return servicios.map(servicio => {
+    const cs = creativos.filter(c => c.service === servicio);
+    const es = experimentos.filter(e => e.service === servicio);
+    return {
+      servicio,
+      experimentos: es.length,
+      concluidos: es.filter(e => e.status === 'completed').length,
+      creativos: cs.length,
+      conversaciones: suma(cs, 'conversaciones'),
+      leads: suma(cs, 'leads'),
+      clientes: suma(cs, 'clientes_pagaron'),
+      ingresos: suma(cs, 'ingresos'),
+    };
+  });
+}

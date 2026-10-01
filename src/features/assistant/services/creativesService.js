@@ -17,7 +17,7 @@ export const CONCEPTOS = {
 };
 export const ESTADO_LABEL = { draft: 'Borrador', approved: 'Aprobado', published: 'Publicado', archived: 'Archivado' };
 
-export { METRICAS, formatear, mejoresIndices } from './creativesFormat';
+export { METRICAS, formatear, mejoresIndices, resumirPorServicio } from './creativesFormat';
 
 export async function listarCreativos() {
   const { data, error } = await supabase.from('creative_resultados').select('*').order('created_at', { ascending: false }).limit(300);
@@ -55,7 +55,19 @@ export const actualizarCreativo = (id, patch) => invoke({ accion: 'creative_actu
 export const guardarPrompt = (body) => invoke({ accion: 'creative_prompt_guardar', ...body });
 export const proponerPublicacion = (creative_id, adset_id) => invoke({ accion: 'creative_proponer_publicacion', creative_id, adset_id });
 export const crearExperimento = (body) => invoke({ accion: 'creative_experimento', ...body });
-export const cerrarExperimento = (experiment_id) => invoke({ accion: 'creative_cerrar_experimento', experiment_id });
+export const cerrarExperimento = (experiment_id, concluirInconcluso = false) =>
+  invoke({ accion: 'creative_cerrar_experimento', experiment_id, concluir_inconcluso: concluirInconcluso });
+
+/** Estado real de la conexión con Meta (token, permisos, cuenta, pagos). Nunca incluye el token. */
+export async function estadoMeta() {
+  const { data, error } = await supabase.functions.invoke('estado-meta', { body: {} });
+  if (error) {
+    let detalle = error.message;
+    try { detalle = (await error.context?.json?.())?.error || detalle; } catch { /* sin JSON */ }
+    throw new Error(detalle);
+  }
+  return data;
+}
 
 /** Archivo de imagen → base64 sin prefijo data:. */
 export function archivoABase64(archivo) {

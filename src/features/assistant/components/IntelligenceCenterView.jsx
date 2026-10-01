@@ -29,6 +29,8 @@ import CampaignCard from './CampaignCard';
 import CampaignTable from './CampaignTable';
 import CreativesView from './creatives/CreativesView';
 import { cerrarExperimento } from '../services/creativesService';
+import MetaStatusBanner from './MetaStatusBanner';
+import LearningSummary from './LearningSummary';
 import PerformanceChart from './PerformanceChart';
 import { LoadingSpinner } from '@/shared/components/ui/LoadingSpinner';
 
@@ -102,7 +104,14 @@ export default function IntelligenceCenterView() {
     try {
       const r = await cerrarExperimento(exp.id);
       if (r.veredicto === 'ganador') toast.success(`Ganador: ${r.ganador}. Aprendizaje guardado.`);
-      else toast(r.mensaje || r.motivo || 'Sin datos suficientes todavía.', { duration: 7000 });
+      else {
+        toast(r.mensaje || r.motivo || 'Sin datos suficientes todavía.', { duration: 7000 });
+        // Sin evidencia suficiente: el dueño puede cerrarlo explícitamente como INCONCLUSO (sin aprendizaje).
+        if (r.veredicto !== 'inconcluso' && window.confirm('No hay evidencia suficiente para declarar ganador. ¿Cerrar este experimento como INCONCLUSO? (no se guardará ningún aprendizaje)')) {
+          const c = await cerrarExperimento(exp.id, true);
+          toast(c.mensaje || 'Experimento cerrado como inconcluso.', { duration: 6000 });
+        }
+      }
       await loadData();
     } catch (err) {
       toast.error(err.message || 'No se pudo medir el experimento');
@@ -271,6 +280,8 @@ export default function IntelligenceCenterView() {
           </div>
         )}
       </div>
+
+      <MetaStatusBanner />
 
       {/* Selector de Pestañas Principales (Sección 25) */}
       <div className="flex border-b border-chrome-border/60 gap-1">
@@ -763,6 +774,7 @@ export default function IntelligenceCenterView() {
           {/* ── PESTAÑA 4: LEARNING ENGINE (APRENDIZAJES ACUMULADOS) ── */}
           {activeTab === 'aprendizajes' && (
             <div className="space-y-4">
+              <LearningSummary experiments={experiments} />
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-chrome-text-active flex items-center gap-2">
