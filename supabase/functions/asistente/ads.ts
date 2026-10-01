@@ -1306,7 +1306,7 @@ const CREATIVO_PROPS: Record<string, unknown> = {
   idioma: { type: 'string', enum: ['es', 'pt'] },
 };
 
-export const ADS_TOOL_DEFS = [
+const ADS_TOOL_DEFS_BASE = [
   {
     type: 'function',
     function: {
@@ -1716,6 +1716,20 @@ export const ADS_TOOL_DEFS = [
     },
   },
 ];
+
+// Groq valida el esquema de forma estricta y el modelo suele mandar null en los parámetros opcionales
+// (400 "expected string, but got null"). Todo parámetro NO obligatorio acepta null; los handlers ya lo tratan como ausente.
+export const ADS_TOOL_DEFS = ADS_TOOL_DEFS_BASE.map((t: any) => {
+  const p = t?.function?.parameters;
+  if (!p?.properties) return t;
+  const req = new Set<string>(p.required || []);
+  const properties: Record<string, any> = {};
+  for (const [k, v] of Object.entries<any>(p.properties)) {
+    if (req.has(k) || !v || typeof v.type !== 'string') { properties[k] = v; continue; }
+    properties[k] = { ...v, type: [v.type, 'null'], ...(Array.isArray(v.enum) ? { enum: [...v.enum, null] } : {}) };
+  }
+  return { ...t, function: { ...t.function, parameters: { ...p, properties } } };
+});
 
 // ── Ejecución de Herramientas de Ads en el ciclo del Asistente ──
 export async function runAdsTool(
