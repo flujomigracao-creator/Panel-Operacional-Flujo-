@@ -2448,22 +2448,29 @@ export async function executeAdsProposal(
         let creativeId: string | null = null;
         let errorVariante: string | null = null;
         try {
-          const adsetRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/adsets`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: `${d.nombre_campana} - ${v.variant_name || 'Variante'}`,
-              campaign_id: metaCampaignId,
-              billing_event: 'IMPRESSIONS',
-              optimization_goal: mensajes ? 'CONVERSATIONS' : (objetivoMeta(objetivoPedido) === 'OUTCOME_LEADS' ? 'LEAD_GENERATION' : 'LINK_CLICKS'),
-              ...(mensajes ? { destination_type: 'WHATSAPP', promoted_object: { page_id: pageId, whatsapp_phone_number: Deno.env.get('WHATSAPP_ADS_NUMBER') || '5548984553306' } } : {}),
-              targeting,
-              status: 'PAUSED',
-              access_token: token,
-            }),
-          });
-          const adsetData = await adsetRes.json().catch(() => ({}));
-          if (!adsetRes.ok || !adsetData.id) throw new Error(`conjunto: ${mensajeMeta(adsetData, adsetRes.status)}`);
+          // El número debe coincidir con el registrado en la WABA (el de Nora es +55 48 8455-3306, sin el 9); se prueban ambas formas.
+          const numeros = [...new Set([Deno.env.get('WHATSAPP_ADS_NUMBER'), '554884553306', '5548984553306'].filter(Boolean) as string[])];
+          let adsetRes: Response; let adsetData: any = {};
+          for (const [n, numero] of numeros.entries()) {
+            adsetRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/adsets`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: `${d.nombre_campana} - ${v.variant_name || 'Variante'}`,
+                campaign_id: metaCampaignId,
+                billing_event: 'IMPRESSIONS',
+                optimization_goal: mensajes ? 'CONVERSATIONS' : (objetivoMeta(objetivoPedido) === 'OUTCOME_LEADS' ? 'LEAD_GENERATION' : 'LINK_CLICKS'),
+                ...(mensajes ? { destination_type: 'WHATSAPP', promoted_object: { page_id: pageId, whatsapp_phone_number: numero } } : {}),
+                targeting,
+                status: 'PAUSED',
+                access_token: token,
+              }),
+            });
+            adsetData = await adsetRes.json().catch(() => ({}));
+            if (adsetRes.ok && adsetData.id) break;
+            if (!mensajes || n === numeros.length - 1 || !/not linked|no est[aá] vinculad/i.test(String(adsetData?.error?.error_user_msg || adsetData?.error?.message || ''))) break;
+          }
+          if (!adsetRes!.ok || !adsetData.id) throw new Error(`conjunto: ${mensajeMeta(adsetData, adsetRes!.status)}`);
           adsetId = adsetData.id;
           const pub = await publicarCreativoEnMeta(admin, {
             creative_id: v.creative_asset_id, adset_id: adsetData.id,
