@@ -2377,6 +2377,8 @@ export async function executeAdsProposal(
       if (!c || c.status !== 'approved' || c.ad_id) {
         throw new Error('El creativo ya no está aprobado o ya fue vinculado a un anuncio. Genera una propuesta nueva.');
       }
+      if (!token || !accountId) throw new Error('No se pudo publicar en Meta: faltan META_ADS_TOKEN / META_AD_ACCOUNT_ID en Supabase.');
+      await verificarObjetoMeta(token, accountId, String(d.adset_id), 'adset');
       const pub = await publicarCreativoEnMeta(admin, {
         creative_id: d.creative_id, adset_id: d.adset_id, nombre_anuncio: d.nombre_anuncio,
       });

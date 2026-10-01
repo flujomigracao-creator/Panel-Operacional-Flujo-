@@ -19,6 +19,7 @@ import {
   resolveAdsDateRange,
   type AdsDateRange,
 } from './ads.ts';
+import { evaluarGanador } from './creative_logic.ts';
 
 // ── Tipos y Esquemas del Motor Científico V4 ──
 
@@ -625,6 +626,7 @@ export async function medirExperimentoV4(
   const resultadosVariantes: any[] = [];
   let mejorVariante: any = null;
   let controlVariante: any = null;
+  const fechasMedidas = new Set<string>();
 
   for (const v of listaVariantes) {
     let spend: number | null = null;
@@ -633,12 +635,13 @@ export async function medirExperimentoV4(
     let conversations: number | null = null;
 
     if (v.ad_id || v.campaign_id) {
-      let q = admin.from('meta_ads_insights').select('gasto, impresiones, clics, conversaciones');
+      let q = admin.from('meta_ads_insights').select('fecha, gasto, impresiones, clics, conversaciones');
       if (v.ad_id) q = q.eq('ad_id', v.ad_id);
       else if (v.campaign_id) q = q.eq('campaign_id', v.campaign_id);
 
       const { data: ins } = await q;
       if (ins && ins.length > 0) {
+        for (const r of ins) if ((r as any).fecha) fechasMedidas.add(String((r as any).fecha));
         spend = ins.reduce((a, b) => a + (Number((b as any).gasto) || 0), 0);
         impressions = ins.reduce((a, b) => a + (Number((b as any).impresiones) || 0), 0);
         clicks = ins.reduce((a, b) => a + (Number((b as any).clics) || 0), 0);
@@ -713,6 +716,20 @@ export async function medirExperimentoV4(
         confianza = 0.5;
         razon = 'La diferencia entre variantes no es estadísticamente relevante aún (< 15% de margen). Mantener corriendo.';
       }
+    }
+  }
+
+  // Regla V5: no se declara resultado con pocos datos (volumen, periodo y diferencia mínimos).
+  if (resultadoHipotesis !== 'inconclusive') {
+    const evaluacion = evaluarGanador(
+      resultadosVariantes.map(v => ({ nombre: v.variant_name, impresiones: v.impressions, clics: v.clicks, gasto: v.spend, conversaciones: v.conversations, clientes_pagaron: null })),
+      fechasMedidas.size,
+    );
+    if (evaluacion.veredicto === 'sin_datos' || evaluacion.veredicto === 'insuficiente') {
+      resultadoHipotesis = 'inconclusive';
+      confianza = 0.3;
+      razon = `Sin conclusión: ${evaluacion.motivo}`;
+      mejorVariante = null;
     }
   }
 
