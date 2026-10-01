@@ -26,3 +26,11 @@ Los triggers viven en la base y no en estas migraciones.
 ## Secretos (Supabase → Edge Functions)
 `OPENAI_API_KEY` o `GEMINI_API_KEY` (generación de imagen; opcional `IMAGE_MODEL`), `META_PAGE_ID` (publicar anuncios),
 más los de Meta ya existentes. Sin proveedor de imagen se pueden subir imágenes propias.
+
+## V5.1
+- `creative_concepts`: cada concepto propuesto queda registrado (estado proposed/used/discarded) y se enlaza con `creatives.concept_id`.
+- `campaign_variants.variable_changed` (qué cambió frente al control) y `campaign_experiments.decision_thresholds` (umbrales congelados al crear el experimento).
+- Cierre de experimento: `ganador` solo con evidencia; el dueño puede cerrar como **INCONCLUSO** (sin aprendizaje).
+- Vista `lead_atribucion_anuncio`: lead → anuncio → conjunto → campaña → creativo/servicio → pagos, solo con evidencia real.
+- Función `estado-meta` (JWT): estado real de la cuenta de Meta; el panel muestra token vencido, permisos, cuenta restringida o problema de pago.
+- Despliegue: `.github/workflows/deploy-functions.yml` (manual; requiere el secreto `SUPABASE_ACCESS_TOKEN`).

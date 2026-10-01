@@ -3,7 +3,8 @@
 //   lista_tramites: manda además los trámites (comercial_audios_pitch.en_lista) como botones para que el cliente elija.
 //   audio_path: audio ya subido a `chat-media` (.ogg = nota de voz; si falla, se manda el texto).
 //   extra_texto: segundo mensaje de texto (ej. la clave PIX cuando el cliente quiere pagar).
-//   submenu: 'agendamiento' → botones RNM/refugio (ids motivo:<enum>); 'residencia' → vía (ids variante:<familiar|mercosur>).
+//   submenu: 'agendamiento' → botones RNM/refugio (ids motivo:<enum>); 'agendamiento_rnm' / 'agendamiento_refugio' → solo
+//            la vía (el cliente ya dijo cuál); 'residencia' → vía (ids variante:<familiar|mercosur>).
 //   datos_pago: manda la plantilla de PIX de Kommo con el valor (o monto_pix si se acordó otro, ej. la mitad) y la plantilla de datos.
 //   solo_datos: manda solo la plantilla de datos (plan "empezar y pagar al final") y avisa que se espera la documentación.
 //   idioma: 'pt' | 'es' para los textos fijos.
@@ -281,6 +282,13 @@ Deno.serve(async (req) => {
       agendamiento: [
         { cuerpo: body.idioma === 'pt' ? 'Para que é o agendamento?' : '¿Para qué es el agendamiento?', opciones: [{ id: 'motivo:165690', title: 'RNM (1ª vía)' }, { id: 'motivo:165692', title: 'RNM (2ª vía)' }] },
         { cuerpo: body.idioma === 'pt' ? 'Ou é para refúgio?' : '¿O es para refugio?', opciones: [{ id: 'motivo:166572', title: 'Refugio (1ª vez)' }, { id: 'motivo:166574', title: 'Refugio (renovación)' }] },
+      ],
+      // El cliente ya dijo si era para RNM o para refugio: solo falta precisar cuál.
+      agendamiento_rnm: [
+        { cuerpo: body.idioma === 'pt' ? 'É a primeira via do RNM ou a segunda?' : '¿Es la primera vía del RNM o la segunda?', opciones: [{ id: 'motivo:165690', title: 'RNM (1ª vía)' }, { id: 'motivo:165692', title: 'RNM (2ª vía)' }] },
+      ],
+      agendamiento_refugio: [
+        { cuerpo: body.idioma === 'pt' ? 'É a primeira vez ou a renovação do refúgio?' : '¿Es la primera vez o una renovación del refugio?', opciones: [{ id: 'motivo:166572', title: 'Refugio (1ª vez)' }, { id: 'motivo:166574', title: 'Refugio (renovación)' }] },
       ],
       residencia: [
         { cuerpo: body.idioma === 'pt' ? 'Por qual via é a sua residência permanente?' : '¿Por qué vía es su residencia permanente?', opciones: [{ id: 'variante:familiar', title: 'Reunión familiar' }, { id: 'variante:mercosur', title: 'Acuerdo Mercosur' }] },

@@ -1,0 +1,31 @@
+# Despliegue MANUAL de Edge Functions desde main (producción = código de GitHub).
+# Requiere el secreto de repositorio SUPABASE_ACCESS_TOKEN (Supabase → Account → Access Tokens).
+# Nunca se dispara solo: se ejecuta desde Actions → "Deploy Edge Functions" → Run workflow.
+name: Deploy Edge Functions
+on:
+  workflow_dispatch:
+    inputs:
+      functions:
+        description: 'Funciones a desplegar, separadas por espacio'
+        required: true
+        default: 'asistente estado-meta'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Desplegar
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          FUNCTIONS: ${{ inputs.functions }}
+        run: |
+          set -e
+          for f in $FUNCTIONS; do
+            case "$f" in *[!a-z0-9-]*) echo "Nombre inválido: $f"; exit 1;; esac
+            test -d "supabase/functions/$f" || { echo "No existe supabase/functions/$f"; exit 1; }
+            supabase functions deploy "$f" --project-ref rumpfqevyspdmhaggxtq --use-api
+          done
