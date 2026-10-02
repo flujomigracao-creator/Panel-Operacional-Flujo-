@@ -2,7 +2,7 @@ import { supabase } from '@shared/config/supabaseClient';
 import { resolverPeriodos, construirResumen, isoDia } from './resumenMeta';
 
 // PostgREST corta en 1000 filas por consulta: se pagina para no truncar el período en silencio.
-async function leerTodo(armar) {
+export async function leerTodo(armar) {
   const filas = [];
   for (let desde = 0; ; desde += 1000) {
     const { data, error } = await armar().range(desde, desde + 999);
@@ -11,6 +11,22 @@ async function leerTodo(armar) {
     if (!data || data.length < 1000) break;
   }
   return filas;
+}
+
+/** Todas las columnas de meta_ads_insights (incluido `raw` con cada acción de Meta) del período pedido. */
+export async function getInsightsCompletos(rango) {
+  const periodo = resolverPeriodos(rango);
+  const filas = await leerTodo(() =>
+    supabase
+      .from('meta_ads_insights')
+      .select(
+        'fecha, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name, gasto, impresiones, alcance, clics, clics_enlace, conversaciones, leads_meta, video_reproducciones, ranking_calidad, ranking_engagement, ranking_conversion, raw'
+      )
+      .gte('fecha', periodo.desde)
+      .lte('fecha', periodo.hasta)
+      .order('fecha', { ascending: true })
+  );
+  return { periodo, filas };
 }
 
 /** Tablas cuyo cambio debe refrescar el Resumen en vivo (Supabase Realtime, respeta RLS). */

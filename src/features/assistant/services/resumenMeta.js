@@ -283,7 +283,7 @@ export function generarAlertas({ actual, previo, ultimaFechaInsights, ultimaSync
       tipo: 'alerta',
       titulo: 'Sincronización con Meta atrasada',
       detalle: ultimaSyncOk
-        ? `La última sincronización correcta fue el ${new Date(ultimaSyncOk).toLocaleString('es')}. Debería ocurrir cada 5 minutos: revisa el workflow "Meta Ads - Sincronizar Gasto" en n8n o el token de Meta.`
+        ? `La última sincronización correcta fue el ${new Date(ultimaSyncOk).toLocaleString('es')}. Debería ocurrir cada 10 minutos: revisa el workflow "Meta Ads - Sincronizar Gasto" en n8n o el token de Meta.`
         : 'No hay ninguna sincronización correcta registrada con Meta.',
     });
   }

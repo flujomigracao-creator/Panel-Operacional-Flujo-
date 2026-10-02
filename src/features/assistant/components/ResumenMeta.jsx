@@ -234,7 +234,7 @@ export default function ResumenMeta({ rango, onPreguntar }) {
         </span>
         {vivo && <span>Panel actualizado {haceTexto(vivo)}</span>}
         <span>
-          Meta sincronizado {res.ultimaSyncOk ? haceTexto(new Date(res.ultimaSyncOk)) : 'nunca'} (automático, cada 5 min)
+          Meta sincronizado {res.ultimaSyncOk ? haceTexto(new Date(res.ultimaSyncOk)) : 'nunca'} (automático, cada 10 min)
         </span>
       </p>
 

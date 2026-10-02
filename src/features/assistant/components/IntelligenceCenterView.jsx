@@ -34,6 +34,7 @@ import MetaStatusBanner from './MetaStatusBanner';
 import LearningSummary from './LearningSummary';
 import PerformanceChart from './PerformanceChart';
 import ResumenMeta from './ResumenMeta';
+import MetricasCompletas from './MetricasCompletas';
 import { LoadingSpinner } from '@/shared/components/ui/LoadingSpinner';
 
 export default function IntelligenceCenterView() {
@@ -43,7 +44,7 @@ export default function IntelligenceCenterView() {
   const [experiments, setExperiments] = useState([]);
   const [learnings, setLearnings] = useState([]);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'meta_ads' | 'creativos' | 'experimentos' | 'aprendizajes' | 'campanas'
+  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'metricas' | 'meta_ads' | 'creativos' | 'experimentos' | 'aprendizajes' | 'campanas'
   const [campaignStatusFilter, setCampaignStatusFilter] = useState('all'); // 'all' | 'ACTIVE' | 'PAUSED' | 'testing' | 'completed'
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
   const [dateRange, setDateRange] = useState('7d'); // 'hoy' | '7d' | '14d' | '30d' | 'custom'
@@ -331,6 +332,17 @@ export default function IntelligenceCenterView() {
           <span>Resumen Ejecutivo</span>
         </button>
         <button
+          onClick={() => setActiveTab('metricas')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
+            activeTab === 'metricas'
+              ? 'border-brand-primary text-brand-primary'
+              : 'border-transparent text-chrome-text-muted hover:text-chrome-text'
+          }`}
+        >
+          <TableIcon size={14} />
+          <span>Métricas</span>
+        </button>
+        <button
           onClick={() => setActiveTab('meta_ads')}
           className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
             activeTab === 'meta_ads'
@@ -484,6 +496,8 @@ export default function IntelligenceCenterView() {
 
           {/* ── PESTAÑA 1: RESUMEN (centro de control diario) ── */}
           {activeTab === 'resumen' && <ResumenMeta rango={pedirRango()} onPreguntar={preguntar} />}
+
+          {activeTab === 'metricas' && <MetricasCompletas rango={pedirRango()} />}
 
           {/* ── PESTAÑA 2: META ADS & RENDIMIENTO ── */}
           {activeTab === 'meta_ads' && (
