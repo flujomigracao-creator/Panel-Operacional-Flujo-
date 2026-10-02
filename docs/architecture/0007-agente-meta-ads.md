@@ -180,7 +180,7 @@ Cada sprint termina con: pruebas en verde (`npm test`), migración en `supabase/
 
 | Sprint | Entregable | Criterio de aceptación |
 |---|---|---|
-| 1 | `agente_negocio_hechos` + `agente_reglas_marketing`; carga de las 60 reglas del Excel y de las definiciones comerciales | El agente cita la fila de precio/regla; ninguna cifra comercial sale del modelo. **Requiere el Excel.** |
+| 1 | `agente_negocio_hechos` + `agente_reglas_marketing`; carga de las 60 reglas del Excel y de las definiciones comerciales | **Hecho en parte (2026-10-02):** tablas, 60 reglas con su aplicabilidad (19 aplica, 18 parcial, 7 requiere web, 15 fuera de alcance, 1 sin contenido), embudo y vista `agente_precios_vigentes`. **Falta:** que `asistente` consulte estas tablas, y las definiciones de calificado/propuesta/Pix. |
 | 2 | Columnas extra en `meta_ads_entities` (público, país, edad, placement, optimización) + sync | Datos visibles en `meta_ads_entities` tras una sincronización |
 | 3 | Definiciones calificado/propuesta/Pix por etapa; vista `meta_embudo_anuncio` | Totales de la vista coinciden con `origen_leads` en una auditoría manual |
 | 4 | `meta_embudo_campania/conjunto`, CAC y ROAS reales + cobertura de atribución | Caso de ejemplo del plan (campañas A y B) reproducido con datos sintéticos en prueba |
