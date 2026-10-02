@@ -265,6 +265,28 @@ export async function getAdsData(rango) {
     leadsTotal += le;
   }
 
+  // Campañas sin métricas en el período (pausadas, nunca publicadas o sin gasto): existen en Meta
+  // y en la caché, así que se listan con métricas en cero en vez de desaparecer de la vista.
+  for (const [cid, cache] of campanasCache) {
+    if (porCampana[cid]) continue;
+    porCampana[cid] = {
+      id: cid,
+      name: cache.name || 'Campaña sin nombre',
+      status: cache.status || null,
+      effective_status: cache.effective_status || null,
+      objective: cache.objective || null,
+      daily_budget: cache.daily_budget != null ? Number(cache.daily_budget) : undefined,
+      lifetime_budget: cache.lifetime_budget != null ? Number(cache.lifetime_budget) : undefined,
+      estado_actualizado_en: cache.last_synced_at || cache.synced_at || null,
+      estado_operacional: cache.effective_status || null,
+      leads_atribuidos: referred.por_campana[cid] || 0,
+      metrics: {
+        spend: 0, impressions: 0, clicks: 0, ctr: 0, cpc: 0, cpm: 0, conversations: 0, leads: 0,
+        costPerConversation: null, costPerLead: null, attributionStatus: 'estimated',
+      },
+    };
+  }
+
   // Recalcular métricas de cada campaña (misma fórmula que calculateAdsMetrics del backend)
   const campanas = Object.values(porCampana).map(c => {
     const m = c.metrics;
@@ -309,8 +331,11 @@ export async function getAdsData(rango) {
   const intentos = syncRes.data || [];
   const ultimoIntento = intentos[0] || null;
   const ultimaOk = intentos.find(i => i.ok) || null;
+  // Un fallo aislado (p. ej. el límite de pedidos de Meta) NO alarma si hubo una sincronización
+  // correcta hace menos de 30 min: el sistema automático reintenta solo y se recupera.
+  const okReciente = ultimaOk && Date.now() - new Date(ultimaOk.terminado_en || ultimaOk.iniciado_en).getTime() < 30 * 60000;
   const sincronizacion = {
-    estado: ultimoIntento ? (ultimoIntento.ok ? 'sincronizado' : 'fallida') : 'nunca',
+    estado: ultimoIntento ? (ultimoIntento.ok || okReciente ? 'sincronizado' : 'fallida') : 'nunca',
     ultima_ok: ultimaOk?.terminado_en || ultimaOk?.iniciado_en || null,
     ultimo_intento: ultimoIntento?.iniciado_en || null,
     campanas: ultimaOk?.campanas ?? null,
