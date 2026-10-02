@@ -18,7 +18,8 @@ import {
   cerrarExperimentoCreativos,
   publicarCreativoEnMeta,
 } from './creatives.ts';
-import { crearCreativo, generarPrompt, proponerConceptos } from '../_shared/creative_store.ts';
+import { crearCreativo, generarPrompt, proponerConceptos, VARIABLES_EXPERIMENTO_IDS } from '../_shared/creative_store.ts';
+import { ESTILOS } from '../_shared/creative_logic.ts';
 import { buscarTendencias, listarTendencias } from '../_shared/trends.ts';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
@@ -1303,7 +1304,11 @@ const CREATIVO_PROPS: Record<string, unknown> = {
   escena: str('Escena visual en 1-2 frases'),
   estilo: { type: 'string', enum: ['fotografia_realista', 'ilustracion', 'minimalista_corporativo', 'documento_destacado'] },
   formato: { type: 'string', enum: ['1:1', '4:5', '9:16'] },
-  idioma: { type: 'string', enum: ['es', 'pt'] },
+  idioma: { type: 'string', enum: ['es', 'pt'], description: 'ESPAÑOL (es) por defecto; pt solo si el dueño lo pide' },
+  problema: str('Problema real del cliente en una frase (brief estructurado)'),
+  angulo: str('Ángulo del anuncio, ej. quitar burocracia / urgencia / confianza'),
+  beneficio: str('Beneficio breve que se comunica'),
+  variable_experimento: str('Si es una variante de experimento: la ÚNICA variable que cambia (hook, estilo, cta...)'),
 };
 
 const ADS_TOOL_DEFS_BASE = [
@@ -1688,7 +1693,7 @@ const ADS_TOOL_DEFS_BASE = [
     function: {
       name: 'generar_opciones_experimento',
       description: 'Para armar un experimento DESDE EL CHAT sin imágenes previas: crea 2-3 conceptos y GENERA una imagen real por concepto (cuesta dinero; cuenta en el tope diario de 40) y las guarda como BORRADORES. Devuelve la lista numerada con image_url. Muéstralas numeradas con ![](image_url) y pregunta cuáles quiere el dueño; cuando elija, llama a proponer_experimento_creativos con esos creative_id y aprobar_seleccion=true. Úsala solo cuando el dueño pidió el experimento.',
-      parameters: { type: 'object', properties: { servicio: str('CPF | Agendamento PF | RNM | Residência Permanente | Refúgio'), cantidad: num('2 o 3 (por defecto 3)'), objetivo: str('Ej. Conversaciones WhatsApp'), publico: str('Ej. extranjeros recién llegados a Brasil'), formato: str('1:1 | 4:5 | 9:16 (por defecto 1:1)'), estilo: str('Estilo visual (opcional)') }, required: ['servicio'] },
+      parameters: { type: 'object', properties: { servicio: str('CPF | Agendamento PF | RNM | Residência Permanente | Refúgio'), cantidad: num('2 o 3 (por defecto 3)'), objetivo: str('Ej. Conversaciones WhatsApp'), publico: str('Ej. extranjeros recién llegados a Brasil'), formato: str('1:1 | 4:5 | 9:16 (por defecto 1:1)'), estilo: str('Estilo visual (opcional)'), variable: str('Única variable que difiere entre las opciones: hook (por defecto) | concepto_visual | estilo | cta | beneficio | angulo') }, required: ['servicio'] },
     },
   },
   {
@@ -2052,6 +2057,7 @@ export async function runAdsTool(
       return JSON.stringify(await generarPrompt(ctx.admin, ctx.userId, {
         service: args.servicio, objective: args.objetivo, audience: args.publico, concept: args.concepto, hook: args.hook, headline: args.titular,
         cta: args.cta, visual_concept: args.escena, style: args.estilo, format: args.formato || '1:1', language: args.idioma || 'es',
+        problema: args.problema, angulo: args.angulo, beneficio: args.beneficio, variable_experimento: args.variable_experimento,
       }));
 
     case 'generar_creativo': {
@@ -2059,23 +2065,28 @@ export async function runAdsTool(
         service: args.servicio, objective: args.objetivo, audience: args.publico, concept: args.concepto, hook: args.hook, headline: args.titular,
         primary_text: args.texto_principal, cta: args.cta, visual_concept: args.escena, style: args.estilo, format: args.formato || '1:1',
         language: args.idioma || 'es', prompt: args.prompt, concept_id: args.concept_id,
+        problema: args.problema, angulo: args.angulo, beneficio: args.beneficio, variable_experimento: args.variable_experimento,
       }, 'generar');
       return JSON.stringify({ ok: true, creative_id: r.creativo.id, version: r.creativo.version, formato: r.creativo.format, estado: r.creativo.status, modelo: r.modelo, image_url: r.image_url, nota: 'Borrador guardado. No está en Meta. Muéstralo con ![](image_url); hay que aprobarlo antes de proponer su publicación.' });
     }
 
     case 'generar_opciones_experimento': {
       const cantidad = Math.min(Math.max(Number(args.cantidad) || 3, 2), 3);
-      const c = await proponerConceptos(ctx.admin, ctx.userId, { service: args.servicio, objective: args.objetivo, audience: args.publico, cantidad });
+      // Un experimento cambia UNA sola variable (por defecto el hook); lo demás queda idéntico entre las opciones.
+      const variable = VARIABLES_EXPERIMENTO_IDS.includes(String(args.variable)) ? String(args.variable) : 'hook';
+      const c = await proponerConceptos(ctx.admin, ctx.userId, { service: args.servicio, objective: args.objetivo, audience: args.publico, cantidad, variable });
+      const estilos = Object.keys(ESTILOS);
       // En paralelo para no agotar el tiempo de la petición; una imagen fallida no tumba las demás.
-      const res = await Promise.allSettled(c.conceptos.map((k: any) => crearCreativo(ctx.admin, ctx.userId, {
+      const res = await Promise.allSettled(c.conceptos.map((k: any, idx: number) => crearCreativo(ctx.admin, ctx.userId, {
         service: args.servicio, objective: args.objetivo, audience: args.publico, concept: k.concept, hook: k.hook, headline: k.headline,
-        primary_text: k.primary_text, cta: k.cta, visual_concept: k.visual_concept, style: args.estilo, format: args.formato || '1:1',
-        language: 'es', concept_id: k.concept_id,
+        primary_text: k.primary_text, cta: k.cta, visual_concept: k.visual_concept,
+        style: variable === 'estilo' ? estilos[idx % estilos.length] : args.estilo, format: args.formato || '1:1',
+        language: 'es', concept_id: k.concept_id, problema: k.problema, angulo: k.angulo, beneficio: k.beneficio, variable_experimento: variable,
       }, 'generar')));
       const opciones = res.map((r, i) => r.status === 'fulfilled'
-        ? { opcion: i + 1, creative_id: r.value.creativo.id, titular: r.value.creativo.headline, hook: r.value.creativo.hook, image_url: r.value.image_url }
+        ? { opcion: i + 1, creative_id: r.value.creativo.id, titular: r.value.creativo.headline, hook: r.value.creativo.hook, estilo: r.value.creativo.style, image_url: r.value.image_url }
         : { opcion: i + 1, error: r.reason instanceof Error ? r.reason.message : String(r.reason) });
-      return JSON.stringify({ ok: opciones.some((o: any) => o.creative_id), opciones, nota: 'Borradores guardados; nada está en Meta. Muéstralos numerados con ![](image_url) y pregunta cuáles elige el dueño (mínimo 2).' });
+      return JSON.stringify({ ok: opciones.some((o: any) => o.creative_id), variable_probada: variable, opciones, nota: `Borradores guardados; nada está en Meta. Las opciones difieren SOLO en: ${variable}. Muéstralos numerados con ![](image_url) y pregunta cuáles elige el dueño (mínimo 2); al crear el experimento usa variable_tested="${variable}".` });
     }
 
     case 'regenerar_creativo': {

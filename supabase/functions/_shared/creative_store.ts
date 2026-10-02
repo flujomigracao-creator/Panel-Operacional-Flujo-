@@ -4,7 +4,7 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import {
   CONCEPTOS, ESTILOS, OBJETIVOS, construirPromptPublicitario, tamanosCandidatos, validarCreativo, validarCambio,
-  tipoImagen, rutaImagen, elegirModeloImagen, sanearError, ajustarPromptRegeneracion, asegurarTextos, textosLiterales,
+  tipoImagen, rutaImagen, elegirModeloImagen, sanearError, ajustarPromptRegeneracion, asegurarTextos, textosLiterales, PRINCIPIOS_CREATIVOS,
 } from './creative_logic.ts';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
@@ -74,7 +74,18 @@ async function chatJson(system: string, user: string): Promise<{ json: any; usag
 }
 
 // ── Conceptos publicitarios (texto con OpenAI), registrados en creative_concepts ──
-export async function proponerConceptos(admin: SupabaseClient, userId: string, i: { service: string; objective?: string; audience?: string; cantidad?: number }) {
+/** Variables que un experimento puede probar; las demás cosas deben quedar idénticas entre variantes. */
+const VARIABLES_EXPERIMENTO: Record<string, string> = {
+  hook: 'el HOOK y titular (mismo servicio, público, objetivo, oferta, escena visual, estilo y CTA en todas)',
+  concepto_visual: 'el CONCEPTO VISUAL / escena (mismo hook, titular, CTA, servicio, público y oferta en todas)',
+  estilo: 'el ESTILO visual (misma escena, hook, titular, CTA, servicio, público y oferta en todas)',
+  cta: 'el CTA (mismo hook, escena, estilo, servicio, público y oferta en todas)',
+  beneficio: 'el BENEFICIO o texto de apoyo (mismo hook, escena, CTA, servicio, público y oferta en todas)',
+  angulo: 'el ÁNGULO del problema, p. ej. RNM vs Refúgio (mismo servicio, público, estilo y CTA en todas)',
+};
+export const VARIABLES_EXPERIMENTO_IDS = Object.keys(VARIABLES_EXPERIMENTO);
+
+export async function proponerConceptos(admin: SupabaseClient, userId: string, i: { service: string; objective?: string; audience?: string; cantidad?: number; variable?: string }) {
   const err = validarCreativo({ service: i.service });
   if (err) throw new Error(err);
   const cantidad = Math.min(Math.max(Number(i.cantidad) || 3, 1), 5);
@@ -91,8 +102,8 @@ export async function proponerConceptos(admin: SupabaseClient, userId: string, i
   let r;
   try {
     r = await chatJson(
-      'Eres estratega creativo de Meta Ads para Flujo de Migração, que ayuda a extranjeros con trámites migratorios en Brasil. Respondes SOLO JSON. Texto en español neutro, claro, sin promesas de resultado garantizado ni suplantar a organismos oficiales.',
-      `Servicio: ${i.service}. Objetivo: ${i.objective || 'conversaciones de WhatsApp'}. Público: ${i.audience || 'extranjeros en Brasil'}. ${contexto}\nDevuelve {"conceptos":[...${cantidad} objetos]}. Cada objeto: {"concept": uno de ${JSON.stringify(CONCEPTOS)}, "hook": frase corta, "headline": máx 40 caracteres, "primary_text": máx 300 caracteres, "cta": texto de botón corto, "visual_concept": escena en 1-2 frases}. Conceptos visuales distintos entre sí. REGLAS: (1) el titular y el hook son TEXTO DE ANUNCIO real y listo para publicar, nunca la descripción de un formato (nada de "Reel: …"); las piezas son imágenes estáticas. (2) Meta restringe anuncios que afirman o asumen atributos personales del lector (nacionalidad, estatus migratorio, situación económica…): redacta sobre el SERVICIO ("Gestión de tu CPF", "Cita en la Polícia Federal sin filas") y NO sobre el lector ("¿Eres extranjero?", "¿Eres estudiante internacional?"). (3) Sin promesas garantizadas ni plazos inventados. (4) ${hayHistorial ? 'Puedes usar variacion_ganadora solo si se apoya en los resultados reales de arriba.' : 'NO uses variacion_ganadora: aún no hay ganador demostrado.'}`,
+      `${PRINCIPIOS_CREATIVOS}\nRespondes SOLO JSON. Texto en español neutro, claro, sin promesas de resultado garantizado ni suplantar a organismos oficiales.`,
+      `Servicio: ${i.service}. Objetivo: ${i.objective || 'conversaciones de WhatsApp'}. Público: ${i.audience || 'extranjeros en Brasil'}. ${contexto}\nDevuelve {"conceptos":[...${cantidad} objetos]}. Cada objeto: {"concept": uno de ${JSON.stringify(CONCEPTOS)}, "hook": frase de 3-8 palabras, "headline": máx 40 caracteres, "primary_text": máx 300 caracteres, "cta": texto de botón corto, "visual_concept": escena en 1-2 frases, "problema": problema real del cliente en una frase, "angulo": ángulo del anuncio, "beneficio": beneficio breve}. ${i.variable && VARIABLES_EXPERIMENTO[i.variable] ? `ES UN EXPERIMENTO CIENTÍFICO: las ${cantidad} variantes cambian ÚNICAMENTE ${VARIABLES_EXPERIMENTO[i.variable]}; todo lo demás (concept, escena, problema, beneficio, cta salvo que la variable sea el CTA) debe ser IDÉNTICO entre ellas, palabra por palabra en lo que no cambia.` : 'Conceptos visuales distintos entre sí.'} REGLAS: (1) el titular y el hook son TEXTO DE ANUNCIO real y listo para publicar, nunca la descripción de un formato (nada de "Reel: …"); las piezas son imágenes estáticas. (2) Meta restringe anuncios que afirman o asumen atributos personales del lector (nacionalidad, estatus migratorio, situación económica…): redacta sobre el SERVICIO ("Gestión de tu CPF", "Cita en la Polícia Federal sin filas") y NO sobre el lector ("¿Eres extranjero?", "¿Eres estudiante internacional?"). (3) Sin promesas garantizadas ni plazos inventados. (4) ${hayHistorial ? 'Puedes usar variacion_ganadora solo si se apoya en los resultados reales de arriba.' : 'NO uses variacion_ganadora: aún no hay ganador demostrado.'}`,
     );
   } catch (e) {
     await registrarGeneracion(admin, { user_id: userId, kind: 'concepts', model: await modeloTexto().catch(() => 'desconocido'), status: 'error', error: String(e) });
@@ -103,6 +114,7 @@ export async function proponerConceptos(admin: SupabaseClient, userId: string, i
     return {
       concept, hook: String(c.hook || '').slice(0, 120), headline: String(c.headline || '').slice(0, 40), primary_text: String(c.primary_text || '').slice(0, 300),
       cta: String(c.cta || '').slice(0, 30), visual_concept: String(c.visual_concept || '').slice(0, 300),
+      problema: String(c.problema || '').slice(0, 200), angulo: String(c.angulo || '').slice(0, 120), beneficio: String(c.beneficio || '').slice(0, 160),
     };
   });
   await registrarGeneracion(admin, { user_id: userId, kind: 'concepts', model: r.model, status: conceptos.length ? 'ok' : 'error', usage: r.usage, error: conceptos.length ? undefined : 'sin conceptos válidos' });
@@ -118,6 +130,7 @@ export async function proponerConceptos(admin: SupabaseClient, userId: string, i
 export interface DatosPrompt {
   service: string; objective?: string; audience?: string; concept?: string; hook?: string; headline?: string; cta?: string; visual_concept?: string;
   style?: string; language?: string; format?: string; visual_reference?: string;
+  problema?: string; angulo?: string; beneficio?: string; variable_experimento?: string;
 }
 export async function generarPrompt(admin: SupabaseClient, userId: string, d: DatosPrompt) {
   const err = validarCreativo({ service: d.service, format: d.format });
@@ -125,11 +138,12 @@ export async function generarPrompt(admin: SupabaseClient, userId: string, d: Da
   const base = construirPromptPublicitario({
     servicio: d.service, concepto: d.concept, hook: d.hook, titular: d.headline, formato: d.format || '1:1', visual_concept: d.visual_concept,
     objetivo: d.objective, publico: d.audience, cta: d.cta, estilo: d.style, idioma: d.language, referencia_visual: d.visual_reference,
+    problema: d.problema, angulo: d.angulo, beneficio: d.beneficio, variable_experimento: d.variable_experimento,
   });
   const model = await modeloTexto();
   try {
     const r = await chatJson(
-      'Eres director de arte de anuncios en Meta Ads. Conviertes un brief en UN prompt de generación de imagen en inglés, concreto y profesional: composición, encuadre, luz, jerarquía visual, espacio libre para el texto del anuncio, identidad de marca (azul #1E3A8A dominante, verde, dorado, blanco). IMPORTANTE: el anuncio debe llevar texto integrado en la imagen. Copia LITERALMENTE, entre comillas y sin traducir ni reescribir, el TITULAR, el SUBTÍTULO (si existe), el texto del BOTÓN CTA y la FIRMA del brief; indica dónde va cada uno (titular grande arriba, botón CTA redondeado abajo, firma en una esquina), alto contraste y tipografía gruesa legible en móvil, ortografía impecable. Ningún otro texto aparte de esos; sin logos oficiales ni sellos de gobierno, sin datos reales en documentos. Respondes SOLO JSON {"prompt": "..."}.',
+      `${PRINCIPIOS_CREATIVOS}\nEres director de arte de anuncios en Meta Ads. Conviertes un brief en UN prompt de generación de imagen en inglés, concreto y profesional: composición, encuadre, luz, jerarquía visual, espacio libre para el texto del anuncio, identidad de marca (azul #1E3A8A dominante, verde, dorado, blanco). IMPORTANTE: el anuncio debe llevar texto integrado en la imagen. Copia LITERALMENTE, entre comillas y sin traducir ni reescribir, el TITULAR, el SUBTÍTULO (si existe), el texto del BOTÓN CTA y la FIRMA del brief; indica dónde va cada uno (titular grande arriba, botón CTA redondeado abajo, firma en una esquina), alto contraste y tipografía gruesa legible en móvil, ortografía impecable. Ningún otro texto aparte de esos; sin logos oficiales ni sellos de gobierno, sin datos reales en documentos. Respondes SOLO JSON {"prompt": "..."}.`,
       `Brief:\n${base}\nFormato: ${d.format || '1:1'} (Meta Ads).`,
     );
     const crudo = String(r.json.prompt || '').trim();
@@ -200,6 +214,7 @@ export interface EntradaCreativo {
   prompt?: string; prompt_id?: string; prompt_name?: string; concept_id?: string;
   from_creative_id?: string; changed_variable?: string; variant?: string; experiment_id?: string;
   image_base64?: string; mime?: string;
+  problema?: string; angulo?: string; beneficio?: string; variable_experimento?: string;
 }
 
 const COLS = 'id, service, objective, concept, format, prompt_id, prompt_text, prompt_version, hook, headline, primary_text, cta, visual_concept, image_path, image_source, status, parent_creative_id, root_creative_id, version, variant, changed_variable, model, style, audience, language, experiment_id, campaign_id, adset_id, ad_id, created_at';
@@ -243,6 +258,7 @@ export async function crearCreativo(admin: SupabaseClient, userId: string, entra
   const promptTexto = (i.prompt && i.prompt.trim()) || construirPromptPublicitario({
     servicio: i.service, concepto: i.concept, hook: i.hook, titular: i.headline, formato: formato, visual_concept: i.visual_concept,
     objetivo: i.objective, publico: i.audience, cta: i.cta, estilo: i.style, idioma: i.language, referencia_visual: i.visual_reference,
+    problema: i.problema, angulo: i.angulo, beneficio: i.beneficio, variable_experimento: i.variable_experimento,
   });
 
   let bytes: Uint8Array; let mime: string; let modelo: string | null = null; let usage: unknown = null;

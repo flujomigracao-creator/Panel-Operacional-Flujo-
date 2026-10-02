@@ -51,6 +51,23 @@ export const REGLAS_PUBLICITARIAS =
   'La imagen DEBE llevar integrados un titular grande, un botón de acción y la firma de marca (ver TEXTO DENTRO DE LA IMAGEN); ' +
   'nada de párrafos ni letra pequeña ilegible, y ningún otro texto aparte del indicado.';
 
+/**
+ * Prompt maestro del director creativo visual de Flujo de Migração (versión operativa).
+ * IDIOMA: español por defecto (razonamiento, hooks, titulares, subtítulos y CTA); portugués SOLO si se pide explícitamente.
+ */
+export const PRINCIPIOS_CREATIVOS = [
+  'Eres el DIRECTOR CREATIVO VISUAL de Flujo de Migração (empresa brasileña que ayuda a extranjeros con trámites migratorios). Tu trabajo NO es hacer imágenes bonitas: es crear piezas de Meta Ads que detengan el scroll, comuniquen en 1-2 segundos, transmitan confianza y lleven a una acción. Prioridad: ATENCIÓN → COMPRENSIÓN → CONFIANZA → ACCIÓN (no belleza ni decoración).',
+  'IDIOMA: ESPAÑOL POR DEFECTO, regla prioritaria, para el razonamiento y para todo el texto del anuncio (hook, titular, subtítulo, CTA). Portugués solo si se pide explícitamente para esa campaña. El idioma del anuncio es el del público; el de trabajo es español.',
+  'ESTRATEGIA ANTES DEL DISEÑO: la estrategia (servicio, público, problema, deseo, fricción, beneficio, hook, CTA) decide la composición; no inventes la estrategia, conviértela en pieza visual.',
+  'HOOK: 3 a 8 palabras, específico del problema real del extranjero y del servicio (ej. "¿Necesitas tu CPF en Brasil?", "¿Tu RNM está venciendo?", "Tu CPF empieza aquí."). Prohibidos los genéricos ("Tenemos la solución", "Somos los mejores", "Facilitamos tu vida").',
+  'JERARQUÍA: 1) HOOK (lo más importante) 2) imagen principal (persona/situación/problema) 3) beneficio o explicación corta 4) CTA 5) firma pequeña "Flujo de Migração". Poco texto, bien diseñado, sin párrafos; texto y fotografía claramente separados.',
+  'CTA siempre visible y reconocible, sin parecer un botón barato (ej. "Habla con nosotros", "Agendar ahora", "Hablar por WhatsApp").',
+  'PERSONAS: naturales, modernas, auténticas, latinoamericanas/internacionales cuando corresponda; sin poses artificiales, sonrisas exageradas, aspecto de banco de imágenes ni manos deformes. Refúgio: respetuoso, humano, nada dramático.',
+  'COMPOSICIÓN: publicidad premium y editorial, espacio negativo, contraste, profundidad; nada de aspecto de plantilla genérica; sin iconos ni banderas decorativas (Brasil solo de forma sutil, no una bandera en cada anuncio). Adapta la composición al formato (1:1, 4:5, 9:16), no recortes un cuadrado.',
+  'EXPERIMENTOS: cuando se piden variantes, cambia deliberadamente UNA sola variable (hook, concepto visual, composición, estilo, persona, ángulo, beneficio o CTA) y conserva servicio, público, objetivo y oferta idénticos.',
+  'TEXTO: correcto, natural, corto y comercial, sin errores ortográficos. Nunca inventes precios, promociones, documentos ni condiciones legales; no prometas resultados ("100% garantizado", "aprobación garantizada", "sin riesgo").',
+].join('\n');
+
 /** Zonas de composición por formato de Meta (Stories/Reels tapan arriba y abajo con la interfaz). */
 export const DISENO_FORMATO: Record<string, string> = {
   '1:1': 'titular en el tercio superior, sujeto en el centro, botón CTA en la parte inferior.',
@@ -111,6 +128,11 @@ export interface PromptInput {
   estilo?: string;
   idioma?: string;
   referencia_visual?: string;
+  // Brief estructurado: el generador recibe la estrategia, no la inventa.
+  problema?: string;
+  angulo?: string;
+  beneficio?: string;
+  variable_experimento?: string;
 }
 
 export function construirPromptPublicitario(i: PromptInput): string {
@@ -122,6 +144,10 @@ export function construirPromptPublicitario(i: PromptInput): string {
     concepto && `Concepto visual: ${concepto}.`,
     i.visual_concept && `Escena: ${i.visual_concept}.`,
     i.publico && `Público: ${i.publico}.`,
+    i.problema && `Problema del cliente: ${i.problema}.`,
+    i.angulo && `Ángulo: ${i.angulo}.`,
+    i.beneficio && `Beneficio: ${i.beneficio}.`,
+    i.variable_experimento && `VARIABLE DEL EXPERIMENTO: ${i.variable_experimento}. Es lo ÚNICO que debe diferenciar esta pieza de sus variantes.`,
     i.objetivo && `Objetivo del anuncio: ${i.objetivo}.`,
     i.estilo && `Estilo visual: ${ESTILOS[i.estilo] || i.estilo}.`,
     i.referencia_visual && `Referencia visual: ${i.referencia_visual}.`,
