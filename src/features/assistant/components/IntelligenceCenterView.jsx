@@ -33,6 +33,7 @@ import { cerrarExperimento, publicarExperimento } from '../services/creativesSer
 import MetaStatusBanner from './MetaStatusBanner';
 import LearningSummary from './LearningSummary';
 import PerformanceChart from './PerformanceChart';
+import ResumenMeta from './ResumenMeta';
 import { LoadingSpinner } from '@/shared/components/ui/LoadingSpinner';
 
 export default function IntelligenceCenterView() {
@@ -45,7 +46,7 @@ export default function IntelligenceCenterView() {
   const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'meta_ads' | 'creativos' | 'experimentos' | 'aprendizajes' | 'campanas'
   const [campaignStatusFilter, setCampaignStatusFilter] = useState('all'); // 'all' | 'ACTIVE' | 'PAUSED' | 'testing' | 'completed'
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
-  const [dateRange, setDateRange] = useState('7d'); // '7d' | '14d' | '30d' | 'custom'
+  const [dateRange, setDateRange] = useState('7d'); // 'hoy' | '7d' | '14d' | '30d' | 'custom'
   // Período personalizado: se pasan fechas explícitas (YYYY-MM-DD) al servicio.
   const [rangoCustom, setRangoCustom] = useState({ desde: '', hasta: '' });
   const [sincronizando, setSincronizando] = useState(false);
@@ -69,10 +70,16 @@ export default function IntelligenceCenterView() {
     }
   };
 
-  const pedirRango = () =>
-    dateRange === 'custom'
+  const pedirRango = () => {
+    if (dateRange === 'hoy') {
+      const d = new Date();
+      const hoy = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return { desde: hoy, hasta: hoy };
+    }
+    return dateRange === 'custom'
       ? { desde: rangoCustom.desde || undefined, hasta: rangoCustom.hasta || undefined }
       : { periodo: dateRange };
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -205,6 +212,14 @@ export default function IntelligenceCenterView() {
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-chrome-border bg-chrome-bg-raised p-0.5 text-xs">
             <button
+              onClick={() => setDateRange('hoy')}
+              className={`rounded-md px-3 py-1.5 font-medium transition-colors ${
+                dateRange === 'hoy' ? 'bg-brand-primary text-white' : 'text-chrome-text hover:text-chrome-text-active'
+              }`}
+            >
+              Hoy
+            </button>
+            <button
               onClick={() => setDateRange('7d')}
               className={`rounded-md px-3 py-1.5 font-medium transition-colors ${
                 dateRange === '7d' ? 'bg-brand-primary text-white' : 'text-chrome-text hover:text-chrome-text-active'
@@ -226,7 +241,7 @@ export default function IntelligenceCenterView() {
                 dateRange === '30d' ? 'bg-brand-primary text-white' : 'text-chrome-text hover:text-chrome-text-active'
               }`}
             >
-              Este mes
+              30 días
             </button>
             <button
               onClick={() => setDateRange('custom')}
@@ -467,134 +482,8 @@ export default function IntelligenceCenterView() {
               ))}
           </div>
 
-          {/* ── PESTAÑA 1: RESUMEN EJECUTIVO (FUNNEL COMPLETO) ── */}
-          {activeTab === 'resumen' && (
-            <div className="space-y-6">
-              {/* KPIs Principales del Negocio */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <MetricCard
-                  title="Inversión Publicitaria"
-                  value={globales.gasto_total !== undefined ? `R$ ${globales.gasto_total.toFixed(2)}` : null}
-                  subtitle={
-                    typeof globales.campanas_activas === 'number'
-                      ? `${globales.campanas_activas} campañas activas`
-                      : 'Estado sincronizado desde Meta'
-                  }
-                  icon={DollarSign}
-                  tone="accent"
-                />
-                <MetricCard
-                  title="Conversaciones WhatsApp"
-                  value={globales.conversaciones_totales}
-                  subtitle={
-                    globales.costo_promedio_conversacion !== null
-                      ? `R$ ${globales.costo_promedio_conversacion.toFixed(2)} por conv.`
-                      : 'Sin costo calculado'
-                  }
-                  icon={MessageSquare}
-                  tone="default"
-                />
-                <MetricCard
-                  title="Leads Comerciales"
-                  value={atribucion.leads?.comerciales ?? atribucion.leads_analizados ?? null}
-                  subtitle={`${atribucion.leads?.atribuidos_meta ?? 0} atribuidos a Meta · ${atribucion.leads_en_propuesta_o_pago ?? 0} en propuesta`}
-                  icon={Users}
-                  tone="default"
-                />
-                <MetricCard
-                  title="Ingresos Cobrados"
-                  value={atribucion.ingresos_totales_registrados != null ? `R$ ${atribucion.ingresos_totales_registrados.toFixed(2)}` : null}
-                  subtitle={
-                    atribucion.clientes_que_pagaron != null
-                      ? `${atribucion.clientes_que_pagaron} clientes pagadores`
-                      : 'Cobros confirmados'
-                  }
-                  badge={atribucion.atribucion_estado}
-                  icon={TrendingUp}
-                  tone="emerald"
-                />
-              </div>
-
-              {/* Diagrama del Funnel Científico: Impresión → Clic → WhatsApp → Lead → Propuesta → Pago → Cliente */}
-              <div className="rounded-xl border border-chrome-border bg-chrome-bg-raised p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-chrome-text-active">
-                      Funnel Integral de Conversión (Impresión → Cliente Pagador)
-                    </h3>
-                    <p className="text-[11px] text-chrome-text-muted">
-                      Conexión real entre inversión en anuncios, atención de Nora, leads y cobros
-                    </p>
-                  </div>
-                  {atribucion.roas_global_estimado != null && (
-                    <span className="rounded-md bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-400 border border-emerald-500/20">
-                      ROAS Global: {atribucion.roas_global_estimado}x
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 text-center text-xs">
-                  <div className="rounded-lg border border-chrome-border/60 bg-chrome-bg/50 p-2.5">
-                    <p className="text-[10px] uppercase text-chrome-text-muted">1. Impresiones</p>
-                    <p className="text-base font-bold text-chrome-text-active mt-1">{(globales.impresiones_totales || 0).toLocaleString()}</p>
-                    <p className="text-[10px] text-chrome-text-muted mt-0.5">CPM: R$ {(globales.cpm_promedio || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="rounded-lg border border-chrome-border/60 bg-chrome-bg/50 p-2.5">
-                    <p className="text-[10px] uppercase text-chrome-text-muted">2. Clics</p>
-                    <p className="text-base font-bold text-chrome-text-active mt-1">{(globales.clics_totales || 0).toLocaleString()}</p>
-                    <p className="text-[10px] text-sky-400 mt-0.5">CTR: {(globales.ctr_promedio || 0).toFixed(2)}%</p>
-                  </div>
-                  <div className="rounded-lg border border-chrome-border/60 bg-chrome-bg/50 p-2.5">
-                    <p className="text-[10px] uppercase text-chrome-text-muted">3. WhatsApp</p>
-                    <p className="text-base font-bold text-chrome-text-active mt-1">{(globales.conversaciones_totales || 0).toLocaleString()}</p>
-                    <p className="text-[10px] text-indigo-400 mt-0.5">CPC: R$ {(globales.cpc_promedio || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="rounded-lg border border-chrome-border/60 bg-chrome-bg/50 p-2.5">
-                    <p className="text-[10px] uppercase text-chrome-text-muted">4. Leads CRM</p>
-                    <p className="text-base font-bold text-chrome-text-active mt-1">{atribucion.leads?.comerciales || 0}</p>
-                    <p className="text-[10px] text-amber-400 mt-0.5">
-                      {atribucion.costo_por_lead_global ? `CPL: R$ ${atribucion.costo_por_lead_global.toFixed(2)}` : 'Sin CPL'}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-chrome-border/60 bg-chrome-bg/50 p-2.5">
-                    <p className="text-[10px] uppercase text-chrome-text-muted">5. Propuestas</p>
-                    <p className="text-base font-bold text-chrome-text-active mt-1">{atribucion.leads_en_propuesta_o_pago || 0}</p>
-                    <p className="text-[10px] text-purple-400 mt-0.5">En negociación</p>
-                  </div>
-                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2.5">
-                    <p className="text-[10px] uppercase text-emerald-400 font-semibold">6. Clientes Pagadores</p>
-                    <p className="text-base font-bold text-emerald-400 mt-1">{atribucion.clientes_que_pagaron || 0}</p>
-                    <p className="text-[10px] text-emerald-300 mt-0.5">
-                      {atribucion.costo_por_cliente_global ? `CAC: R$ ${atribucion.costo_por_cliente_global.toFixed(2)}` : 'CAC n/d'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Hallazgos y Alertas Automáticas */}
-              {hallazgos.length > 0 && (
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-chrome-text-muted">
-                    Hallazgos y Oportunidades Detectadas
-                  </p>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-                    {hallazgos.map((h, i) => (
-                      <AlertCard
-                        key={i}
-                        type={h.tipo}
-                        title={h.titulo}
-                        detail={h.detalle}
-                        actionLabel="Analizar con Asistente"
-                        onAction={() =>
-                          preguntar(`Profundiza en este hallazgo: "${h.titulo}" (${h.detalle}) y dime qué acciones debemos tomar.`)
-                        }
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+          {/* ── PESTAÑA 1: RESUMEN (centro de control diario) ── */}
+          {activeTab === 'resumen' && <ResumenMeta rango={pedirRango()} onPreguntar={preguntar} />}
 
           {/* ── PESTAÑA 2: META ADS & RENDIMIENTO ── */}
           {activeTab === 'meta_ads' && (

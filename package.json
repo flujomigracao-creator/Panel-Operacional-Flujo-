@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "bot": "node bot-polling.js",
-    "test": "node --test supabase/functions/asistente/ads.test.js supabase/functions/asistente/campaign_science.test.js src/features/assistant/services/assistantService.test.js supabase/functions/_shared/creative_logic.test.js supabase/functions/_shared/trends.test.js src/features/assistant/services/creativesFormat.test.js"
+    "test": "node --test supabase/functions/asistente/ads.test.js supabase/functions/asistente/campaign_science.test.js src/features/assistant/services/assistantService.test.js supabase/functions/_shared/creative_logic.test.js supabase/functions/_shared/trends.test.js src/features/assistant/services/creativesFormat.test.js src/features/assistant/services/resumenMeta.test.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
