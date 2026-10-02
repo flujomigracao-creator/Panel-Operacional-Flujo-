@@ -221,7 +221,8 @@ test('11. ADS_TOOL_DEFS expone conjuntos, anuncios y presupuesto de conjunto con
   }
 
   const campanas = ADS_TOOL_DEFS.find(t => t.function.name === 'listar_campanas_ads');
-  assert.deepEqual(campanas.function.parameters.properties.periodo.enum, ['7d', '14d', '30d', 'all']);
+  // El esquema admite además null (Groq estricto manda null en los opcionales); aquí solo importan los valores reales.
+  assert.deepEqual(campanas.function.parameters.properties.periodo.enum.filter(v => v !== null), ['7d', '14d', '30d', 'all']);
 
   const analisis = ADS_TOOL_DEFS.find(t => t.function.name === 'analizar_rendimiento_ads');
   assert.ok(analisis.function.parameters.properties.incluir_anuncios);
