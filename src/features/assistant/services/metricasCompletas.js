@@ -44,7 +44,7 @@ export function agruparMetricas(insights, nivel, periodo) {
         id,
         nombre: r[cfg.nombre] || id,
         gasto: 0, impresiones: 0, alcance: 0, clics: 0, clicsEnlace: 0, conversaciones: 0, leadsMeta: 0, video: 0,
-        dias: new Set(),
+        dias: new Set(), acc: {}, clicsUnicos: 0,
         rankingCalidad: null, rankingEngagement: null, rankingConversion: null, ultimoDia: '',
       };
     o.gasto += num(r.gasto);
@@ -56,6 +56,14 @@ export function agruparMetricas(insights, nivel, periodo) {
     o.leadsMeta += num(r.leads_meta);
     o.video += num(r.video_reproducciones);
     o.dias.add(String(r.fecha).slice(0, 10));
+    o.clicsUnicos += num(r.raw && r.raw.unique_clicks);
+    if (r.raw && typeof r.raw === 'object') {
+      for (const grupo of Object.keys(GRUPOS)) {
+        const arr = r.raw[grupo];
+        if (!Array.isArray(arr)) continue;
+        for (const a of arr) if (a && a.action_type) o.acc[grupo + '|' + a.action_type] = (o.acc[grupo + '|' + a.action_type] || 0) + num(a.value);
+      }
+    }
     const dia = String(r.fecha).slice(0, 10);
     // Ranking: el del día más reciente que lo tenga (Meta solo lo calcula con suficientes impresiones).
     if (dia >= o.ultimoDia && (r.ranking_calidad || r.ranking_engagement || r.ranking_conversion)) {
@@ -80,7 +88,21 @@ export function agruparMetricas(insights, nivel, periodo) {
     .sort((a, b) => b.gasto - a.gasto);
 }
 
+/** Total de una acción dentro de una fila agrupada (0 si Meta no la registró). */
+export const valorAccion = (fila, grupo, tipo) => (fila.acc && fila.acc[grupo + '|' + tipo]) || 0;
+
 export const NOMBRES_ACCION = {
+  'onsite_conversion.messaging_user_depth_2_message_send': 'Conversaciones con 2 o más mensajes enviados',
+  'onsite_conversion.messaging_user_depth_3_message_send': 'Conversaciones con 3 o más mensajes enviados',
+  'onsite_conversion.messaging_user_depth_5_message_send': 'Conversaciones con 5 o más mensajes enviados',
+  'onsite_conversion.messaging_user_depth_7_message_send': 'Conversaciones con 7 o más mensajes enviados',
+  'onsite_conversion.post_unlike': 'Reacciones quitadas',
+  'onsite_conversion.post_net_like': 'Reacciones netas',
+  'onsite_conversion.post_net_comment': 'Comentarios netos',
+  'onsite_conversion.post_net_save': 'Guardados netos',
+  'onsite_conversion.post_save': 'Publicación guardada',
+  post_interaction_gross: 'Interacciones con la publicación (brutas)',
+  post_interaction_net: 'Interacciones con la publicación (netas)',
   'onsite_conversion.messaging_conversation_started_7d': 'Conversaciones de mensajes iniciadas',
   'onsite_conversion.total_messaging_connection': 'Conexiones de mensajería totales',
   'onsite_conversion.messaging_first_reply': 'Primeras respuestas de mensajes',
@@ -144,7 +166,9 @@ export function agruparAcciones(insights, periodo) {
         grupo: o.grupo,
         grupoNombre: GRUPOS[o.grupo],
         tipo: o.tipo,
-        nombre: NOMBRES_ACCION[o.tipo] || o.tipo.replace(/^onsite_conversion\./, '').replace(/_/g, ' '),
+        // En los grupos de video todo es "video_view": el nombre útil lo da el grupo (25 % visto, ThruPlay…).
+        nombre: o.grupo === 'video_avg_time_watched_actions' ? 'Segundos' : o.grupo.startsWith('video_') ? 'Reproducciones'
+          : NOMBRES_ACCION[o.tipo] || o.tipo.replace(/^onsite_conversion\./, '').replace(/_/g, ' '),
         valor: promedio ? o.total / o.filas : o.total,
         promedio,
         costo: o.grupo === 'actions' || o.grupo === 'outbound_clicks' ? dividir(o.gasto, o.total) : null,

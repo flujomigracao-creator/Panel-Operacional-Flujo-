@@ -1,39 +1,93 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { Download } from 'lucide-react';
 import { getInsightsCompletos, suscribirCambios } from '../services/resumenMetaService';
-import { NIVELES, agruparMetricas, agruparAcciones, aCsv, etiquetaRanking } from '../services/metricasCompletas';
+import { NIVELES, agruparMetricas, agruparAcciones, aCsv, etiquetaRanking, valorAccion } from '../services/metricasCompletas';
 import { LoadingSpinner } from '@/shared/components/ui/LoadingSpinner';
 
 const brl = (v) => (v == null ? '—' : `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const ent = (v) => (v == null ? '—' : Math.round(v).toLocaleString('pt-BR'));
 const dec = (v, d = 2) => (v == null ? '—' : v.toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }));
+const pct = (v) => (v == null ? '—' : `${dec(v)}%`);
 
-// [clave, título, formato, ayuda]
-const COLUMNAS = [
-  ['gasto', 'Gasto', brl],
-  ['impresiones', 'Impresiones', ent],
-  ['alcance', 'Alcance*', ent],
-  ['frecuenciaMedia', 'Frecuencia*', (v) => dec(v)],
-  ['clics', 'Clics', ent],
-  ['clicsEnlace', 'Clics en enlace', ent],
-  ['ctr', 'CTR', (v) => (v == null ? '—' : `${dec(v)}%`)],
-  ['cpm', 'CPM', brl],
-  ['cpc', 'CPC', brl],
-  ['costoPorClicEnlace', 'Costo/clic enlace', brl],
-  ['conversaciones', 'Conversaciones', ent],
-  ['costoPorConversacion', 'Costo/conv.', brl],
-  ['leadsMeta', 'Leads (Meta)', ent],
-  ['video', 'Video (repr.)', ent],
-  ['rankingCalidad', 'Calidad', etiquetaRanking],
-  ['rankingEngagement', 'Engagement', etiquetaRanking],
-  ['rankingConversion', 'Conversión', etiquetaRanking],
-];
+const act = (grupo, tipo) => (f) => valorAccion(f, grupo, tipo);
+const A = (tipo) => act('actions', tipo);
+const V = (grupo) => act(grupo, 'video_view');
+const MSG = 'onsite_conversion.';
+const costo = (f, tipo) => {
+  const n = valorAccion(f, 'actions', tipo);
+  return n > 0 ? f.gasto / n : null;
+};
+
+// Cada vista: columnas [título, valor(fila), formato]. Así cada pestaña cabe en pantalla y NADA queda oculto.
+const VISTAS = {
+  general: {
+    nombre: 'General',
+    cols: [
+      ['Gasto', (f) => f.gasto, brl], ['Impresiones', (f) => f.impresiones, ent], ['Clics', (f) => f.clics, ent],
+      ['CTR', (f) => f.ctr, pct], ['CPM', (f) => f.cpm, brl], ['Conversaciones', (f) => f.conversaciones, ent],
+      ['Costo/conv.', (f) => f.costoPorConversacion, brl],
+    ],
+  },
+  entrega: {
+    nombre: 'Entrega',
+    cols: [
+      ['Gasto', (f) => f.gasto, brl], ['Impresiones', (f) => f.impresiones, ent], ['Alcance*', (f) => f.alcance, ent],
+      ['Frecuencia*', (f) => f.frecuenciaMedia, dec], ['CPM', (f) => f.cpm, brl], ['Días con actividad', (f) => f.dias, ent],
+    ],
+  },
+  clics: {
+    nombre: 'Clics',
+    cols: [
+      ['Clics (todos)', (f) => f.clics, ent], ['Clics únicos', (f) => f.clicsUnicos, ent], ['Clics en enlace', (f) => f.clicsEnlace, ent],
+      ['Clics salientes', act('outbound_clicks', 'outbound_click'), ent], ['CTR', (f) => f.ctr, pct], ['CPC', (f) => f.cpc, brl],
+      ['Costo/clic enlace', (f) => f.costoPorClicEnlace, brl],
+    ],
+  },
+  mensajes: {
+    nombre: 'Mensajes',
+    cols: [
+      ['Conversaciones iniciadas', (f) => f.conversaciones, ent], ['Costo/conv.', (f) => f.costoPorConversacion, brl],
+      ['Conexiones totales', A(MSG + 'total_messaging_connection'), ent], ['Primeras respuestas', A(MSG + 'messaging_first_reply'), ent],
+      ['Respondidas', A(MSG + 'messaging_conversation_replied_7d'), ent], ['2+ mensajes', A(MSG + 'messaging_user_depth_2_message_send'), ent],
+      ['3+ mensajes', A(MSG + 'messaging_user_depth_3_message_send'), ent], ['5+ mensajes', A(MSG + 'messaging_user_depth_5_message_send'), ent],
+      ['Costo/2+ mensajes', (f) => costo(f, MSG + 'messaging_user_depth_2_message_send'), brl], ['Leads (Meta)', (f) => f.leadsMeta, ent],
+    ],
+  },
+  interacciones: {
+    nombre: 'Interacciones',
+    cols: [
+      ['Interacciones', A('post_engagement'), ent], ['Costo/interacción', (f) => costo(f, 'post_engagement'), brl],
+      ['Reacciones', A('post_reaction'), ent], ['Comentarios', A('comment'), ent], ['Compartidos', A('post'), ent],
+      ['Guardados', A(MSG + 'post_save'), ent], ['Vistas de foto', A('photo_view'), ent],
+    ],
+  },
+  video: {
+    nombre: 'Video',
+    cols: [
+      ['Reproducciones', V('video_play_actions'), ent], ['25% visto', V('video_p25_watched_actions'), ent], ['50% visto', V('video_p50_watched_actions'), ent],
+      ['75% visto', V('video_p75_watched_actions'), ent], ['100% visto', V('video_p100_watched_actions'), ent], ['ThruPlay', V('video_thruplay_watched_actions'), ent],
+    ],
+  },
+  calidad: {
+    nombre: 'Calidad',
+    cols: [
+      ['Ranking de calidad', (f) => f.rankingCalidad, etiquetaRanking], ['Ranking de engagement', (f) => f.rankingEngagement, etiquetaRanking],
+      ['Ranking de conversión', (f) => f.rankingConversion, etiquetaRanking],
+    ],
+  },
+};
+// "Todo": cada columna de cada vista, sin repetir.
+VISTAS.todo = {
+  nombre: 'Todo',
+  cols: [...new Map(Object.values(VISTAS).flatMap((v) => v.cols).map((c) => [c[0], c])).values()],
+};
 
 export default function MetricasCompletas({ rango }) {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [nivel, setNivel] = useState('campana');
+  const [vista, setVista] = useState('general');
 
   const clave = JSON.stringify(rango);
   const cargar = useCallback(async (silencioso = false) => {
@@ -69,6 +123,13 @@ export default function MetricasCompletas({ rango }) {
 
   const filas = useMemo(() => (datos ? agruparMetricas(datos.filas, nivel, datos.periodo) : []), [datos, nivel]);
   const acciones = useMemo(() => (datos ? agruparAcciones(datos.filas, datos.periodo) : []), [datos]);
+  const cols = VISTAS[vista].cols;
+
+  // Fila de totales (solo para columnas numéricas aditivas; razones y rankings se dejan vacíos).
+  const ADITIVAS = new Set(['Gasto', 'Impresiones', 'Clics', 'Clics (todos)', 'Clics únicos', 'Clics en enlace', 'Clics salientes', 'Conversaciones', 'Conversaciones iniciadas',
+    'Leads (Meta)', 'Conexiones totales', 'Primeras respuestas', 'Respondidas', '2+ mensajes', '3+ mensajes', '5+ mensajes', 'Interacciones', 'Reacciones', 'Comentarios',
+    'Compartidos', 'Guardados', 'Vistas de foto', 'Reproducciones', '25% visto', '50% visto', '75% visto', '100% visto', 'ThruPlay']);
+  const total = (titulo, valor) => (ADITIVAS.has(titulo) ? filas.reduce((a, f) => a + (Number(valor(f)) || 0), 0) : null);
 
   const descargar = () => {
     const blob = new Blob(['﻿' + aCsv(filas)], { type: 'text/csv;charset=utf-8' });
@@ -91,6 +152,8 @@ export default function MetricasCompletas({ rango }) {
   if (!datos) return null;
 
   const grupos = [...new Set(acciones.map((a) => a.grupo))];
+  const boton = (activo) =>
+    `rounded-md px-2.5 py-1 font-medium ${activo ? 'bg-brand-primary text-white' : 'text-chrome-text hover:text-chrome-text-active'}`;
 
   return (
     <div className="space-y-6">
@@ -99,20 +162,14 @@ export default function MetricasCompletas({ rango }) {
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-chrome-text-active">Todas las métricas · {datos.periodo.etiqueta}</p>
             <p className="text-[11px] text-chrome-text-muted">
-              {datos.filas.length} registros diarios por anuncio de Meta. *Alcance y frecuencia: Meta los cuenta por día y anuncio; aquí se suman los
-              días, así que una misma persona puede repetirse.
+              {datos.filas.length} registros diarios por anuncio de Meta. *Alcance y frecuencia: Meta los cuenta por día y anuncio; aquí se suman los días, así
+              que una misma persona puede repetirse.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <div className="inline-flex rounded-lg border border-chrome-border bg-chrome-bg p-0.5 text-xs">
               {Object.entries(NIVELES).map(([v, n]) => (
-                <button
-                  key={v}
-                  onClick={() => setNivel(v)}
-                  className={`rounded-md px-2.5 py-1 font-medium ${nivel === v ? 'bg-brand-primary text-white' : 'text-chrome-text hover:text-chrome-text-active'}`}
-                >
-                  {n.etiqueta}
-                </button>
+                <button key={v} onClick={() => setNivel(v)} className={boton(nivel === v)}>{n.etiqueta}</button>
               ))}
             </div>
             <button
@@ -125,16 +182,22 @@ export default function MetricasCompletas({ rango }) {
           </div>
         </div>
 
+        <div className="mb-3 inline-flex flex-wrap rounded-lg border border-chrome-border bg-chrome-bg p-0.5 text-xs">
+          {Object.entries(VISTAS).map(([v, d]) => (
+            <button key={v} onClick={() => setVista(v)} className={boton(vista === v)}>{d.nombre}</button>
+          ))}
+        </div>
+
         {filas.length === 0 ? (
           <p className="text-xs text-chrome-text-muted">Meta no registró actividad en este período.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1400px] text-left text-xs">
+            <table className="w-full text-left text-xs" style={{ minWidth: `${280 + cols.length * 110}px` }}>
               <thead className="text-[10px] uppercase text-chrome-text-muted">
                 <tr>
                   <th className="sticky left-0 bg-chrome-bg-raised pb-2 pr-3 font-medium">{NIVELES[nivel].etiqueta}</th>
-                  {COLUMNAS.map(([k, t]) => (
-                    <th key={k} className="whitespace-nowrap pb-2 pl-3 text-right font-medium">{t}</th>
+                  {cols.map(([t]) => (
+                    <th key={t} className="pb-2 pl-3 text-right font-medium">{t}</th>
                   ))}
                 </tr>
               </thead>
@@ -145,12 +208,23 @@ export default function MetricasCompletas({ rango }) {
                       <span className="block truncate font-medium text-chrome-text-active" title={f.nombre}>{f.nombre}</span>
                       <span className="text-[10px] text-chrome-text-muted">{f.dias} días con actividad</span>
                     </td>
-                    {COLUMNAS.map(([k, , fmt]) => (
-                      <td key={k} className="whitespace-nowrap py-2 pl-3 text-right">{fmt(f[k])}</td>
+                    {cols.map(([t, val, fmt]) => (
+                      <td key={t} className="py-2 pl-3 text-right">{fmt(val(f))}</td>
                     ))}
                   </tr>
                 ))}
               </tbody>
+              {filas.length > 1 && (
+                <tfoot className="border-t border-chrome-border text-chrome-text-active">
+                  <tr>
+                    <td className="sticky left-0 bg-chrome-bg-raised py-2 pr-3 font-semibold">Total</td>
+                    {cols.map(([t, val, fmt]) => {
+                      const v = total(t, val);
+                      return <td key={t} className="py-2 pl-3 text-right font-semibold">{v == null ? '' : fmt(v)}</td>;
+                    })}
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         )}
@@ -159,7 +233,7 @@ export default function MetricasCompletas({ rango }) {
       <div className="rounded-xl border border-chrome-border bg-chrome-bg-raised p-4">
         <p className="text-xs font-bold uppercase tracking-wider text-chrome-text-active">Todo lo que Meta midió (acciones, video, valores)</p>
         <p className="mb-3 text-[11px] text-chrome-text-muted">
-          Total del período por tipo de acción. El costo es el gasto de las filas que registraron esa acción dividido entre la cantidad.
+          Total del período por tipo de acción, de TODA la cuenta. El costo es el gasto de las filas que registraron esa acción dividido entre la cantidad.
         </p>
         {acciones.length === 0 ? (
           <p className="text-xs text-chrome-text-muted">Sin acciones registradas en este período.</p>
