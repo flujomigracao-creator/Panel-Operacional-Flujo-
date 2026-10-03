@@ -1637,7 +1637,7 @@ const ADS_TOOL_DEFS_BASE = [
         properties: {
           hypothesis: str('Hipótesis a probar'),
           variable_tested: str('Única variable que cambia: imagen | hook | copy | composición'),
-          creative_ids: { type: 'array', items: { type: 'string' }, description: 'ids de creativos (el primero es el Control)' },
+          creative_ids: { type: 'array', items: { type: 'string' }, description: 'ids de creativos (el primero es el Control). Para probar SOLO el público con la misma imagen: pasa 1 creativo y 2 a 4 públicos distintos en publico_codigos (el primero será el Control); el sistema prepara una copia del creativo por variante.' },
           daily_budget: num('Presupuesto diario total en BRL'),
           name: str('Nombre del experimento (opcional)'),
           aprobar_seleccion: bool('true cuando el dueño eligió en el chat estos creativos BORRADOR: su elección los aprueba'),

@@ -143,9 +143,17 @@ export async function crearExperimentoCreativos(
   i: { name?: string; hypothesis: string; variable_tested: string; creative_ids: string[]; daily_budget: number; primary_metric?: string; objective?: string; aprobar_seleccion?: boolean; publico_codigos?: string[] },
 ) {
   const ids = [...new Set(i.creative_ids || [])];
-  if (ids.length < 2 || ids.length > 4) throw new Error('Elige entre 2 y 4 creativos (el primero será el Control).');
+  const codigosPedidos = (i.publico_codigos || []).map((c) => String(c || '').trim()).filter(Boolean);
+  // Prueba de público: UN creativo y 2-4 públicos distintos → cada variante usa la misma imagen con su propio público.
+  const soloPublico = ids.length === 1 && new Set(codigosPedidos).size >= 2;
+  if (soloPublico) {
+    if (codigosPedidos.length > 4 || new Set(codigosPedidos).size !== codigosPedidos.length) throw new Error('Para probar solo el público indica entre 2 y 4 públicos distintos (el primero será el Control).');
+  } else if (ids.length < 2 || ids.length > 4) {
+    throw new Error('Elige entre 2 y 4 creativos (el primero será el Control), o 1 creativo con 2 a 4 públicos distintos para probar solo el público.');
+  }
+  const nVariantes = soloPublico ? codigosPedidos.length : ids.length;
   // Públicos de Meta por variante: se validan ahora (existen y son de adquisición) para fallar antes de proponer nada.
-  const publicos = publicosPorVariante(i.publico_codigos, ids.length);
+  const publicos = publicosPorVariante(i.publico_codigos, nVariantes);
   const codigosUsados = [...new Set(publicos.filter(Boolean))] as string[];
   if (codigosUsados.length) {
     const { data: defs } = await ctx.admin.from('publicos_definiciones').select('codigo, tipo').eq('organization_id', ORG_ID).in('codigo', codigosUsados);
@@ -172,24 +180,48 @@ export async function crearExperimentoCreativos(
   const sinAprobar = orden.filter(c => !['approved', 'published'].includes(c.status));
   if (sinAprobar.length) throw new Error('Todos los creativos deben estar aprobados antes de entrar a un experimento.');
 
-  const servicio = orden[0].service;
+  // Prueba de solo público: cada variante necesita su PROPIO creativo (un creativo solo puede vincularse a un anuncio),
+  // así que se hacen copias aprobadas del mismo creativo (misma imagen y textos). El original queda intacto.
+  let ordenExperimento = orden;
+  if (soloPublico) {
+    const base = orden[0];
+    if (!base.image_path || !base.headline || !base.primary_text) throw new Error('El creativo necesita imagen, titular y texto principal.');
+    ordenExperimento = [];
+    for (let k = 0; k < nVariantes; k++) {
+      const { data: copia, error: errCopia } = await ctx.admin.from('creatives').insert({
+        organization_id: ORG_ID, service: base.service, objective: base.objective, concept: base.concept, format: base.format,
+        prompt_id: base.prompt_id, prompt_text: base.prompt_text, prompt_version: base.prompt_version,
+        hook: base.hook, headline: base.headline, primary_text: base.primary_text, cta: base.cta, visual_concept: base.visual_concept,
+        image_path: base.image_path, image_source: base.image_source ?? null, status: 'approved',
+        parent_creative_id: base.id, root_creative_id: base.id, changed_variable: 'público', generation_id: base.generation_id ?? null,
+        created_by: ctx.userId,
+      }).select(CAMPOS_CREATIVO).single();
+      if (errCopia || !copia) throw new Error(`No se pudo preparar el creativo para la variante ${k + 1}: ${errCopia?.message}`);
+      ordenExperimento.push(copia);
+    }
+  }
+
+  const servicio = ordenExperimento[0].service;
+  const variableProbada = soloPublico ? 'público' : i.variable_tested;
   const params: ExperimentDesignParams = {
-    name: i.name || `Creativos ${servicio} · ${i.variable_tested}`,
+    name: i.name || `Creativos ${servicio} · ${variableProbada}`,
     service: servicio,
-    question: `¿Qué ${i.variable_tested} genera mejores resultados en ${servicio}?`,
+    question: `¿Qué ${variableProbada} genera mejores resultados en ${servicio}?`,
     hypothesis: i.hypothesis,
-    variable_tested: i.variable_tested,
-    control_description: orden[0].headline || 'Creativo de control',
-    treatment_description: orden.slice(1).map(c => c.headline).filter(Boolean).join(' | ') || 'Variantes del creativo',
+    variable_tested: variableProbada,
+    control_description: soloPublico ? `Público de control: ${publicos[0]}` : (ordenExperimento[0].headline || 'Creativo de control'),
+    treatment_description: soloPublico
+      ? `Mismo creativo con otros públicos: ${publicos.slice(1).join(' | ')}`
+      : (ordenExperimento.slice(1).map(c => c.headline).filter(Boolean).join(' | ') || 'Variantes del creativo'),
     objective: (i.objective as any) || 'OUTCOME_MESSAGES',
     primary_metric: i.primary_metric || 'cost_per_customer',
     audience_definition: {},
     daily_budget: Number(i.daily_budget),
-    variants: orden.map((c, idx) => ({
+    variants: ordenExperimento.map((c, idx) => ({
       variant_name: idx === 0 ? 'Control' : `Variante ${String.fromCharCode(65 + idx - 1)}`,
       hook: c.hook || c.headline || '', copy: c.primary_text || '', cta: c.cta || '',
       creative_reference: c.image_path, creative_asset_id: c.id, creative_generation_id: c.generation_id || undefined,
-      variable_changed: idx === 0 ? 'control' : i.variable_tested,
+      variable_changed: idx === 0 ? 'control' : variableProbada,
       ...(publicos[idx] ? { publico_codigo: publicos[idx] as string } : {}),
     })),
     decision_rules: {
