@@ -6,6 +6,7 @@
 // La segmentación usa solo opciones propias de Meta: ubicación, idioma, edad y los comportamientos de expatriados que
 // cada definición pide en `comportamientos` (p. ej. «Vive en el extranjero» o «Vivieron en Cuba»; varios = «o»).
 // Si Meta no ofrece alguna de esas opciones en la cuenta, el público NO se crea (nunca se sustituye en silencio).
+// Un público con es_control = true no lleva comportamientos: es la base contra la que se comparan los demás.
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -19,6 +20,8 @@ async function graph(path: string, token: string, init?: RequestInit) {
   if (!r.ok || d?.error) throw new Error([d?.error?.error_user_msg, d?.error?.message].filter(Boolean).join(' — ') || `Meta ${r.status}`);
   return d;
 }
+
+const sinAcentos = (s: string) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
@@ -41,11 +44,19 @@ Deno.serve(async (req) => {
   if (error) return json({ error: error.message }, 500);
   if (!defs?.length) return json({ ok: true, mensaje: 'No hay públicos de adquisición pendientes.', publicos: [] });
 
-  // Idioma español: IDs de locale de Meta.
+  // Meta devuelve los idiomas con el nombre del idioma de la cuenta («Español», «Español (todos)»): se buscan ambos nombres.
+  // Se usa «Español (todos)» (todas las variantes); si no existiera, el «Español» genérico.
   let locales: number[] = [];
   try {
-    const l = await graph(`search?type=adlocale&q=Spanish&limit=20`, token);
-    locales = (l.data || []).filter((x: any) => /^spanish/i.test(x.name)).map((x: any) => Number(x.key));
+    const candidatos: any[] = [];
+    for (const q of ['Español', 'Spanish']) {
+      const l = await graph(`search?type=adlocale&q=${encodeURIComponent(q)}&limit=50`, token).catch(() => ({ data: [] }));
+      candidatos.push(...(l.data || []));
+    }
+    const todos = candidatos.find((x) => /^(espanol|spanish) \((todos|all)\)$/.test(sinAcentos(x.name)));
+    const generico = candidatos.find((x) => /^(espanol|spanish)$/.test(sinAcentos(x.name)));
+    const elegido = todos || generico;
+    if (elegido) locales = [Number(elegido.key)];
   } catch { /* se informa abajo */ }
 
   const resultados: any[] = [];
@@ -54,13 +65,11 @@ Deno.serve(async (req) => {
     try {
       const pedidos: { buscar: string; empieza: string }[] = Array.isArray(def.comportamientos) ? def.comportamientos : [];
       if (!pedidos.length && !def.es_control) throw new Error('La definición no tiene comportamientos de Meta configurados.');
-      // Meta devuelve los nombres en el idioma de la cuenta: se comparan sin acentos ni mayúsculas.
-      const norm = (s: string) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
       const elegidos: any[] = [];
       const faltan: string[] = [];
       for (const p of pedidos) {
-        const b = await graph(`search?type=adTargetingCategory&class=behaviors&q=${encodeURIComponent(p.buscar)}&limit=100`, token);
-        const op = (b.data || []).find((x: any) => norm(x.name).startsWith(norm(p.empieza)));
+        const b = await graph(`search?type=adTargetingCategory&class=behaviors&q=${encodeURIComponent(p.buscar)}&limit=500`, token);
+        const op = (b.data || []).find((x: any) => sinAcentos(x.name).startsWith(sinAcentos(p.empieza)));
         if (op) elegidos.push(op); else faltan.push(p.empieza);
       }
       if (faltan.length) throw new Error(`Meta no ofrece en esta cuenta: ${faltan.map((f) => `«${f}»`).join(', ')}. No se crea para no usar otra segmentación.`);
@@ -69,8 +78,7 @@ Deno.serve(async (req) => {
         geo_locations: { countries: def.ubicacion?.paises || ['BR'] },
         age_min: def.edad_min, age_max: def.edad_max,
         locales,
-        // Varios comportamientos en el mismo grupo = «o»: se suman, no se restringen.
-        // El público de control no lleva capa de comportamientos.
+        // Varios comportamientos en el mismo grupo = «o»: se suman, no se restringen. El control no lleva ninguno.
         ...(elegidos.length ? { flexible_spec: [{ behaviors: elegidos.map((o) => ({ id: o.id, name: o.name })) }] } : {}),
       };
       item.segmentacion = { comportamientos: elegidos.map((o) => o.name), tamano_aprox: elegidos.map((o) => o.audience_size_lower_bound ?? null), idiomas: locales.length };
