@@ -93,6 +93,7 @@ export interface ExperimentVariantInput {
   creative_generation_id?: string; // generación (creative_generations) que produjo esa imagen
   variable_changed?: string; // qué cambió frente al control ('control' para el control)
   audience_definition?: Record<string, unknown>;
+  publico_codigo?: string; // público de adquisición (publicos_definiciones.codigo) que usará el conjunto de anuncios de esta variante
 }
 
 export interface ExperimentDesignParams {
@@ -520,7 +521,7 @@ export async function proponerExperimentoV4(
     creative_asset_id: v.creative_asset_id || null,
     creative_generation_id: v.creative_generation_id || null,
     variable_changed: v.variable_changed || null,
-    audience_definition: v.audience_definition || params.audience_definition || {},
+    audience_definition: v.audience_definition || (v.publico_codigo ? { publico_codigo: v.publico_codigo } : params.audience_definition) || {},
   }));
 
   const { data: variantesGuardadas, error: errVar } = await ctx.admin

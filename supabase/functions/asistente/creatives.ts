@@ -12,6 +12,7 @@ import { ORG_ID, getMetaConfig, META_GRAPH_VERSION } from './ads.ts';
 import { proponerExperimentoV4, type ExperimentDesignParams } from './campaign_science.ts';
 import { validarCreativo, evaluarGanador, UMBRALES_POR_DEFECTO, type MetricasVariante } from '../_shared/creative_logic.ts';
 import { resolverPrompt } from '../_shared/creative_store.ts';
+import { publicosPorVariante } from '../_shared/publicos_meta.ts';
 
 const CAMPOS_CREATIVO = 'id, service, objective, concept, format, prompt_id, prompt_text, prompt_version, hook, headline, primary_text, cta, visual_concept, image_path, image_source, status, parent_creative_id, campaign_id, adset_id, ad_id, meta_creative_id, generation_id, created_at';
 
@@ -139,10 +140,21 @@ export async function publicarCreativoEnMeta(
 
 export async function crearExperimentoCreativos(
   ctx: { admin: SupabaseClient; userId: string; conversationId?: string | null; proposals?: any[] },
-  i: { name?: string; hypothesis: string; variable_tested: string; creative_ids: string[]; daily_budget: number; primary_metric?: string; objective?: string; aprobar_seleccion?: boolean },
+  i: { name?: string; hypothesis: string; variable_tested: string; creative_ids: string[]; daily_budget: number; primary_metric?: string; objective?: string; aprobar_seleccion?: boolean; publico_codigos?: string[] },
 ) {
   const ids = [...new Set(i.creative_ids || [])];
   if (ids.length < 2 || ids.length > 4) throw new Error('Elige entre 2 y 4 creativos (el primero será el Control).');
+  // Públicos de Meta por variante: se validan ahora (existen y son de adquisición) para fallar antes de proponer nada.
+  const publicos = publicosPorVariante(i.publico_codigos, ids.length);
+  const codigosUsados = [...new Set(publicos.filter(Boolean))] as string[];
+  if (codigosUsados.length) {
+    const { data: defs } = await ctx.admin.from('publicos_definiciones').select('codigo, tipo').eq('organization_id', ORG_ID).in('codigo', codigosUsados);
+    for (const c of codigosUsados) {
+      const d = (defs || []).find((x: any) => x.codigo === c);
+      if (!d) throw new Error(`El público «${c}» no existe. Usa listar_publicos para ver los disponibles.`);
+      if (d.tipo !== 'adquisicion') throw new Error(`El público «${c}» es de tipo «${d.tipo}»: solo los de adquisición se usan en un conjunto de anuncios.`);
+    }
+  }
   const { data: lista } = await ctx.admin.from('creatives').select(CAMPOS_CREATIVO).in('id', ids);
   const porId = new Map((lista || []).map((c: any) => [c.id, c]));
   const orden = ids.map(id => porId.get(id)).filter(Boolean) as any[];
@@ -178,6 +190,7 @@ export async function crearExperimentoCreativos(
       hook: c.hook || c.headline || '', copy: c.primary_text || '', cta: c.cta || '',
       creative_reference: c.image_path, creative_asset_id: c.id, creative_generation_id: c.generation_id || undefined,
       variable_changed: idx === 0 ? 'control' : i.variable_tested,
+      ...(publicos[idx] ? { publico_codigo: publicos[idx] as string } : {}),
     })),
     decision_rules: {
       scale_condition: 'Ganador con confianza media o alta (volumen, periodo y consistencia suficientes).',

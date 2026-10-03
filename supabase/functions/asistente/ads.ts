@@ -21,6 +21,7 @@ import {
 import { crearCreativo, generarPrompt, proponerConceptos, VARIABLES_EXPERIMENTO_IDS } from '../_shared/creative_store.ts';
 import { ESTILOS } from '../_shared/creative_logic.ts';
 import { buscarTendencias, listarTendencias } from '../_shared/trends.ts';
+import { segmentacionDePublico } from '../_shared/publicos_meta.ts';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -1544,6 +1545,7 @@ const ADS_TOOL_DEFS_BASE = [
                 copy: str('Texto principal del anuncio'),
                 cta: str('Llamado a la acción, ej. Enviar mensaje por WhatsApp'),
                 creative_reference: str('Referencia visual o descripción del creativo'),
+                publico_codigo: str('Código de un público de adquisición (de listar_publicos) para esta variante; vacío = segmentación de siempre'),
               },
               required: ['variant_name', 'hook', 'copy', 'cta'],
             },
@@ -1620,6 +1622,14 @@ const ADS_TOOL_DEFS_BASE = [
   {
     type: 'function',
     function: {
+      name: 'listar_publicos',
+      description: 'Lista los públicos de Meta definidos en Flujo (código, nombre, tipo, estado y reglas de seguridad). Los de tipo adquisicion se pueden usar en un experimento con publico_codigo / publico_codigos; los de remarketing y exclusión son listas propias y no se aplican a conjuntos de anuncios.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'proponer_experimento_creativos',
       description: 'Crea una PROPUESTA de experimento que compara 2-4 creativos aprobados del mismo servicio (el primero es el Control) cambiando UNA sola variable. No gasta nada hasta que el dueño la confirme.',
       parameters: {
@@ -1631,6 +1641,7 @@ const ADS_TOOL_DEFS_BASE = [
           daily_budget: num('Presupuesto diario total en BRL'),
           name: str('Nombre del experimento (opcional)'),
           aprobar_seleccion: bool('true cuando el dueño eligió en el chat estos creativos BORRADOR: su elección los aprueba'),
+          publico_codigos: { type: 'array', items: { type: 'string' }, description: 'Públicos de Meta (códigos de listar_publicos, solo de adquisición). Un solo código = todas las variantes usan ese público; varios = uno por variante en el mismo orden que creative_ids (así se prueba el público como variable). Si se omite, se usa la segmentación de siempre.' },
         },
         required: ['hypothesis', 'variable_tested', 'creative_ids', 'daily_budget'],
       },
@@ -2031,6 +2042,17 @@ export async function runAdsTool(
 
     case 'biblioteca_prompts':
       return JSON.stringify(await biblioteca(ctx.admin, args.servicio));
+
+    case 'listar_publicos': {
+      const { data, error } = await ctx.admin
+        .from('publicos_definiciones')
+        .select('codigo, nombre, tipo, pais, servicio, prioridad, estado, es_control, comportamientos, reglas_seguridad, notas')
+        .eq('organization_id', ORG_ID)
+        .order('prioridad')
+        .order('codigo');
+      if (error) throw new Error(`No se pudieron leer los públicos: ${error.message}`);
+      return JSON.stringify({ total: (data || []).length, publicos: data || [] });
+    }
 
     case 'proponer_experimento_creativos': {
       const r = await crearExperimentoCreativos(ctx, args);
@@ -2449,6 +2471,17 @@ export async function executeAdsProposal(
         throw new Error(`Las variantes ${sinCreativo.map((v: any) => v.variant_name).join(', ')} no tienen un creativo con imagen del Laboratorio. Genera y aprueba los creativos, vincúlalos al experimento y vuelve a proponerlo. No se creó nada.`);
       }
 
+      // Públicos por variante: la segmentación de cada una se resuelve ANTES de crear nada en Meta (si falta una opción, no se crea nada).
+      // Una variante sin público usa la segmentación de plantilla de siempre.
+      const segmentacionPorCodigo = new Map<string, Record<string, unknown>>();
+      for (const codigo of new Set((d.variantes || []).map((v: any) => v.publico_codigo || v.audience_definition?.publico_codigo).filter(Boolean) as string[])) {
+        try {
+          segmentacionPorCodigo.set(codigo, (await segmentacionDePublico(admin, ORG_ID, codigo)).targeting);
+        } catch (errPublico) {
+          throw new Error(`No se creó nada en Meta. ${errPublico instanceof Error ? errPublico.message : String(errPublico)}`);
+        }
+      }
+
       const dailyBudgetCents = Math.round(Number(d.presupuesto_diario) * 100);
       const campRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/campaigns`, {
         method: 'POST',
@@ -2487,6 +2520,8 @@ export async function executeAdsProposal(
       }
       const variantesResult: any[] = [];
       for (const v of d.variantes || []) {
+        const codigoPublico = v.publico_codigo || v.audience_definition?.publico_codigo;
+        const targetingVariante = (codigoPublico && segmentacionPorCodigo.get(codigoPublico)) || targeting;
         let adsetId: string | null = null;
         let adId: string | null = null;
         let creativeId: string | null = null;
@@ -2505,7 +2540,7 @@ export async function executeAdsProposal(
                 billing_event: 'IMPRESSIONS',
                 optimization_goal: mensajes ? 'CONVERSATIONS' : (objetivoMeta(objetivoPedido) === 'OUTCOME_LEADS' ? 'LEAD_GENERATION' : 'LINK_CLICKS'),
                 ...(mensajes ? { destination_type: 'WHATSAPP', promoted_object: { page_id: pageId, whatsapp_phone_number: numero } } : {}),
-                targeting,
+                targeting: targetingVariante,
                 status: 'PAUSED',
                 access_token: token,
               }),
