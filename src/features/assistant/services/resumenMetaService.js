@@ -73,6 +73,24 @@ export async function publicosMeta(accion = 'verificar') {
   return data;
 }
 
+/** Catálogo de opciones de segmentación de Meta (nombre exacto + ID), guardado desde la cuenta. */
+export async function getCatalogoMeta() {
+  return leerTodo(() =>
+    supabase
+      .from('meta_opciones_segmentacion')
+      .select('clase, meta_id, nombre, ruta, tamano_min, tamano_max')
+      .order('clase')
+      .order('meta_id')
+  );
+}
+
+/** Gasto y conversaciones reales por emplazamiento («plataforma|posición») según el desglose de Meta. */
+export async function getEmplazamientosReales() {
+  return leerTodo(() =>
+    supabase.from('meta_ads_desglose').select('clave, gasto, conversaciones').eq('tipo', 'ubicacion').order('fecha').order('clave')
+  );
+}
+
 /** Tablas cuyo cambio debe refrescar el Resumen en vivo (Supabase Realtime, respeta RLS). */
 export const TABLAS_EN_VIVO = ['meta_ads_insights', 'meta_ads_desglose', 'meta_ads_entities', 'meta_ads_sync_log', 'comercial_leads', 'payments'];
 

@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { getPublicosLeads, getPublicosDefiniciones, publicosMeta, suscribirCambios } from '../services/resumenMetaService';
 import { DIMENSIONES, INTENCIONES, DIAS_SIN_COMPRA, agruparPublicos, conteoIntencion, resumenExclusion } from '../services/publicos';
 import { LoadingSpinner } from '@/shared/components/ui/LoadingSpinner';
+import CatalogoMeta from './CatalogoMeta';
 
 const brl = (v) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const pct = (v) => (v == null ? '—' : `${(Number(v) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`);
@@ -23,6 +24,26 @@ const nombre = (clave, dimension) => {
 };
 
 export default function PublicosMeta() {
+  const [vista, setVista] = useState('publicos'); // 'publicos' | 'catalogo'
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1">
+        {[['publicos', 'Públicos'], ['catalogo', 'Catálogo de Meta']].map(([k, etiqueta]) => (
+          <button
+            key={k}
+            onClick={() => setVista(k)}
+            className={`rounded-md px-3 py-1 text-xs font-semibold ${vista === k ? 'bg-brand-primary text-white' : 'text-chrome-text-muted hover:text-chrome-text'}`}
+          >
+            {etiqueta}
+          </button>
+        ))}
+      </div>
+      {vista === 'catalogo' ? <CatalogoMeta /> : <PublicosLista />}
+    </div>
+  );
+}
+
+function PublicosLista() {
   const [dimension, setDimension] = useState('pais_servicio');
   const [leads, setLeads] = useState(null);
   const [definiciones, setDefiniciones] = useState([]);
