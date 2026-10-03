@@ -29,6 +29,50 @@ export async function getInsightsCompletos(rango) {
   return { periodo, filas };
 }
 
+/**
+ * Embudo real (gasto de Meta frente a calificados, propuestas, pagos confirmados por PicPay, CAC y ROAS) por
+ * 'campana' | 'conjunto' | 'anuncio'. Lo calcula la función SQL `meta_embudo` (cohorte de leads creados en el período).
+ * Lo que no tiene atribución llega como null: nunca se rellena con ceros.
+ */
+export async function getEmbudoMeta(rango, nivel = 'campana') {
+  const periodo = resolverPeriodos(rango);
+  const { data, error } = await supabase.rpc('meta_embudo', { p_nivel: nivel, p_desde: periodo.desde, p_hasta: periodo.hasta });
+  if (error) throw error;
+  return { periodo, filas: data || [] };
+}
+
+/** Un renglón por lead con país, servicio e intención ya clasificados (vista publicos_leads_panel, sin teléfonos). */
+export async function getPublicosLeads() {
+  return leerTodo(() =>
+    supabase
+      .from('publicos_leads_panel')
+      .select('lead_id, created_at, meta_ctwa_clid, pais, servicio, intencion, pagos, ingresos, propuesta_enviada, last_inbound_at')
+      .order('lead_id')
+  );
+}
+
+/** Definiciones de públicos (borrador → aprobado → creado en Meta), con sus reglas de seguridad. */
+export async function getPublicosDefiniciones() {
+  const { data, error } = await supabase
+    .from('publicos_definiciones')
+    .select('id, codigo, nombre, tipo, pais, servicio, prioridad, ubicacion, idiomas, edad_min, edad_max, excluye, fuente_datos, reglas_seguridad, estado, notas')
+    .order('prioridad')
+    .order('codigo');
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Públicos guardados en Meta. 'verificar' no escribe nada (solo resuelve la segmentación); 'crear' los crea sin gasto
+ * ni cambios en campañas y marca cada definición como creada.
+ */
+export async function publicosMeta(accion = 'verificar') {
+  const { data, error } = await supabase.functions.invoke('publicos-meta', { body: { accion } });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
 /** Tablas cuyo cambio debe refrescar el Resumen en vivo (Supabase Realtime, respeta RLS). */
 export const TABLAS_EN_VIVO = ['meta_ads_insights', 'meta_ads_desglose', 'meta_ads_entities', 'meta_ads_sync_log', 'comercial_leads', 'payments'];
 

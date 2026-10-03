@@ -35,6 +35,8 @@ import LearningSummary from './LearningSummary';
 import PerformanceChart from './PerformanceChart';
 import ResumenMeta from './ResumenMeta';
 import MetricasCompletas from './MetricasCompletas';
+import EmbudoMeta from './EmbudoMeta';
+import PublicosMeta from './PublicosMeta';
 import { LoadingSpinner } from '@/shared/components/ui/LoadingSpinner';
 
 export default function IntelligenceCenterView() {
@@ -343,6 +345,28 @@ export default function IntelligenceCenterView() {
           <span>Métricas</span>
         </button>
         <button
+          onClick={() => setActiveTab('embudo')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
+            activeTab === 'embudo'
+              ? 'border-brand-primary text-brand-primary'
+              : 'border-transparent text-chrome-text-muted hover:text-chrome-text'
+          }`}
+        >
+          <Filter size={14} />
+          <span>Embudo</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('publicos')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
+            activeTab === 'publicos'
+              ? 'border-brand-primary text-brand-primary'
+              : 'border-transparent text-chrome-text-muted hover:text-chrome-text'
+          }`}
+        >
+          <Users size={14} />
+          <span>Públicos</span>
+        </button>
+        <button
           onClick={() => setActiveTab('meta_ads')}
           className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
             activeTab === 'meta_ads'
@@ -498,6 +522,10 @@ export default function IntelligenceCenterView() {
           {activeTab === 'resumen' && <ResumenMeta rango={pedirRango()} onPreguntar={preguntar} />}
 
           {activeTab === 'metricas' && <MetricasCompletas rango={pedirRango()} />}
+
+          {activeTab === 'embudo' && <EmbudoMeta rango={pedirRango()} />}
+
+          {activeTab === 'publicos' && <PublicosMeta />}
 
           {/* ── PESTAÑA 2: META ADS & RENDIMIENTO ── */}
           {activeTab === 'meta_ads' && (
