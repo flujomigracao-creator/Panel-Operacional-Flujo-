@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
     const item: any = { codigo: def.codigo, nombre: def.nombre };
     try {
       const pedidos: { buscar: string; empieza: string }[] = Array.isArray(def.comportamientos) ? def.comportamientos : [];
-      if (!pedidos.length) throw new Error('La definición no tiene comportamientos de Meta configurados.');
+      if (!pedidos.length && !def.es_control) throw new Error('La definición no tiene comportamientos de Meta configurados.');
       // Meta devuelve los nombres en el idioma de la cuenta: se comparan sin acentos ni mayúsculas.
       const norm = (s: string) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
       const elegidos: any[] = [];
@@ -70,7 +70,8 @@ Deno.serve(async (req) => {
         age_min: def.edad_min, age_max: def.edad_max,
         locales,
         // Varios comportamientos en el mismo grupo = «o»: se suman, no se restringen.
-        flexible_spec: [{ behaviors: elegidos.map((o) => ({ id: o.id, name: o.name })) }],
+        // El público de control no lleva capa de comportamientos.
+        ...(elegidos.length ? { flexible_spec: [{ behaviors: elegidos.map((o) => ({ id: o.id, name: o.name })) }] } : {}),
       };
       item.segmentacion = { comportamientos: elegidos.map((o) => o.name), tamano_aprox: elegidos.map((o) => o.audience_size_lower_bound ?? null), idiomas: locales.length };
       if (!crear) {

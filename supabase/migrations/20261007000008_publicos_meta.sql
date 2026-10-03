@@ -134,3 +134,7 @@ alter table public.publicos_definiciones add column if not exists comportamiento
 update public.publicos_definiciones set
   comportamientos = '[{"buscar":"Vive en el extranjero","empieza":"Vive en el extranjero"},{"buscar":"Vivieron en Cuba","empieza":"Vivieron en Cuba"}]'::jsonb
 where tipo = 'adquisicion' and pais = 'CU';
+
+-- Público de control (sin capa de expatriados) para comparar en experimentos. Aplicado el 2026-10-03.
+alter table public.publicos_definiciones add column if not exists es_control boolean not null default false;
+-- (la definición CU_CONTROL_ADQ se sembró con datos de la organización en producción)
