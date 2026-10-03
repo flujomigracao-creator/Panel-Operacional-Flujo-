@@ -57,7 +57,14 @@ Deno.serve(async (req) => {
       if (!nombrePais) throw new Error('País sin opción de expatriados configurada.');
       const b = await graph(`search?type=adTargetingCategory&class=behaviors&q=${encodeURIComponent(`Expats (${nombrePais})`)}&limit=20`, token);
       const op = (b.data || []).find((x: any) => new RegExp(`expats?\\s*\\(${nombrePais}\\)`, 'i').test(x.name));
-      if (!op) throw new Error(`Meta no ofrece «Expats (${nombrePais})» en esta cuenta; no se crea para no usar otra segmentación.`);
+      if (!op) {
+        // Diagnóstico: qué opciones de expatriados / del país devuelve realmente Meta.
+        const otras = await graph(`search?type=adTargetingCategory&class=behaviors&q=Expats&limit=50`, token).catch(() => ({ data: [] }));
+        const demo = await graph(`search?type=adTargetingCategory&class=demographics&q=${encodeURIComponent(nombrePais)}&limit=25`, token).catch(() => ({ data: [] }));
+        item.opciones_expats = (otras.data || []).map((x: any) => x.name).slice(0, 50);
+        item.opciones_pais = [...(b.data || []), ...(demo.data || [])].map((x: any) => `${x.type || ''}:${x.name}`).slice(0, 25);
+        throw new Error(`Meta no ofrece «Expats (${nombrePais})» en esta cuenta; no se crea para no usar otra segmentación.`);
+      }
       if (!locales.length) throw new Error('No se pudo resolver el idioma español en Meta.');
       const targeting = {
         geo_locations: { countries: def.ubicacion?.paises || ['BR'] },
