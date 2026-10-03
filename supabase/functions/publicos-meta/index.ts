@@ -3,16 +3,15 @@
 // POST { accion: 'verificar' | 'crear' }   (requiere sesión del panel; verify_jwt activo)
 //   verificar: resuelve en Meta los IDs de segmentación y devuelve lo que se crearía. No escribe nada.
 //   crear:     crea los públicos guardados que falten y marca la definición como creado_en_meta.
-// La segmentación usa solo opciones propias de Meta (ubicación, idioma, edad y el comportamiento «Expats (Cuba)» si existe).
-// Si Meta no ofrece esa opción en la cuenta, el público NO se crea (nunca se sustituye por otra segmentación en silencio).
+// La segmentación usa solo opciones propias de Meta: ubicación, idioma, edad y los comportamientos de expatriados que
+// cada definición pide en `comportamientos` (p. ej. «Vive en el extranjero» o «Vivieron en Cuba»; varios = «o»).
+// Si Meta no ofrece alguna de esas opciones en la cuenta, el público NO se crea (nunca se sustituye en silencio).
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const GRAPH = 'https://graph.facebook.com/v20.0';
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
-
-const PAIS_EXPAT: Record<string, string> = { CU: 'Cuba' };
 
 async function graph(path: string, token: string, init?: RequestInit) {
   const r = await fetch(`${GRAPH}/${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init?.headers || {}) } });
@@ -51,28 +50,29 @@ Deno.serve(async (req) => {
 
   const resultados: any[] = [];
   for (const def of defs) {
-    const nombrePais = PAIS_EXPAT[def.pais];
     const item: any = { codigo: def.codigo, nombre: def.nombre };
     try {
-      if (!nombrePais) throw new Error('País sin opción de expatriados configurada.');
-      const b = await graph(`search?type=adTargetingCategory&class=behaviors&q=${encodeURIComponent(`Expats (${nombrePais})`)}&limit=20`, token);
-      const op = (b.data || []).find((x: any) => new RegExp(`expats?\\s*\\(${nombrePais}\\)`, 'i').test(x.name));
-      if (!op) {
-        // Diagnóstico: qué opciones de expatriados / del país devuelve realmente Meta.
-        const otras = await graph(`search?type=adTargetingCategory&class=behaviors&q=Expats&limit=50`, token).catch(() => ({ data: [] }));
-        const demo = await graph(`search?type=adTargetingCategory&class=demographics&q=${encodeURIComponent(nombrePais)}&limit=25`, token).catch(() => ({ data: [] }));
-        item.opciones_expats = (otras.data || []).map((x: any) => x.name).slice(0, 50);
-        item.opciones_pais = [...(b.data || []), ...(demo.data || [])].map((x: any) => `${x.type || ''}:${x.name}`).slice(0, 25);
-        throw new Error(`Meta no ofrece «Expats (${nombrePais})» en esta cuenta; no se crea para no usar otra segmentación.`);
+      const pedidos: { buscar: string; empieza: string }[] = Array.isArray(def.comportamientos) ? def.comportamientos : [];
+      if (!pedidos.length) throw new Error('La definición no tiene comportamientos de Meta configurados.');
+      // Meta devuelve los nombres en el idioma de la cuenta: se comparan sin acentos ni mayúsculas.
+      const norm = (s: string) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+      const elegidos: any[] = [];
+      const faltan: string[] = [];
+      for (const p of pedidos) {
+        const b = await graph(`search?type=adTargetingCategory&class=behaviors&q=${encodeURIComponent(p.buscar)}&limit=100`, token);
+        const op = (b.data || []).find((x: any) => norm(x.name).startsWith(norm(p.empieza)));
+        if (op) elegidos.push(op); else faltan.push(p.empieza);
       }
+      if (faltan.length) throw new Error(`Meta no ofrece en esta cuenta: ${faltan.map((f) => `«${f}»`).join(', ')}. No se crea para no usar otra segmentación.`);
       if (!locales.length) throw new Error('No se pudo resolver el idioma español en Meta.');
       const targeting = {
         geo_locations: { countries: def.ubicacion?.paises || ['BR'] },
         age_min: def.edad_min, age_max: def.edad_max,
         locales,
-        flexible_spec: [{ behaviors: [{ id: op.id, name: op.name }] }],
+        // Varios comportamientos en el mismo grupo = «o»: se suman, no se restringen.
+        flexible_spec: [{ behaviors: elegidos.map((o) => ({ id: o.id, name: o.name })) }],
       };
-      item.segmentacion = { comportamiento: op.name, tamano_aprox: op.audience_size_lower_bound ?? null, idiomas: locales.length };
+      item.segmentacion = { comportamientos: elegidos.map((o) => o.name), tamano_aprox: elegidos.map((o) => o.audience_size_lower_bound ?? null), idiomas: locales.length };
       if (!crear) {
         item.estado = 'listo para crear';
       } else {

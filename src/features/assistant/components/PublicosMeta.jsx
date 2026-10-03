@@ -128,12 +128,7 @@ export default function PublicosMeta() {
                 {(informe.publicos || []).map((p) => (
                   <li key={p.codigo} className={p.estado === 'no creado' ? 'text-amber-300' : 'text-green-300'}>
                     {p.nombre}: {p.estado}{p.motivo ? ` — ${p.motivo}` : ''}
-                    {p.segmentacion?.tamano_aprox ? ` (≈ ${Number(p.segmentacion.tamano_aprox).toLocaleString('es')} personas)` : ''}
-                    {p.opciones_expats && (
-                      <span className="block text-[11px] text-chrome-text-muted">
-                        Opciones «Expats» que sí ofrece Meta: {p.opciones_expats.length ? p.opciones_expats.join(', ') : 'ninguna'}
-                      </span>
-                    )}
+                    {p.segmentacion?.comportamientos?.length ? ` (${p.segmentacion.comportamientos.join(' + ')})` : ''}
                   </li>
                 ))}
                 {informe.mensaje && <li className="text-chrome-text-muted">{informe.mensaje}</li>}

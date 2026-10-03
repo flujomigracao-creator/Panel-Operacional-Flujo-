@@ -126,3 +126,11 @@ create policy tenant_isolation on public.publicos_definiciones for all
 grant select, update on public.publicos_definiciones to authenticated;
 grant all on public.publicos_definiciones to service_role;
 -- Las definiciones iniciales (7 públicos de Cuba, en borrador) se sembraron con datos de la organización en producción.
+
+-- Comportamientos de Meta que pide cada público (varios = «o»). Aplicado el 2026-10-03.
+alter table public.publicos_definiciones add column if not exists comportamientos jsonb not null default '[]';
+-- Públicos de Cuba: Brasil + español + 21–65 + «Vive en el extranjero» o «Vivieron en Cuba (anteriormente expatriados)».
+-- (Meta ya no ofrece «Expats (Cuba)»: se verificó con la API el 2026-10-03.)
+update public.publicos_definiciones set
+  comportamientos = '[{"buscar":"Vive en el extranjero","empieza":"Vive en el extranjero"},{"buscar":"Vivieron en Cuba","empieza":"Vivieron en Cuba"}]'::jsonb
+where tipo = 'adquisicion' and pais = 'CU';
