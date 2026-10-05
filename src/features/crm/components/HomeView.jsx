@@ -142,7 +142,6 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
   // Estado propio de cada fuente: una tarjeta falla (o carga) sin arrastrar a las demás.
   const stResumen = estadoDe(resumenQ, r);
   const stEmbudo = estadoDe(embudoQ, emb);
-  const stTramites = tramites.isError || checklist.isError ? 'error' : tramites.isLoading || checklist.isLoading ? 'loading' : 'ok';
   const refrescarTodo = () => { qc.invalidateQueries({ queryKey: ['inicio'] }); tramites.refetch(); convs.refetch(); tasks.refetch(); };
   const actualizado = resumenQ.dataUpdatedAt ? new Date(resumenQ.dataUpdatedAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : null;
 
@@ -153,6 +152,7 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
     enabled: active.length > 0,
   });
   const itemsBy = useMemo(() => groupChecklist(checklist.data), [checklist.data]);
+  const stTramites = tramites.isError || checklist.isError ? 'error' : tramites.isLoading || checklist.isLoading ? 'loading' : 'ok';
 
   const pending = useMemo(() => active
     .map((t) => ({ t, issue: tramiteIssue(t, itemsBy[t.id]) }))
