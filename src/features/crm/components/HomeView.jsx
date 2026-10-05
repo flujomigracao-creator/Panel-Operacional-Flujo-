@@ -8,7 +8,7 @@ import { useCrmData, KEYS } from '../useCrm';
 import { getConversations, getTramites, getChecklist } from '../services/crmService';
 import { relTime } from '../format';
 import { getResumenInicio } from '../services/resumenInicioService';
-import { FILTROS, periodoDeFiltro, derivarResumen, fmtBRL, fmtPct, fmtVar } from '../resumenInicio';
+import { FILTROS, MIN_PAGOS_ATRIBUIDOS, periodoDeFiltro, derivarResumen, fmtBRL, fmtPct, fmtVar } from '../resumenInicio';
 import { isActiveTramite, tramiteIssue, groupChecklist, ISSUE_TONE, ISSUE_DOT } from '../tramites';
 
 // Tareas que el sistema cierra solo cuando detecta que se hicieron: cerrarlas a mano las haría volver.
@@ -78,10 +78,11 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
   const [filtro, setFiltro] = useState('7d');
   const [custom, setCustom] = useState({ desde: '', hasta: '' });
   const periodo = useMemo(() => periodoDeFiltro(filtro, custom), [filtro, custom]);
+  const periodoOk = periodo && !periodo.error ? periodo : null;
   const resumenQ = useQuery({
-    queryKey: ['inicio', 'resumen', periodo?.desde, periodo?.hasta],
-    queryFn: () => getResumenInicio(periodo.desde, periodo.hasta),
-    enabled: !!periodo,
+    queryKey: ['inicio', 'resumen', periodoOk?.desde, periodoOk?.hasta],
+    queryFn: () => getResumenInicio(periodoOk.desde, periodoOk.hasta),
+    enabled: !!periodoOk,
     refetchInterval: 120_000,
   });
   const r = useMemo(() => derivarResumen(resumenQ.data), [resumenQ.data]);
@@ -168,59 +169,82 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
               </span>
             )}
             <span className="ml-auto flex items-center gap-2 text-xs text-text-muted">
-              {periodo && <span>{periodo.desde} → {periodo.hasta} · hora de São Paulo</span>}
+              {periodoOk && <span>{periodoOk.desde} → {periodoOk.hasta} · hora de São Paulo</span>}
               {actualizado && !resumenQ.isError && <span>· actualizado {actualizado}</span>}
               <button onClick={refrescarTodo} title="Actualizar" className="rounded p-1 hover:bg-bg-surface"><RefreshCw size={13} className={resumenQ.isFetching ? 'animate-spin' : ''} /></button>
             </span>
           </div>
 
           {!periodo && <p className="text-[13px] text-text-muted">Elige las dos fechas del período personalizado.</p>}
-          {periodo && resumenQ.isError && <ErrorNote what="el resumen comercial" onRetry={() => resumenQ.refetch()} />}
-          {periodo && resumenQ.isLoading && <p className="text-[13px] text-text-muted">Cargando resumen…</p>}
+          {periodo?.error && <p className="text-[13px] text-danger">{periodo.error}</p>}
+          {periodoOk && resumenQ.isError && <ErrorNote what="el resumen comercial" onRetry={() => resumenQ.refetch()} />}
+          {periodoOk && resumenQ.isLoading && <p className="text-[13px] text-text-muted">Cargando resumen…</p>}
 
           {r && (
             <>
-              {r.meta.estado !== 'ok' && (
-                <div className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/5 px-4 py-2 text-[13px] text-warning">
-                  <AlertTriangle size={14} /> {r.meta.texto}. El gasto y las conversaciones de Meta pueden estar desactualizados.
-                  <button onClick={() => onNavigate('intelligence')} className="ml-auto underline">Ver Meta Ads</button>
-                </div>
-              )}
+              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Resultados del período seleccionado</h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Kpi label="Leads (personas únicas)" value={r.leads.personas} delta={r.leads.var}
-                  sub={`${r.leads.brutos} contactos en total`} onClick={() => onNavigate('comercial')} />
-                <Kpi label="Cobrado" value={fmtBRL(r.cobrado.total)} delta={r.cobrado.var}
-                  sub={`${r.cobrado.pagos} pagos confirmados`} onClick={() => onNavigate('finance')} />
-                <Kpi label="Conversión a cliente" value={fmtPct(r.conversion.pct)}
-                  sub={r.conversion.pct == null ? 'sin leads en el período' : `${r.conversion.pagaron} de ${r.conversion.personas} personas pagaron (mínimo)`}
+                <Kpi label="Oportunidades (una por servicio)" value={r.oportunidades.total} delta={r.oportunidades.var}
+                  sub={`${r.oportunidades.personas} personas distintas · ${r.oportunidades.sinServicio} sin servicio elegido`} onClick={() => onNavigate('comercial')} />
+                <Kpi label="Cobrado" value={fmtBRL(r.cobrado.total, 2)} delta={r.cobrado.var}
+                  sub={`${r.cobrado.pagos} pagos confirmados${r.cobrado.sinOportunidad ? ` · ${r.cobrado.sinOportunidad} sin oportunidad asociable` : ''}`} onClick={() => onNavigate('finance')} />
+                <Kpi label="Conversión por oportunidad" value={fmtPct(r.conversion.acumulada)}
+                  sub={r.conversion.acumulada == null ? 'sin oportunidades en el período'
+                    : `${r.conversion.pagadas} de ${r.conversion.oportunidades} pagaron · a 7 días: ${r.conversion.maduras7 ? `${fmtPct(r.conversion.d7)} de ${r.conversion.maduras7}` : 'aún sin plazo cumplido'} · a 30 días: ${r.conversion.maduras30 ? `${fmtPct(r.conversion.d30)} de ${r.conversion.maduras30}` : 'aún sin plazo cumplido'}`}
                   onClick={() => onNavigate('comercial')} />
-                <Kpi label="Trámites con incidencia" value={tramites.isError ? '—' : pending.length}
-                  sub={tramites.isError ? 'error de carga' : `${active.length} en curso`} tone={pending.length ? 'text-warning' : ''} onClick={() => onNavigate('tramites')} />
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Kpi label="Gasto en Meta Ads" value={fmtBRL(r.gasto.total)} delta={r.gasto.var} deltaGood={false}
-                  sub={r.gasto.total == null ? 'sin datos de Meta en el período' : `${r.gasto.conversaciones ?? 0} conversaciones${r.gasto.costoConversacion != null ? ` · ${fmtBRL(r.gasto.costoConversacion)} c/u` : ''}`}
+                  sub={r.gasto.total == null ? 'sin datos de Meta en el período' : `${r.gasto.conversaciones ?? 0} conversaciones${r.gasto.costoConversacion != null ? ` · ${fmtBRL(r.gasto.costoConversacion, 2)} c/u` : ''}`}
                   onClick={() => onNavigate('intelligence')} />
-                <Kpi label="Atribuidos a anuncios" value={fmtPct(r.gasto.atribuidosPct, 0)}
-                  sub={`${r.leads.meta} de ${r.leads.personas} leads · sin esto no hay costo por cliente fiable`} onClick={() => onNavigate('intelligence')} />
-                <Kpi label="Potencial en negociación" value={fmtBRL(r.potencial.total)}
-                  sub={`${r.potencial.n} propuestas abiertas · no es dinero cobrado`} onClick={() => onNavigate('comercial')} />
-                <Kpi label="Conversaciones pendientes" value={r.conversacionesPendientes ?? '—'}
-                  sub="sin respuesta ahora mismo" tone={r.conversacionesPendientes ? 'text-warning' : ''} onClick={() => onNavigate('chats')} />
               </div>
+
+              <div className="rounded-md border border-border bg-bg-surface px-4 py-3">
+                <p className="text-[11px] uppercase tracking-wide text-text-muted">Anuncios de origen (identificados, no demostrados)</p>
+                <div className="mt-2 grid gap-x-8 gap-y-1 text-[13px] sm:grid-cols-2 lg:grid-cols-4">
+                  <p><span className="text-text-primary">{r.atribucion.conAnuncio}</span> <span className="text-text-muted">con anuncio identificado ({fmtPct(r.atribucion.conAnuncioPct, 0)})</span></p>
+                  <p><span className="text-text-primary">{r.atribucion.sinAtribucion}</span> <span className="text-text-muted">sin atribución confirmada</span></p>
+                  <p><span className="text-text-primary">{r.atribucion.pagadasConAnuncio}</span> <span className="text-text-muted">pagadas con anuncio · {fmtBRL(r.atribucion.ingresosConAnuncio, 2)}</span></p>
+                  <p><span className="text-text-primary">{fmtBRL(r.atribucion.costoPorOportunidad, 2)}</span> <span className="text-text-muted">por oportunidad con anuncio</span></p>
+                </div>
+                <p className="mt-2 text-xs text-text-muted">
+                  {r.atribucion.muestraSuficiente
+                    ? `Costo por cliente atribuido: ${fmtBRL(r.atribucion.costoPorCliente, 2)}`
+                    : `Costo por cliente atribuido: no disponible (se necesitan al menos ${MIN_PAGOS_ATRIBUIDOS} pagos con anuncio; hay ${r.atribucion.pagadasConAnuncio}).`}
+                  {' '}Tener un anuncio registrado no prueba que Meta originara el contacto.
+                </p>
+              </div>
+
               {r.porServicio.length > 0 && (
                 <div className="rounded-md border border-border bg-bg-surface px-4 py-3">
-                  <p className="text-[11px] uppercase tracking-wide text-text-muted">Ingresos cobrados por servicio</p>
+                  <p className="text-[11px] uppercase tracking-wide text-text-muted">Ingresos cobrados por servicio (período)</p>
                   <ul className="mt-2 grid gap-x-8 gap-y-1 text-[13px] sm:grid-cols-2">
                     {r.porServicio.map((s) => (
                       <li key={s.servicio} className="flex justify-between gap-3">
                         <span className="truncate text-text-secondary">{s.servicio}</span>
-                        <span className="whitespace-nowrap text-text-primary">{fmtBRL(s.total)} <span className="text-text-muted">· {s.n}</span></span>
+                        <span className="whitespace-nowrap text-text-primary">{fmtBRL(s.total, 2)} <span className="text-text-muted">· {s.n}</span></span>
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
+
+              <h2 className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Situación actual (no depende del período)</h2>
+              {r.actual.meta.estado !== 'ok' && (
+                <div className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/5 px-4 py-2 text-[13px] text-warning">
+                  <AlertTriangle size={14} /> {r.actual.meta.texto}. El gasto y las conversaciones de Meta pueden estar desactualizados.
+                  <button onClick={() => onNavigate('intelligence')} className="ml-auto underline">Ver Meta Ads</button>
+                </div>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Kpi label="Propuestas abiertas" value={fmtBRL(r.actual.potencial.total)}
+                  sub={`${r.actual.potencial.n} sin pago · potencial, no dinero cobrado${r.actual.potencial.sinMovimiento14d ? ` · ${r.actual.potencial.sinMovimiento14d} sin movimiento 14+ días` : ''}`}
+                  onClick={() => onNavigate('comercial')} />
+                <Kpi label="Conversaciones pendientes" value={r.actual.conversacionesPendientes ?? '—'}
+                  sub="sin respuesta ahora mismo" tone={r.actual.conversacionesPendientes ? 'text-warning' : ''} onClick={() => onNavigate('chats')} />
+                <Kpi label="Trámites con incidencia" value={tramites.isError ? '—' : pending.length}
+                  sub={tramites.isError ? 'error de carga' : `${active.length} en curso`} tone={pending.length ? 'text-warning' : ''} onClick={() => onNavigate('tramites')} />
+                <Kpi label="Sincronización de Meta" value={r.actual.meta.estado === 'ok' ? 'Al día' : r.actual.meta.estado === 'atrasado' ? 'Atrasada' : r.actual.meta.estado === 'error' ? 'Con error' : 'Sin datos'}
+                  sub={r.actual.meta.texto} tone={r.actual.meta.estado === 'ok' ? 'text-success' : 'text-warning'} onClick={() => onNavigate('intelligence')} />
+              </div>
             </>
           )}
         </section>
