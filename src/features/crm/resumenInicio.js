@@ -121,3 +121,60 @@ export const fmtPct = (v, dec = 1) => (v == null ? '—' : `${v.toLocaleString('
 export const fmtVar = (v) => (v == null ? null : `${v > 0 ? '+' : ''}${Math.round(v)} %`);
 
 export { sumarDias };
+
+/**
+ * Embudo por oportunidad (cohorte del período): oportunidad → propuesta → pago → trámite iniciado.
+ * `tasa` = % respecto al paso anterior (null si no hay base). "Servicio elegido" NO es un paso: se informa como calidad de dato.
+ */
+export function derivarEmbudo(e) {
+  if (!e || e.version !== 1) return null;
+  const a = e.embudo?.actual || {};
+  const opp = cero(a.oportunidades);
+  const pasos = [
+    { id: 'oportunidades', label: 'Oportunidades', n: opp },
+    { id: 'propuesta', label: 'Propuesta enviada', n: cero(a.propuesta) },
+    { id: 'pago', label: 'Pago confirmado', n: cero(a.pago) },
+    { id: 'iniciado', label: 'Trámite iniciado', n: cero(a.iniciado) },
+  ];
+  // La tasa del último paso es respecto al pago solo si hay pagos; un trámite sin pago no entra en esa tasa.
+  const conTasa = pasos.map((p, i) => ({ ...p, tasa: i === 0 ? null : pct(p.n, pasos[i - 1].n), deOportunidades: pct(p.n, opp) }));
+  return {
+    pasos: conTasa,
+    perdidas: cero(a.perdidas),
+    perdidasPct: pct(cero(a.perdidas), opp),
+    sinServicio: opp - cero(a.con_servicio),
+    iniciadoSinPago: cero(a.iniciado_sin_pago),
+    costos: {
+      gastosRegistrados: cero(e.costos_conocidos?.gastos_registrados?.n),
+      gastosTotal: cero(e.costos_conocidos?.gastos_registrados?.total),
+      servicios: cero(e.costos_conocidos?.catalogo?.servicios),
+      conPrecio: cero(e.costos_conocidos?.catalogo?.con_precio),
+      conCosto: cero(e.costos_conocidos?.catalogo?.con_costo),
+    },
+  };
+}
+
+/**
+ * Economía del período con lo que realmente se sabe. NO es margen neto: solo se descuenta el gasto en Meta;
+ * los costos operativos y por trámite no están registrados, así que el resultado es "tras publicidad".
+ * Cobrado y gasto son del mismo período pero de naturaleza distinta (caja vs inversión): no son causa-efecto.
+ */
+export function derivarEconomia(resumen, embudo) {
+  if (!resumen) return null;
+  const cobrado = resumen.cobrado.total;
+  const gasto = resumen.gasto.total;
+  const c = embudo?.costos;
+  const faltan = [];
+  if (c) {
+    if (c.gastosRegistrados === 0) faltan.push('gastos operativos (no hay ninguno registrado)');
+    if (c.servicios > 0 && c.conCosto < c.servicios) faltan.push(`costo por servicio (${c.conCosto} de ${c.servicios} cargados)`);
+  }
+  return {
+    cobrado, gasto,
+    resultadoTrasPublicidad: gasto == null ? null : cobrado - gasto,
+    roas: dividir(cobrado, gasto),
+    roasAtribuido: dividir(resumen.atribucion.ingresosConAnuncio, gasto),
+    margenNetoDisponible: !!c && c.gastosRegistrados > 0 && c.conCosto === c.servicios && c.servicios > 0,
+    faltan,
+  };
+}

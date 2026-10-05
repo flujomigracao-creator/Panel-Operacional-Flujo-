@@ -7,8 +7,8 @@ import { getPendentesHoje, completeTask } from '@features/today/services/todaySe
 import { useCrmData, KEYS } from '../useCrm';
 import { getConversations, getTramites, getChecklist } from '../services/crmService';
 import { relTime } from '../format';
-import { getResumenInicio } from '../services/resumenInicioService';
-import { FILTROS, MIN_PAGOS_ATRIBUIDOS, periodoDeFiltro, derivarResumen, fmtBRL, fmtPct, fmtVar } from '../resumenInicio';
+import { getResumenInicio, getResumenEmbudo } from '../services/resumenInicioService';
+import { FILTROS, MIN_PAGOS_ATRIBUIDOS, periodoDeFiltro, derivarResumen, derivarEmbudo, derivarEconomia, fmtBRL, fmtPct, fmtVar } from '../resumenInicio';
 import { isActiveTramite, tramiteIssue, groupChecklist, ISSUE_TONE, ISSUE_DOT } from '../tramites';
 
 // Tareas que el sistema cierra solo cuando detecta que se hicieron: cerrarlas a mano las haría volver.
@@ -46,22 +46,67 @@ function ErrorNote({ what, onRetry }) {
   );
 }
 
-function Kpi({ label, value, sub, delta, deltaGood = true, onClick, tone = '' }) {
+// Cada tarjeta tiene su propio estado según su fuente: 'loading' | 'error' | 'ok'.
+// "Sin datos" no es un estado de fallo: es un valor real (0 o "—") con su explicación en `sub`.
+function Kpi({ label, value, sub, delta, deltaGood = true, onClick, tone = '', status = 'ok', onRetry }) {
   const d = fmtVar(delta);
   const up = delta != null && delta > 0;
   const deltaTone = delta == null || delta === 0 ? 'text-text-muted' : (up === deltaGood ? 'text-success' : 'text-danger');
+  const clickable = status === 'ok' && onClick;
   return (
-    <button onClick={onClick} className="rounded-md border border-border bg-bg-surface px-4 py-3 text-left transition-colors hover:border-border-hover">
+    <div role={clickable ? 'button' : undefined} tabIndex={clickable ? 0 : undefined}
+      onClick={clickable ? onClick : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+      className={`rounded-md border bg-bg-surface px-4 py-3 text-left transition-colors ${status === 'error' ? 'border-danger/40' : 'border-border'} ${clickable ? 'cursor-pointer hover:border-border-hover' : ''}`}>
       <p className="text-[11px] uppercase tracking-wide text-text-muted">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold ${tone || 'text-text-primary'}`}>{value}</p>
-      <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-text-muted">
-        {d && <span className={deltaTone}>{d} vs. período anterior</span>}
-        {!d && delta === null && <span>sin base de comparación</span>}
-        {sub && <span>{sub}</span>}
-      </p>
-    </button>
+      {status === 'loading' && (
+        <>
+          <div className="mt-2 h-7 w-20 animate-pulse rounded bg-bg-base" />
+          <p className="mt-2 text-xs text-text-muted">Cargando…</p>
+        </>
+      )}
+      {status === 'error' && (
+        <>
+          <p className="mt-1 text-2xl font-semibold text-danger">Error</p>
+          <p className="mt-1 flex items-center gap-2 text-xs text-danger">
+            No se pudo cargar.
+            {onRetry && <button onClick={(e) => { e.stopPropagation(); onRetry(); }} className="underline">Reintentar</button>}
+          </p>
+        </>
+      )}
+      {status === 'ok' && (
+        <>
+          <p className={`mt-1 text-2xl font-semibold ${tone || 'text-text-primary'}`}>{value}</p>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-text-muted">
+            {d && <span className={deltaTone}>{d} vs. período anterior</span>}
+            {!d && delta === null && <span>sin base de comparación</span>}
+            {sub && <span>{sub}</span>}
+          </p>
+        </>
+      )}
+    </div>
   );
 }
+
+// Tarjeta ancha (embudo, economía, servicios) con el mismo contrato de estados.
+function Panel({ title, status = 'ok', onRetry, children }) {
+  return (
+    <div className={`rounded-md border bg-bg-surface px-4 py-3 ${status === 'error' ? 'border-danger/40' : 'border-border'}`}>
+      <p className="text-[11px] uppercase tracking-wide text-text-muted">{title}</p>
+      {status === 'loading' && <div className="mt-3 space-y-2"><div className="h-4 w-2/3 animate-pulse rounded bg-bg-base" /><div className="h-4 w-1/2 animate-pulse rounded bg-bg-base" /></div>}
+      {status === 'error' && (
+        <p className="mt-2 flex items-center gap-2 text-[13px] text-danger">
+          <AlertTriangle size={14} /> No se pudo cargar. Estas cifras no son fiables.
+          {onRetry && <button onClick={onRetry} className="ml-auto underline">Reintentar</button>}
+        </p>
+      )}
+      {status === 'ok' && children}
+    </div>
+  );
+}
+
+// Estado de una consulta: un formato inesperado de respuesta también cuenta como error (no como "sin datos").
+const estadoDe = (q, derivado) => (q.isError || (q.data && !derivado) ? 'error' : q.isLoading ? 'loading' : 'ok');
 
 const endOfToday =() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; };
 
@@ -85,7 +130,19 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
     enabled: !!periodoOk,
     refetchInterval: 120_000,
   });
+  const embudoQ = useQuery({
+    queryKey: ['inicio', 'embudo', periodoOk?.desde, periodoOk?.hasta],
+    queryFn: () => getResumenEmbudo(periodoOk.desde, periodoOk.hasta),
+    enabled: !!periodoOk,
+    refetchInterval: 120_000,
+  });
   const r = useMemo(() => derivarResumen(resumenQ.data), [resumenQ.data]);
+  const emb = useMemo(() => derivarEmbudo(embudoQ.data), [embudoQ.data]);
+  const eco = useMemo(() => derivarEconomia(r, emb), [r, emb]);
+  // Estado propio de cada fuente: una tarjeta falla (o carga) sin arrastrar a las demás.
+  const stResumen = estadoDe(resumenQ, r);
+  const stEmbudo = estadoDe(embudoQ, emb);
+  const stTramites = tramites.isError || checklist.isError ? 'error' : tramites.isLoading || checklist.isLoading ? 'loading' : 'ok';
   const refrescarTodo = () => { qc.invalidateQueries({ queryKey: ['inicio'] }); tramites.refetch(); convs.refetch(); tasks.refetch(); };
   const actualizado = resumenQ.dataUpdatedAt ? new Date(resumenQ.dataUpdatedAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : null;
 
@@ -177,73 +234,128 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
 
           {!periodo && <p className="text-[13px] text-text-muted">Elige las dos fechas del período personalizado.</p>}
           {periodo?.error && <p className="text-[13px] text-danger">{periodo.error}</p>}
-          {periodoOk && resumenQ.isError && <ErrorNote what="el resumen comercial" onRetry={() => resumenQ.refetch()} />}
-          {periodoOk && resumenQ.isLoading && <p className="text-[13px] text-text-muted">Cargando resumen…</p>}
 
-          {r && (
+          {periodoOk && (
             <>
               <h2 className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Resultados del período seleccionado</h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Kpi label="Oportunidades (una por servicio)" value={r.oportunidades.total} delta={r.oportunidades.var}
-                  sub={`${r.oportunidades.personas} personas distintas · ${r.oportunidades.sinServicio} sin servicio elegido`} onClick={() => onNavigate('comercial')} />
-                <Kpi label="Cobrado" value={fmtBRL(r.cobrado.total, 2)} delta={r.cobrado.var}
-                  sub={`${r.cobrado.pagos} pagos confirmados${r.cobrado.sinOportunidad ? ` · ${r.cobrado.sinOportunidad} sin oportunidad asociable` : ''}`} onClick={() => onNavigate('finance')} />
-                <Kpi label="Conversión por oportunidad" value={fmtPct(r.conversion.acumulada)}
-                  sub={r.conversion.acumulada == null ? 'sin oportunidades en el período'
-                    : `${r.conversion.pagadas} de ${r.conversion.oportunidades} pagaron · a 7 días: ${r.conversion.maduras7 ? `${fmtPct(r.conversion.d7)} de ${r.conversion.maduras7}` : 'aún sin plazo cumplido'} · a 30 días: ${r.conversion.maduras30 ? `${fmtPct(r.conversion.d30)} de ${r.conversion.maduras30}` : 'aún sin plazo cumplido'}`}
+                <Kpi label="Oportunidades (una por servicio)" status={stResumen} onRetry={() => resumenQ.refetch()}
+                  value={r?.oportunidades.total} delta={r?.oportunidades.var}
+                  sub={r && `${r.oportunidades.personas} personas distintas · ${r.oportunidades.sinServicio} sin servicio elegido`} onClick={() => onNavigate('comercial')} />
+                <Kpi label="Cobrado" status={stResumen} onRetry={() => resumenQ.refetch()}
+                  value={r && fmtBRL(r.cobrado.total, 2)} delta={r?.cobrado.var}
+                  sub={r && `${r.cobrado.pagos} pagos confirmados${r.cobrado.sinOportunidad ? ` · ${r.cobrado.sinOportunidad} sin oportunidad asociable` : ''}`} onClick={() => onNavigate('finance')} />
+                <Kpi label="Conversión por oportunidad" status={stResumen} onRetry={() => resumenQ.refetch()}
+                  value={r && fmtPct(r.conversion.acumulada)}
+                  sub={r && (r.conversion.acumulada == null ? 'sin oportunidades en el período'
+                    : `${r.conversion.pagadas} de ${r.conversion.oportunidades} pagaron · a 7 días: ${r.conversion.maduras7 ? `${fmtPct(r.conversion.d7)} de ${r.conversion.maduras7}` : 'aún sin plazo cumplido'} · a 30 días: ${r.conversion.maduras30 ? `${fmtPct(r.conversion.d30)} de ${r.conversion.maduras30}` : 'aún sin plazo cumplido'}`)}
                   onClick={() => onNavigate('comercial')} />
-                <Kpi label="Gasto en Meta Ads" value={fmtBRL(r.gasto.total)} delta={r.gasto.var} deltaGood={false}
-                  sub={r.gasto.total == null ? 'sin datos de Meta en el período' : `${r.gasto.conversaciones ?? 0} conversaciones${r.gasto.costoConversacion != null ? ` · ${fmtBRL(r.gasto.costoConversacion, 2)} c/u` : ''}`}
+                <Kpi label="Gasto en Meta Ads" status={stResumen} onRetry={() => resumenQ.refetch()}
+                  value={r && fmtBRL(r.gasto.total)} delta={r?.gasto.var} deltaGood={false}
+                  sub={r && (r.gasto.total == null ? 'sin datos de Meta en el período' : `${r.gasto.conversaciones ?? 0} conversaciones${r.gasto.costoConversacion != null ? ` · ${fmtBRL(r.gasto.costoConversacion, 2)} c/u` : ''}`)}
                   onClick={() => onNavigate('intelligence')} />
               </div>
 
-              <div className="rounded-md border border-border bg-bg-surface px-4 py-3">
-                <p className="text-[11px] uppercase tracking-wide text-text-muted">Anuncios de origen (identificados, no demostrados)</p>
-                <div className="mt-2 grid gap-x-8 gap-y-1 text-[13px] sm:grid-cols-2 lg:grid-cols-4">
-                  <p><span className="text-text-primary">{r.atribucion.conAnuncio}</span> <span className="text-text-muted">con anuncio identificado ({fmtPct(r.atribucion.conAnuncioPct, 0)})</span></p>
-                  <p><span className="text-text-primary">{r.atribucion.sinAtribucion}</span> <span className="text-text-muted">sin atribución confirmada</span></p>
-                  <p><span className="text-text-primary">{r.atribucion.pagadasConAnuncio}</span> <span className="text-text-muted">pagadas con anuncio · {fmtBRL(r.atribucion.ingresosConAnuncio, 2)}</span></p>
-                  <p><span className="text-text-primary">{fmtBRL(r.atribucion.costoPorOportunidad, 2)}</span> <span className="text-text-muted">por oportunidad con anuncio</span></p>
-                </div>
-                <p className="mt-2 text-xs text-text-muted">
-                  {r.atribucion.muestraSuficiente
-                    ? `Costo por cliente atribuido: ${fmtBRL(r.atribucion.costoPorCliente, 2)}`
-                    : `Costo por cliente atribuido: no disponible (se necesitan al menos ${MIN_PAGOS_ATRIBUIDOS} pagos con anuncio; hay ${r.atribucion.pagadasConAnuncio}).`}
-                  {' '}Tener un anuncio registrado no prueba que Meta originara el contacto.
-                </p>
+              <Panel title="Embudo comercial · oportunidades creadas en el período" status={stEmbudo} onRetry={() => embudoQ.refetch()}>
+                {emb && (
+                  <>
+                    <ul className="mt-2 space-y-1.5">
+                      {emb.pasos.map((p) => (
+                        <li key={p.id} className="grid grid-cols-[9.5rem_1fr_auto] items-center gap-3 text-[13px]">
+                          <span className="text-text-secondary">{p.label}</span>
+                          <span className="h-2 rounded bg-bg-base">
+                            <span className="block h-2 rounded bg-brand-primary" style={{ width: `${Math.min(100, p.deOportunidades ?? 0)}%` }} />
+                          </span>
+                          <span className="whitespace-nowrap text-text-primary">{p.n}
+                            <span className="text-text-muted">{p.tasa != null ? ` · ${fmtPct(p.tasa)} del paso anterior` : ''}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2 text-xs text-text-muted">
+                      {emb.perdidas} oportunidades perdidas ({fmtPct(emb.perdidasPct, 0)}) · {emb.sinServicio} sin servicio elegido
+                      {emb.iniciadoSinPago ? ` · ${emb.iniciadoSinPago} trámites iniciados sin pago confirmado en el CRM` : ''}.
+                      Las oportunidades recientes aún pueden avanzar.
+                    </p>
+                  </>
+                )}
+              </Panel>
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                <Panel title="Economía del período · resultado tras publicidad" status={stResumen} onRetry={() => resumenQ.refetch()}>
+                  {eco && (
+                    <>
+                      <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-[13px]">
+                        <span className="text-text-muted">Cobrado</span><span className="text-right text-text-primary">{fmtBRL(eco.cobrado, 2)}</span>
+                        <span className="text-text-muted">Gasto en Meta</span><span className="text-right text-text-primary">{eco.gasto == null ? '—' : fmtBRL(eco.gasto, 2)}</span>
+                        <span className="font-medium text-text-secondary">Resultado tras publicidad</span>
+                        <span className={`text-right font-semibold ${eco.resultadoTrasPublicidad == null ? 'text-text-muted' : eco.resultadoTrasPublicidad < 0 ? 'text-danger' : 'text-success'}`}>{eco.resultadoTrasPublicidad == null ? '—' : fmtBRL(eco.resultadoTrasPublicidad, 2)}</span>
+                        <span className="text-text-muted">Cobrado por cada R$ 1 de Meta</span><span className="text-right text-text-primary">{eco.roas == null ? '—' : eco.roas.toFixed(2)}</span>
+                        <span className="text-text-muted">…solo de pagos con anuncio identificado</span><span className="text-right text-text-primary">{eco.roasAtribuido == null ? '—' : eco.roasAtribuido.toFixed(2)}</span>
+                      </div>
+                      <p className="mt-2 text-xs text-text-muted">
+                        No es margen neto{stEmbudo === 'ok' && eco.faltan.length ? `: faltan ${eco.faltan.join(' y ')}.` : stEmbudo === 'ok' ? '.' : ': no se pudo comprobar qué costos hay registrados.'}
+                        {' '}Cobrado y gasto son del mismo período, pero el gasto de hoy puede dar pagos más adelante.
+                      </p>
+                    </>
+                  )}
+                </Panel>
+
+                <Panel title="Anuncios de origen · identificados, no demostrados" status={stResumen} onRetry={() => resumenQ.refetch()}>
+                  {r && (
+                    <>
+                      <div className="mt-2 grid gap-y-1 text-[13px]">
+                        <p><span className="text-text-primary">{r.atribucion.conAnuncio}</span> <span className="text-text-muted">con anuncio identificado ({fmtPct(r.atribucion.conAnuncioPct, 0)})</span></p>
+                        <p><span className="text-text-primary">{r.atribucion.sinAtribucion}</span> <span className="text-text-muted">sin atribución confirmada</span></p>
+                        <p><span className="text-text-primary">{r.atribucion.pagadasConAnuncio}</span> <span className="text-text-muted">pagadas con anuncio · {fmtBRL(r.atribucion.ingresosConAnuncio, 2)}</span></p>
+                        <p><span className="text-text-primary">{fmtBRL(r.atribucion.costoPorOportunidad, 2)}</span> <span className="text-text-muted">por oportunidad con anuncio</span></p>
+                      </div>
+                      <p className="mt-2 text-xs text-text-muted">
+                        {r.atribucion.muestraSuficiente
+                          ? `Costo por cliente atribuido: ${fmtBRL(r.atribucion.costoPorCliente, 2)}.`
+                          : `Costo por cliente atribuido: no disponible (se necesitan al menos ${MIN_PAGOS_ATRIBUIDOS} pagos con anuncio; hay ${r.atribucion.pagadasConAnuncio}).`}
+                        {' '}Tener un anuncio registrado no prueba que Meta originara el contacto.
+                      </p>
+                    </>
+                  )}
+                </Panel>
               </div>
 
-              {r.porServicio.length > 0 && (
-                <div className="rounded-md border border-border bg-bg-surface px-4 py-3">
-                  <p className="text-[11px] uppercase tracking-wide text-text-muted">Ingresos cobrados por servicio (período)</p>
-                  <ul className="mt-2 grid gap-x-8 gap-y-1 text-[13px] sm:grid-cols-2">
-                    {r.porServicio.map((s) => (
-                      <li key={s.servicio} className="flex justify-between gap-3">
-                        <span className="truncate text-text-secondary">{s.servicio}</span>
-                        <span className="whitespace-nowrap text-text-primary">{fmtBRL(s.total, 2)} <span className="text-text-muted">· {s.n}</span></span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              <Panel title="Ingresos cobrados por servicio (período)" status={stResumen} onRetry={() => resumenQ.refetch()}>
+                {r && (r.porServicio.length === 0
+                  ? <p className="mt-2 text-[13px] text-text-muted">Sin pagos confirmados en el período.</p>
+                  : (
+                    <ul className="mt-2 grid gap-x-8 gap-y-1 text-[13px] sm:grid-cols-2">
+                      {r.porServicio.map((s) => (
+                        <li key={s.servicio} className="flex justify-between gap-3">
+                          <span className="truncate text-text-secondary">{s.servicio}</span>
+                          <span className="whitespace-nowrap text-text-primary">{fmtBRL(s.total, 2)} <span className="text-text-muted">· {s.n}</span></span>
+                        </li>
+                      ))}
+                    </ul>
+                  ))}
+              </Panel>
 
               <h2 className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Situación actual (no depende del período)</h2>
-              {r.actual.meta.estado !== 'ok' && (
+              {r && r.actual.meta.estado !== 'ok' && (
                 <div className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/5 px-4 py-2 text-[13px] text-warning">
                   <AlertTriangle size={14} /> {r.actual.meta.texto}. El gasto y las conversaciones de Meta pueden estar desactualizados.
                   <button onClick={() => onNavigate('intelligence')} className="ml-auto underline">Ver Meta Ads</button>
                 </div>
               )}
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Kpi label="Propuestas abiertas" value={fmtBRL(r.actual.potencial.total)}
-                  sub={`${r.actual.potencial.n} sin pago · potencial, no dinero cobrado${r.actual.potencial.sinMovimiento14d ? ` · ${r.actual.potencial.sinMovimiento14d} sin movimiento 14+ días` : ''}`}
+                <Kpi label="Propuestas abiertas" status={stResumen} onRetry={() => resumenQ.refetch()}
+                  value={r && fmtBRL(r.actual.potencial.total)}
+                  sub={r && `${r.actual.potencial.n} sin pago · potencial, no dinero cobrado${r.actual.potencial.sinMovimiento14d ? ` · ${r.actual.potencial.sinMovimiento14d} sin movimiento 14+ días` : ''}`}
                   onClick={() => onNavigate('comercial')} />
-                <Kpi label="Conversaciones pendientes" value={r.actual.conversacionesPendientes ?? '—'}
-                  sub="sin respuesta ahora mismo" tone={r.actual.conversacionesPendientes ? 'text-warning' : ''} onClick={() => onNavigate('chats')} />
-                <Kpi label="Trámites con incidencia" value={tramites.isError ? '—' : pending.length}
-                  sub={tramites.isError ? 'error de carga' : `${active.length} en curso`} tone={pending.length ? 'text-warning' : ''} onClick={() => onNavigate('tramites')} />
-                <Kpi label="Sincronización de Meta" value={r.actual.meta.estado === 'ok' ? 'Al día' : r.actual.meta.estado === 'atrasado' ? 'Atrasada' : r.actual.meta.estado === 'error' ? 'Con error' : 'Sin datos'}
-                  sub={r.actual.meta.texto} tone={r.actual.meta.estado === 'ok' ? 'text-success' : 'text-warning'} onClick={() => onNavigate('intelligence')} />
+                <Kpi label="Conversaciones pendientes" status={stResumen} onRetry={() => resumenQ.refetch()}
+                  value={r && (r.actual.conversacionesPendientes ?? '—')} sub="sin respuesta ahora mismo"
+                  tone={r?.actual.conversacionesPendientes ? 'text-warning' : ''} onClick={() => onNavigate('chats')} />
+                <Kpi label="Trámites con incidencia" status={stTramites} onRetry={() => { tramites.refetch(); checklist.refetch(); }}
+                  value={pending.length} sub={`${active.length} en curso`} tone={pending.length ? 'text-warning' : ''} onClick={() => onNavigate('tramites')} />
+                <Kpi label="Sincronización de Meta" status={stResumen} onRetry={() => resumenQ.refetch()}
+                  value={r && (r.actual.meta.estado === 'ok' ? 'Al día' : r.actual.meta.estado === 'atrasado' ? 'Atrasada' : r.actual.meta.estado === 'error' ? 'Con error' : 'Sin datos')}
+                  sub={r?.actual.meta.texto} tone={r?.actual.meta.estado === 'ok' ? 'text-success' : 'text-warning'} onClick={() => onNavigate('intelligence')} />
               </div>
             </>
           )}

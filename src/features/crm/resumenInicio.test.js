@@ -135,3 +135,54 @@ test('formato: variación y moneda con y sin centavos', () => {
   assert.match(fmtBRL(1208, 2), /1\.208,00/);
   assert.match(fmtBRL(1208), /1\.208$/);
 });
+
+import { derivarEmbudo, derivarEconomia } from './resumenInicio.js';
+
+const crudoEmbudo = () => ({
+  version: 1,
+  embudo: { actual: { oportunidades: 264, con_servicio: 113, propuesta: 141, pago: 3, iniciado: 5, iniciado_sin_pago: 2, perdidas: 171 }, previo: null },
+  costos_conocidos: { gastos_registrados: { n: 0, total: 0 }, catalogo: { servicios: 10, con_precio: 9, con_costo: 0 } },
+});
+
+test('embudo: pasos, tasa respecto al paso anterior y servicio elegido fuera de los pasos', () => {
+  const e = derivarEmbudo(crudoEmbudo());
+  assert.deepEqual(e.pasos.map((p) => p.id), ['oportunidades', 'propuesta', 'pago', 'iniciado']);
+  assert.equal(e.pasos[0].tasa, null);
+  assert.ok(Math.abs(e.pasos[1].tasa - (141 / 264) * 100) < 1e-9);
+  assert.ok(Math.abs(e.pasos[2].tasa - (3 / 141) * 100) < 1e-9);
+  assert.equal(e.sinServicio, 151);
+  assert.equal(e.iniciadoSinPago, 2);
+  assert.ok(Math.abs(e.perdidasPct - (171 / 264) * 100) < 1e-9);
+});
+
+test('embudo: sin pagos la tasa del siguiente paso es null (no 0 ni infinito)', () => {
+  const c = crudoEmbudo();
+  c.embudo.actual.pago = 0;
+  const e = derivarEmbudo(c);
+  assert.equal(e.pasos[3].tasa, null);
+  assert.equal(derivarEmbudo({ version: 9 }), null);
+});
+
+test('economía: solo resultado tras publicidad, nunca margen neto sin costos registrados', () => {
+  const eco = derivarEconomia(derivarResumen(crudo()), derivarEmbudo(crudoEmbudo()));
+  assert.ok(Math.abs(eco.resultadoTrasPublicidad - (1208 - 564.01)) < 1e-9);
+  assert.ok(Math.abs(eco.roas - 1208 / 564.01) < 1e-9);
+  assert.equal(eco.margenNetoDisponible, false);
+  assert.equal(eco.faltan.length, 2);
+});
+
+test('economía: sin gasto de Meta no hay resultado ni ROAS (null)', () => {
+  const base = crudo();
+  base.resultados_periodo.gasto = { actual: null, previo: null };
+  const eco = derivarEconomia(derivarResumen(base), derivarEmbudo(crudoEmbudo()));
+  assert.equal(eco.resultadoTrasPublicidad, null);
+  assert.equal(eco.roas, null);
+});
+
+test('economía: el margen neto solo se habilita con gastos y costos cargados', () => {
+  const e = crudoEmbudo();
+  e.costos_conocidos = { gastos_registrados: { n: 3, total: 100 }, catalogo: { servicios: 10, con_precio: 10, con_costo: 10 } };
+  const eco = derivarEconomia(derivarResumen(crudo()), derivarEmbudo(e));
+  assert.equal(eco.margenNetoDisponible, true);
+  assert.equal(eco.faltan.length, 0);
+});

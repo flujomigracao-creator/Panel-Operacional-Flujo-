@@ -9,3 +9,10 @@ export async function getResumenInicio(desde, hasta) {
   if (error) throw error;
   return data;
 }
+
+/** Embudo comercial por oportunidad + costos conocidos (RPC `resumen_embudo`, solo lectura). */
+export async function getResumenEmbudo(desde, hasta) {
+  const { data, error } = await supabase.rpc('resumen_embudo', { p_desde: desde, p_hasta: hasta });
+  if (error) throw error;
+  return data;
+}
