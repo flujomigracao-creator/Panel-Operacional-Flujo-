@@ -1,12 +1,14 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Check } from 'lucide-react';
+import { Check, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@features/auth/context/AuthContext';
 import { getPendentesHoje, completeTask } from '@features/today/services/todayService';
 import { useCrmData, KEYS } from '../useCrm';
 import { getConversations, getTramites, getChecklist } from '../services/crmService';
 import { relTime } from '../format';
+import { getResumenInicio } from '../services/resumenInicioService';
+import { FILTROS, periodoDeFiltro, derivarResumen, fmtBRL, fmtPct, fmtVar } from '../resumenInicio';
 import { isActiveTramite, tramiteIssue, groupChecklist, ISSUE_TONE, ISSUE_DOT } from '../tramites';
 
 // Tareas que el sistema cierra solo cuando detecta que se hicieron: cerrarlas a mano las haría volver.
@@ -33,7 +35,35 @@ function Table({ title, count, action, onAction, head, children, empty }) {
   );
 }
 
-const endOfToday = () => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; };
+// Aviso de error con reintento: un fallo de carga nunca debe verse como "no hay nada".
+function ErrorNote({ what, onRetry }) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-danger/40 bg-danger/5 px-4 py-2.5 text-[13px] text-danger">
+      <AlertTriangle size={14} />
+      <span>No se pudo cargar {what}. Las cifras de este bloque no son fiables.</span>
+      <button onClick={onRetry} className="ml-auto underline">Reintentar</button>
+    </div>
+  );
+}
+
+function Kpi({ label, value, sub, delta, deltaGood = true, onClick, tone = '' }) {
+  const d = fmtVar(delta);
+  const up = delta != null && delta > 0;
+  const deltaTone = delta == null || delta === 0 ? 'text-text-muted' : (up === deltaGood ? 'text-success' : 'text-danger');
+  return (
+    <button onClick={onClick} className="rounded-md border border-border bg-bg-surface px-4 py-3 text-left transition-colors hover:border-border-hover">
+      <p className="text-[11px] uppercase tracking-wide text-text-muted">{label}</p>
+      <p className={`mt-1 text-2xl font-semibold ${tone || 'text-text-primary'}`}>{value}</p>
+      <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-text-muted">
+        {d && <span className={deltaTone}>{d} vs. período anterior</span>}
+        {!d && delta === null && <span>sin base de comparación</span>}
+        {sub && <span>{sub}</span>}
+      </p>
+    </button>
+  );
+}
+
+const endOfToday =() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; };
 
 // Inicio: responde "¿qué tengo que hacer hoy?". Una línea con los números del día y listas cortas.
 export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, onOpenTramite }) {
@@ -43,6 +73,20 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
   const tramites = useQuery({ queryKey: ['crm', 'tramites'], queryFn: getTramites, refetchInterval: 60_000 });
   const convs = useQuery({ queryKey: KEYS.conversations, queryFn: getConversations, refetchInterval: 30_000 });
   const tasks = useQuery({ queryKey: ['pendentes_hoje'], queryFn: getPendentesHoje, refetchInterval: 60_000 });
+
+  // Resumen ejecutivo: filtro de período + RPC del servidor (día de São Paulo).
+  const [filtro, setFiltro] = useState('7d');
+  const [custom, setCustom] = useState({ desde: '', hasta: '' });
+  const periodo = useMemo(() => periodoDeFiltro(filtro, custom), [filtro, custom]);
+  const resumenQ = useQuery({
+    queryKey: ['inicio', 'resumen', periodo?.desde, periodo?.hasta],
+    queryFn: () => getResumenInicio(periodo.desde, periodo.hasta),
+    enabled: !!periodo,
+    refetchInterval: 120_000,
+  });
+  const r = useMemo(() => derivarResumen(resumenQ.data), [resumenQ.data]);
+  const refrescarTodo = () => { qc.invalidateQueries({ queryKey: ['inicio'] }); tramites.refetch(); convs.refetch(); tasks.refetch(); };
+  const actualizado = resumenQ.dataUpdatedAt ? new Date(resumenQ.dataUpdatedAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : null;
 
   const active = useMemo(() => (tramites.data || []).filter(isActiveTramite), [tramites.data]);
   const checklist = useQuery({
@@ -81,11 +125,11 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
   };
 
   const summary = [
-    [`${active.length} trámites en curso`, () => onNavigate('tramites'), ''],
-    [`${docsPending} documentos pendientes`, () => onNavigate('documentos'), docsPending ? 'text-warning' : ''],
-    [`${todayTasks.length} tareas para hoy`, () => onNavigate('today'), ''],
-    [`${due} con vencimiento`, () => onNavigate('today'), due ? 'text-danger' : ''],
-    [`${waiting.length} conversaciones sin responder`, () => onNavigate('chats'), waiting.length ? 'text-warning' : ''],
+    [`${tramites.isError ? '—' : active.length} trámites en curso`, () => onNavigate('tramites'), ''],
+    [`${checklist.isError ? '—' : docsPending} documentos pendientes`, () => onNavigate('documentos'), docsPending ? 'text-warning' : ''],
+    [`${tasks.isError ? '—' : todayTasks.length} tareas para hoy`, () => onNavigate('today'), ''],
+    [`${tasks.isError ? '—' : due} con vencimiento`, () => onNavigate('today'), due ? 'text-danger' : ''],
+    [`${convs.isError ? '—' : waiting.length} conversaciones sin responder`, () => onNavigate('chats'), waiting.length ? 'text-warning' : ''],
   ];
   const firstName = (userProfile?.nombre || '').split(' ')[0];
 
@@ -96,7 +140,7 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
           <p className="text-xs text-text-muted">
             {firstName ? `Hola, ${firstName} · ` : ''}{new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })}
           </p>
-          <h1 className="mt-0.5 text-lg font-semibold text-text-primary">Operación de hoy</h1>
+          <h1 className="mt-0.5 text-lg font-semibold text-text-primary">Resumen de la empresa</h1>
           <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-text-secondary">
             {summary.map(([text, go, tone], i) => (
               <React.Fragment key={text}>
@@ -106,6 +150,84 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
             ))}
           </p>
         </div>
+
+        {/* ── Resumen ejecutivo ── */}
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex overflow-hidden rounded-md border border-border text-xs">
+              {FILTROS.map((f) => (
+                <button key={f.id} onClick={() => setFiltro(f.id)}
+                  className={`px-3 py-1.5 ${filtro === f.id ? 'bg-brand-primary text-white' : 'bg-bg-surface text-text-secondary hover:bg-bg-base'}`}>{f.label}</button>
+              ))}
+            </div>
+            {filtro === 'custom' && (
+              <span className="flex items-center gap-1 text-xs text-text-secondary">
+                <input type="date" value={custom.desde} onChange={(e) => setCustom((c) => ({ ...c, desde: e.target.value }))} className="rounded border border-border bg-bg-surface px-2 py-1" />
+                <span>→</span>
+                <input type="date" value={custom.hasta} onChange={(e) => setCustom((c) => ({ ...c, hasta: e.target.value }))} className="rounded border border-border bg-bg-surface px-2 py-1" />
+              </span>
+            )}
+            <span className="ml-auto flex items-center gap-2 text-xs text-text-muted">
+              {periodo && <span>{periodo.desde} → {periodo.hasta} · hora de São Paulo</span>}
+              {actualizado && !resumenQ.isError && <span>· actualizado {actualizado}</span>}
+              <button onClick={refrescarTodo} title="Actualizar" className="rounded p-1 hover:bg-bg-surface"><RefreshCw size={13} className={resumenQ.isFetching ? 'animate-spin' : ''} /></button>
+            </span>
+          </div>
+
+          {!periodo && <p className="text-[13px] text-text-muted">Elige las dos fechas del período personalizado.</p>}
+          {periodo && resumenQ.isError && <ErrorNote what="el resumen comercial" onRetry={() => resumenQ.refetch()} />}
+          {periodo && resumenQ.isLoading && <p className="text-[13px] text-text-muted">Cargando resumen…</p>}
+
+          {r && (
+            <>
+              {r.meta.estado !== 'ok' && (
+                <div className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/5 px-4 py-2 text-[13px] text-warning">
+                  <AlertTriangle size={14} /> {r.meta.texto}. El gasto y las conversaciones de Meta pueden estar desactualizados.
+                  <button onClick={() => onNavigate('intelligence')} className="ml-auto underline">Ver Meta Ads</button>
+                </div>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Kpi label="Leads (personas únicas)" value={r.leads.personas} delta={r.leads.var}
+                  sub={`${r.leads.brutos} contactos en total`} onClick={() => onNavigate('comercial')} />
+                <Kpi label="Cobrado" value={fmtBRL(r.cobrado.total)} delta={r.cobrado.var}
+                  sub={`${r.cobrado.pagos} pagos confirmados`} onClick={() => onNavigate('finance')} />
+                <Kpi label="Conversión a cliente" value={fmtPct(r.conversion.pct)}
+                  sub={r.conversion.pct == null ? 'sin leads en el período' : `${r.conversion.pagaron} de ${r.conversion.personas} personas pagaron (mínimo)`}
+                  onClick={() => onNavigate('comercial')} />
+                <Kpi label="Trámites con incidencia" value={tramites.isError ? '—' : pending.length}
+                  sub={tramites.isError ? 'error de carga' : `${active.length} en curso`} tone={pending.length ? 'text-warning' : ''} onClick={() => onNavigate('tramites')} />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Kpi label="Gasto en Meta Ads" value={fmtBRL(r.gasto.total)} delta={r.gasto.var} deltaGood={false}
+                  sub={r.gasto.total == null ? 'sin datos de Meta en el período' : `${r.gasto.conversaciones ?? 0} conversaciones${r.gasto.costoConversacion != null ? ` · ${fmtBRL(r.gasto.costoConversacion)} c/u` : ''}`}
+                  onClick={() => onNavigate('intelligence')} />
+                <Kpi label="Atribuidos a anuncios" value={fmtPct(r.gasto.atribuidosPct, 0)}
+                  sub={`${r.leads.meta} de ${r.leads.personas} leads · sin esto no hay costo por cliente fiable`} onClick={() => onNavigate('intelligence')} />
+                <Kpi label="Potencial en negociación" value={fmtBRL(r.potencial.total)}
+                  sub={`${r.potencial.n} propuestas abiertas · no es dinero cobrado`} onClick={() => onNavigate('comercial')} />
+                <Kpi label="Conversaciones pendientes" value={r.conversacionesPendientes ?? '—'}
+                  sub="sin respuesta ahora mismo" tone={r.conversacionesPendientes ? 'text-warning' : ''} onClick={() => onNavigate('chats')} />
+              </div>
+              {r.porServicio.length > 0 && (
+                <div className="rounded-md border border-border bg-bg-surface px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-wide text-text-muted">Ingresos cobrados por servicio</p>
+                  <ul className="mt-2 grid gap-x-8 gap-y-1 text-[13px] sm:grid-cols-2">
+                    {r.porServicio.map((s) => (
+                      <li key={s.servicio} className="flex justify-between gap-3">
+                        <span className="truncate text-text-secondary">{s.servicio}</span>
+                        <span className="whitespace-nowrap text-text-primary">{fmtBRL(s.total)} <span className="text-text-muted">· {s.n}</span></span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+
+        {(tramites.isError || checklist.isError) && <ErrorNote what="los trámites" onRetry={() => { tramites.refetch(); checklist.refetch(); }} />}
+        {convs.isError && <ErrorNote what="las conversaciones" onRetry={() => convs.refetch()} />}
+        {tasks.isError && <ErrorNote what="las tareas" onRetry={() => tasks.refetch()} />}
 
         <Table title="Pendientes de atención" count={pending.length} action="Ver trámites" onAction={() => onNavigate('tramites')}
           head={['Cliente', 'Trámite', 'Estado', 'Responsable', 'Actualizado']}
