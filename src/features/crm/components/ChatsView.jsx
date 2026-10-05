@@ -5,7 +5,8 @@ import { Search, MessagesSquare } from 'lucide-react';
 import { useAuth } from '@features/auth/context/AuthContext';
 import { ReplyBox } from '@features/clients/components/ClientDetailView';
 import { useCrmData, KEYS } from '../useCrm';
-import { getConversations, getConversationMessages, getLeadEvents, sendText, sendFile, addNote, getTramites, CONVERSATIONS_LIMIT } from '../services/crmService';
+import { getConversations, getConversationMessages, getLeadEvents, sendText, sendFile, sendTemplate, addNote, getTramites, CONVERSATIONS_LIMIT } from '../services/crmService';
+import TemplatePicker from './TemplatePicker';
 import ClientOpsPanel from './ClientOpsPanel';
 import MessageBubble from './MessageBubble';
 import { clock, normalize, inputCls, chipCls } from '../format';
@@ -89,14 +90,16 @@ function Thread({ conv, leads, lead, teamById }) {
       </div>
       <div className="border-t border-border bg-bg-surface">
         <div className="flex gap-1 px-3 pt-2 text-xs">
-          {[['reply', 'Responder por WhatsApp'], ['note', 'Nota interna']].map(([k, label]) => (
+          {[['reply', 'Responder por WhatsApp'], ['template', 'Plantilla de Meta'], ['note', 'Nota interna']].map(([k, label]) => (
             <button key={k} disabled={k === 'note' && !lead} onClick={() => setMode(k)}
               className={`rounded px-2 py-1 ${mode === k ? (k === 'note' ? 'bg-warning-bg font-medium text-warning' : 'bg-brand-primary-light font-medium text-brand-primary') : 'text-text-muted hover:text-text-primary'} disabled:opacity-40`}>
               {label}
             </button>
           ))}
         </div>
-        {mode === 'reply' ? (
+        {mode === 'template' ? (
+          canSend ? <TemplatePicker onSend={async (p) => { await sendTemplate(to, p); refresh(); }} /> : <p className="p-3 text-xs text-text-muted">Esta conversación no tiene contacto ni lead para responder.</p>
+        ) : mode === 'reply' ? (
           canSend ? (
             <ReplyBox
               placeholder="Escribir mensaje… (Enter envía, Shift+Enter nueva línea)"

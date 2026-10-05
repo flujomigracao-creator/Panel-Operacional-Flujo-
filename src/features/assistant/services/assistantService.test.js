@@ -290,5 +290,7 @@ test('27. presupuesto en BRL y status/effective_status/last_synced_at separados'
   assert.ok(ads.includes('last_synced_at: sello'), 'last_synced_at se actualiza en cada sincronización');
   assert.ok(servicio.includes('estado_operacional:'), 'el panel distingue el estado operacional');
   // El aviso de "sin sincronizar" solo desaparece con datos reales, no por ocultarlo.
-  assert.ok(servicio.includes("estado: ultimoIntento ? (ultimoIntento.ok ? 'sincronizado' : 'fallida') : 'nunca'"), 'el aviso depende del estado real de la bitácora');
+  // Un fallo aislado no alarma si hubo una sincronización correcta hace menos de 30 min (se recupera solo).
+  assert.ok(servicio.includes("estado: ultimoIntento ? (ultimoIntento.ok || okReciente ? 'sincronizado' : 'fallida') : 'nunca'"), 'el aviso depende del estado real de la bitácora');
+  assert.ok(servicio.includes('< 30 * 60000'), 'la tolerancia a fallos aislados es de 30 minutos');
 });

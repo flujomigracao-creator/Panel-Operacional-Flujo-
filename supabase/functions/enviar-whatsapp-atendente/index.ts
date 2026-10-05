@@ -355,7 +355,9 @@ Deno.serve(async (req) => {
         .order('orden', { ascending: true });
       // Botones a la vista (no lista desplegable). WhatsApp: máximo 3 botones por mensaje y 20 caracteres por título,
       // así que van en grupos de 3, un mensaje por grupo.
-      const TITULO_BOTON: Record<number, string> = { 166574: 'Renovar por email' };
+      const TITULO_BOTON: Record<number, string> = body.idioma === 'pt'
+        ? { 166574: 'Renovar por e-mail', 239444: 'Agendamento PF' }
+        : { 166574: 'Renovar por email', 239444: 'Agendamiento PF' };
       const botones = (tramites || []).map((t: any) => ({ id: `tramite:${t.tramite_enum_id}`, title: String(TITULO_BOTON[Number(t.tramite_enum_id)] || t.tramite_nombre).slice(0, 20) }));
       const grupos: { id: string; title: string }[][] = [];
       for (let i = 0; i < botones.length; i += 3) grupos.push(botones.slice(i, i + 3));

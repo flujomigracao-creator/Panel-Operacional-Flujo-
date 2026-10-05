@@ -15,6 +15,18 @@ import {
   rankingCreativos,
   compararCreativos,
 } from './campaign_science.ts';
+import {
+  rankingCreativos,
+  biblioteca,
+  proponerPublicacion,
+  crearExperimentoCreativos,
+  cerrarExperimentoCreativos,
+  publicarCreativoEnMeta,
+} from './creatives.ts';
+import { crearCreativo, generarPrompt, proponerConceptos, VARIABLES_EXPERIMENTO_IDS } from '../_shared/creative_store.ts';
+import { ESTILOS } from '../_shared/creative_logic.ts';
+import { buscarTendencias, listarTendencias } from '../_shared/trends.ts';
+import { segmentacionDePublico } from '../_shared/publicos_meta.ts';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -392,9 +404,9 @@ async function leerEntidadesMeta(ruta: string, fields: string): Promise<MetaLect
   try {
     while (url) {
       if (paginas >= 25) break; // tope de seguridad: nadie tiene 12.500 campañas en una cuenta
-      const r = await fetch(url);
+      const r: Response = await fetch(url);
       status = r.status;
-      const json = await r.json().catch(() => ({}));
+      const json: any = await r.json().catch(() => ({}));
       if (!r.ok || json?.error) {
         return {
           disponible: false,
@@ -409,7 +421,7 @@ async function leerEntidadesMeta(ruta: string, fields: string): Promise<MetaLect
       datos.push(...(json.data || []));
       paginas++;
       // Solo se sigue el `next` que devuelve Meta (ya incluye el token de la propia respuesta).
-      const next = json.paging?.next;
+      const next: unknown = json.paging?.next;
       url = typeof next === 'string' && next.startsWith('https://graph.facebook.com/') ? next : null;
     }
     return { disponible: true, endpoint, http_status: status, paginas, datos };
@@ -1281,10 +1293,31 @@ export async function getMetaAdsAttribution(
 // ── Herramientas de Meta Ads para Groq LLM (Tools Definitions) ──
 
 const str = (description: string) => ({ type: 'string', description });
+const nullableStr = (description: string) => ({ type: ['string', 'null'], description });
 const num = (description: string) => ({ type: 'number', description });
 const bool = (description: string) => ({ type: 'boolean', description });
 
-export const ADS_TOOL_DEFS = [
+// Propiedades comunes de un creativo (nombres en español para el modelo).
+const CREATIVO_PROPS: Record<string, unknown> = {
+  servicio: str('CPF | Agendamento PF | RNM | Residência Permanente | Refúgio'),
+  objetivo: { type: 'string', enum: ['conversaciones', 'leads', 'clientes', 'otro'], description: 'Objetivo del anuncio' },
+  publico: str('Público, ej. extranjeros recién llegados a Brasil'),
+  concepto: { type: 'string', enum: ['persona', 'documento', 'problema_solucion', 'institucional', 'mensaje_directo', 'variacion_ganadora'] },
+  titular: str('Titular que se dibuja grande en la imagen (máx. 40 caracteres)'),
+  hook: str('Subtítulo/hook breve bajo el titular (máx. 60 caracteres)'),
+  texto_principal: str('Texto principal del anuncio en Meta (máx. 300 caracteres)'),
+  cta: str('Texto del botón de acción, ej. Escríbenos por WhatsApp'),
+  escena: str('Escena visual en 1-2 frases'),
+  estilo: { type: 'string', enum: ['fotografia_realista', 'ilustracion', 'minimalista_corporativo', 'documento_destacado'] },
+  formato: { type: 'string', enum: ['1:1', '4:5', '9:16'] },
+  idioma: { type: 'string', enum: ['es', 'pt'], description: 'ESPAÑOL (es) por defecto; pt solo si el dueño lo pide' },
+  problema: str('Problema real del cliente en una frase (brief estructurado)'),
+  angulo: str('Ángulo del anuncio, ej. quitar burocracia / urgencia / confianza'),
+  beneficio: str('Beneficio breve que se comunica'),
+  variable_experimento: str('Si es una variante de experimento: la ÚNICA variable que cambia (hook, estilo, cta...)'),
+};
+
+const ADS_TOOL_DEFS_BASE = [
   {
     type: 'function',
     function: {
@@ -1310,8 +1343,8 @@ export const ADS_TOOL_DEFS = [
         type: 'object',
         properties: {
           periodo: { type: 'string', enum: ['7d', '14d', '30d', 'all'], description: 'Atajo de período (por defecto 7d)' },
-          desde: str('Fecha inicio YYYY-MM-DD'),
-          hasta: str('Fecha fin YYYY-MM-DD'),
+          desde: nullableStr('Fecha inicio YYYY-MM-DD; puede ser null si se usa periodo'),
+          hasta: nullableStr('Fecha fin YYYY-MM-DD; puede ser null si se usa periodo'),
           incluir_anuncios: bool('Analizar también el nivel de anuncio/creativo (por defecto true)'),
         },
         required: [],
@@ -1517,6 +1550,7 @@ export const ADS_TOOL_DEFS = [
                 copy: str('Texto principal del anuncio'),
                 cta: str('Llamado a la acción, ej. Enviar mensaje por WhatsApp'),
                 creative_reference: str('Referencia visual o descripción del creativo'),
+                publico_codigo: str('Código de un público de adquisición (de listar_publicos) para esta variante; vacío = segmentación de siempre'),
               },
               required: ['variant_name', 'hook', 'copy', 'cta'],
             },
@@ -1567,6 +1601,7 @@ export const ADS_TOOL_DEFS = [
   {
     type: 'function',
     function: {
+<<<<<<< HEAD
       name: 'ranking_creativos_ads',
       description: 'Genera el ranking de creativos publicitarios por métrica real de negocio (costo_por_cliente, clientes, conversaciones, ctr) conectando impresiones Meta con leads de CRM y clientes pagadores.',
       parameters: {
@@ -1578,6 +1613,18 @@ export const ADS_TOOL_DEFS = [
             enum: ['costo_por_cliente', 'clientes', 'conversaciones', 'ctr'],
             description: 'Métrica por la cual ordenar el ranking',
           },
+=======
+      name: 'ranking_creativos',
+      description: 'Ranking interno de creativos (imagen + copy + prompt) con el embudo real: impresiones, CTR, conversaciones, costo/conversación, leads, clientes que pagaron, costo/cliente e ingresos. Filtra por servicio, formato o concepto. Los null significan "sin datos", no cero.',
+      parameters: {
+        type: 'object',
+        properties: {
+          servicio: str('CPF | Agendamento PF | RNM | Residência Permanente | Refúgio'),
+          formato: str('1:1 | 4:5 | 9:16'),
+          concepto: str('persona | documento | problema_solucion | institucional | mensaje_directo | variacion_ganadora'),
+          orden: str('ctr | conversaciones | costo_por_conversacion | clientes_pagaron | costo_por_cliente | ingresos'),
+          limite: num('Máximo de creativos (por defecto 15)'),
+>>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
         },
         required: [],
       },
@@ -1586,6 +1633,7 @@ export const ADS_TOOL_DEFS = [
   {
     type: 'function',
     function: {
+<<<<<<< HEAD
       name: 'consultar_biblioteca_prompts',
       description: 'Consulta la biblioteca de prompts creativos de Flujo de Migração para saber qué instrucciones e ideas visuales generan mejores creativos y conversiones.',
       parameters: {
@@ -1594,12 +1642,45 @@ export const ADS_TOOL_DEFS = [
           servicio: str('Filtrar por servicio (CPF, RNM, etc.)'),
         },
         required: [],
+=======
+      name: 'biblioteca_prompts',
+      description: 'Biblioteca de prompts de creativos con sus resultados reales agregados (creativos generados, conversaciones, clientes, costo por cliente). Sirve para saber qué tipo de instrucción produce mejores creativos.',
+      parameters: { type: 'object', properties: { servicio: str('Filtrar por servicio (opcional)') }, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'listar_publicos',
+      description: 'Lista los públicos de Meta definidos en Flujo (código, nombre, tipo, estado y reglas de seguridad). Los de tipo adquisicion se pueden usar en un experimento con publico_codigo / publico_codigos; los de remarketing y exclusión son listas propias y no se aplican a conjuntos de anuncios.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'proponer_experimento_creativos',
+      description: 'Crea una PROPUESTA de experimento que compara 2-4 creativos aprobados del mismo servicio (el primero es el Control) cambiando UNA sola variable. No gasta nada hasta que el dueño la confirme.',
+      parameters: {
+        type: 'object',
+        properties: {
+          hypothesis: str('Hipótesis a probar'),
+          variable_tested: str('Única variable que cambia: imagen | hook | copy | composición'),
+          creative_ids: { type: 'array', items: { type: 'string' }, description: 'ids de creativos (el primero es el Control). Para probar SOLO el público con la misma imagen: pasa 1 creativo y 2 a 4 públicos distintos en publico_codigos (el primero será el Control); el sistema prepara una copia del creativo por variante.' },
+          daily_budget: num('Presupuesto diario total en BRL'),
+          name: str('Nombre del experimento (opcional)'),
+          aprobar_seleccion: bool('true cuando el dueño eligió en el chat estos creativos BORRADOR: su elección los aprueba'),
+          publico_codigos: { type: 'array', items: { type: 'string' }, description: 'Públicos de Meta (códigos de listar_publicos, solo de adquisición). Un solo código = todas las variantes usan ese público; varios = uno por variante en el mismo orden que creative_ids (así se prueba el público como variable). Si se omite, se usa la segmentación de siempre.' },
+        },
+        required: ['hypothesis', 'variable_tested', 'creative_ids', 'daily_budget'],
+>>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
       },
     },
   },
   {
     type: 'function',
     function: {
+<<<<<<< HEAD
       name: 'generar_concepto_creativo',
       description: 'Genera conceptos de creativos publicitarios de alta conversión con prompt para imagen profesional, copy persuasivo, titular y llamada a la acción para un servicio específico.',
       parameters: {
@@ -1618,12 +1699,21 @@ export const ADS_TOOL_DEFS = [
           },
         },
         required: ['servicio'],
+=======
+      name: 'proponer_publicar_creativo',
+      description: 'Crea una PROPUESTA para publicar un creativo APROBADO en un conjunto de anuncios existente de Meta. El anuncio nace en pausa y requiere confirmación humana.',
+      parameters: {
+        type: 'object',
+        properties: { creative_id: str('Id del creativo'), adset_id: str('Id real del conjunto de anuncios en Meta') },
+        required: ['creative_id', 'adset_id'],
+>>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
       },
     },
   },
   {
     type: 'function',
     function: {
+<<<<<<< HEAD
       name: 'comparar_creativos_ads',
       description: 'Compara hasta 4 creativos publicitarios cara a cara (A vs B vs C vs D) evaluando gasto, impresiones, clics, conversaciones, clientes pagadores y costo por cliente para determinar el ganador.',
       parameters: {
@@ -1637,9 +1727,92 @@ export const ADS_TOOL_DEFS = [
         },
         required: ['creative_ids'],
       },
+=======
+      name: 'buscar_tendencias',
+      description: 'Busca en la web tendencias RECIENTES útiles para anuncios (formatos y hooks que funcionan, cambios de normas, dolores de la comunidad migrante, novedades de Meta Ads) y las guarda con sus fuentes. Son HIPÓTESIS de mercado, no evidencia del negocio: úsalas para proponer experimentos, nunca como prueba.',
+      parameters: { type: 'object', properties: { servicio: str('CPF | Agendamento PF | RNM | Residência Permanente | Refúgio (opcional)'), tema: str('Foco concreto, ej. urgencia en citas de la Polícia Federal (opcional)') }, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'consultar_tendencias',
+      description: 'Lista las tendencias de mercado ya buscadas y guardadas (con fuentes). Consúltalas antes de proponer conceptos para no repetir búsquedas.',
+      parameters: { type: 'object', properties: { servicio: str('Filtrar por servicio (opcional)'), limite: num('Máximo (por defecto 15)') }, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'proponer_conceptos_creativos',
+      description: 'Genera 1-5 conceptos publicitarios (hook, titular, texto, CTA, escena) para un servicio, usando aprendizajes, resultados reales y tendencias guardadas. Quedan registrados. No gasta en Meta.',
+      parameters: { type: 'object', properties: { servicio: str('CPF | Agendamento PF | RNM | Residência Permanente | Refúgio'), objetivo: str('Ej. Conversaciones WhatsApp'), publico: str('Ej. extranjeros recién llegados a Brasil'), cantidad: num('1 a 5 (por defecto 3)') }, required: ['servicio'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generar_prompt_creativo',
+      description: 'Redacta el prompt de imagen profesional de un anuncio a partir de sus datos. El prompt EXIGE titular grande, botón CTA y firma de marca dentro de la imagen. Úsalo para que el dueño revise el prompt antes de generar.',
+      parameters: { type: 'object', properties: CREATIVO_PROPS, required: ['servicio', 'titular', 'cta'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generar_creativo',
+      description: 'GENERA la imagen real del anuncio con OpenAI (cuesta dinero, máx. 40 al día) y la guarda como BORRADOR con su prompt versionado. La imagen sale con titular, subtítulo, botón CTA y firma. Genera de a UNA y solo cuando el dueño lo pidió. Después se muestra con markdown ![](image_url). No publica nada en Meta.',
+      parameters: { type: 'object', properties: { ...CREATIVO_PROPS, prompt: str('Prompt ya revisado (opcional; si falta se arma con la identidad de marca)'), concept_id: str('Id del concepto registrado (opcional)') }, required: ['servicio', 'titular', 'cta'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generar_opciones_experimento',
+      description: 'Para armar un experimento DESDE EL CHAT sin imágenes previas: crea 2-3 conceptos y GENERA una imagen real por concepto (cuesta dinero; cuenta en el tope diario de 40) y las guarda como BORRADORES. Devuelve la lista numerada con image_url. Muéstralas numeradas con ![](image_url) y pregunta cuáles quiere el dueño; cuando elija, llama a proponer_experimento_creativos con esos creative_id y aprobar_seleccion=true. Úsala solo cuando el dueño pidió el experimento.',
+      parameters: { type: 'object', properties: { servicio: str('CPF | Agendamento PF | RNM | Residência Permanente | Refúgio'), cantidad: num('2 o 3 (por defecto 3)'), objetivo: str('Ej. Conversaciones WhatsApp'), publico: str('Ej. extranjeros recién llegados a Brasil'), formato: str('1:1 | 4:5 | 9:16 (por defecto 1:1)'), estilo: str('Estilo visual (opcional)'), variable: str('Única variable que difiere entre las opciones: hook (por defecto) | concepto_visual | estilo | cta | beneficio | angulo') }, required: ['servicio'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'regenerar_creativo',
+      description: 'Crea una VERSIÓN NUEVA (v2, v3…) de un creativo cambiando UNA sola variable declarada (estilo, hook, concepto, composicion o imagen). Conserva la anterior. Para concepto/composicion hay que dar el prompt nuevo.',
+      parameters: { type: 'object', properties: { creative_id: str('Id del creativo de origen'), variable: { type: 'string', enum: ['estilo', 'hook', 'concepto', 'composicion', 'imagen'], description: 'La única variable que cambia' }, estilo: str('Nuevo estilo si variable=estilo'), hook: str('Nuevo hook si variable=hook'), prompt: str('Prompt nuevo si variable=concepto o composicion') }, required: ['creative_id', 'variable'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'origen_clientes',
+      description: 'UNIFICA el embudo: para cada lead/cliente que cierra Nora, de dónde vino y qué anuncio tocó (anuncio → campaña → creativo → prompt) con sus pagos. Incluye la COBERTURA de atribución (cuántos leads tienen origen demostrable). Si el origen es sin_origen se dice tal cual: no se adivina.',
+      parameters: { type: 'object', properties: { solo_cerrados: bool('Solo leads ganados o con pagos'), origen: { type: 'string', enum: ['anuncio', 'meta_declarado', 'sin_origen'], description: 'Filtrar por tipo de origen' }, limite: num('Máximo de filas (por defecto 25)') }, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'cerrar_experimento_creativos',
+      description: 'Mide un experimento con datos reales y, solo si hay volumen, periodo y diferencia suficientes, declara ganador y guarda el aprendizaje. Con pocos datos responde "insuficiente" o "tendencia" y deja el experimento abierto.',
+      parameters: { type: 'object', properties: { experiment_id: str('Id del experimento'), concluir_inconcluso: bool('true SOLO si el dueño pidió cerrar sin ganador: queda INCONCLUSO y no se guarda aprendizaje') }, required: ['experiment_id'] },
+>>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
     },
   },
 ];
+
+// Groq valida el esquema de forma estricta y el modelo suele mandar null en los parámetros opcionales
+// (400 "expected string, but got null"). Todo parámetro NO obligatorio acepta null; los handlers ya lo tratan como ausente.
+export const ADS_TOOL_DEFS = ADS_TOOL_DEFS_BASE.map((t: any) => {
+  const p = t?.function?.parameters;
+  if (!p?.properties) return t;
+  const req = new Set<string>(p.required || []);
+  const properties: Record<string, any> = {};
+  for (const [k, v] of Object.entries<any>(p.properties)) {
+    if (req.has(k) || !v || typeof v.type !== 'string') { properties[k] = v; continue; }
+    properties[k] = { ...v, type: [v.type, 'null'], ...(Array.isArray(v.enum) ? { enum: [...v.enum, null] } : {}) };
+  }
+  return { ...t, function: { ...t.function, parameters: { ...p, properties } } };
+});
 
 // ── Ejecución de Herramientas de Ads en el ciclo del Asistente ──
 export async function runAdsTool(
@@ -1650,10 +1823,13 @@ export async function runAdsTool(
   const limits = await getAdsLimits(ctx.admin);
 
   // Período pedido por el modelo: fechas explícitas o atajo ('7d', '30d'...).
-  const rangoDe = (a: any) =>
-    a?.desde || a?.hasta
-      ? { desde: a.desde as string | undefined, hasta: a.hasta as string | undefined }
-      : resolveAdsDateRange(a?.periodo || '7d');
+  const rangoDe = (a: any) => {
+    const desde = typeof a?.desde === 'string' && a.desde.trim() ? a.desde.trim() : undefined;
+    const hasta = typeof a?.hasta === 'string' && a.hasta.trim() ? a.hasta.trim() : undefined;
+    return desde || hasta
+      ? { desde, hasta }
+      : resolveAdsDateRange(typeof a?.periodo === 'string' ? a.periodo : '7d');
+  };
 
   switch (name) {
     case 'listar_campanas_ads': {
@@ -1871,7 +2047,13 @@ export async function runAdsTool(
     }
 
     case 'diagnosticar_funnel_campanas': {
-      const funnel = await analizarFunnelCompleto(ctx.admin, args);
+      // Groq puede serializar campos opcionales como null. Nunca pasar null como fecha.
+      const argsNormalizados = {
+        periodo: typeof args?.periodo === 'string' ? args.periodo : undefined,
+        desde: typeof args?.desde === 'string' && args.desde.trim() ? args.desde.trim() : undefined,
+        hasta: typeof args?.hasta === 'string' && args.hasta.trim() ? args.hasta.trim() : undefined,
+      };
+      const funnel = await analizarFunnelCompleto(ctx.admin, argsNormalizados);
       return JSON.stringify(funnel);
     }
 
@@ -1885,6 +2067,10 @@ export async function runAdsTool(
     }
 
     case 'disenar_campana_v4': {
+      // Publicar exige un creativo del Laboratorio por variante: sin él la propuesta nunca podría ejecutarse.
+      if (!(args.variants || []).length || (args.variants || []).some((v: any) => !v.creative_asset_id)) {
+        return JSON.stringify({ error: 'No se crea la propuesta: cada variante necesita un creativo con imagen del Laboratorio. Primero llama a generar_opciones_experimento, muestra las imágenes, deja que el dueño elija y luego usa proponer_experimento_creativos con aprobar_seleccion=true.' });
+      }
       const resultado = await proponerExperimentoV4(ctx, {
         name: args.name,
         service: args.service,
@@ -1918,6 +2104,7 @@ export async function runAdsTool(
       return JSON.stringify({ total: experimentos.length, experimentos });
     }
 
+<<<<<<< HEAD
     case 'ranking_creativos_ads': {
       const ranking = await rankingCreativos(ctx.admin, args?.metrica || 'costo_por_cliente', args?.servicio);
       return JSON.stringify({ total: ranking.length, ranking });
@@ -1938,9 +2125,197 @@ export async function runAdsTool(
       return JSON.stringify(comparacion);
     }
 
+=======
+    case 'ranking_creativos':
+      return JSON.stringify(await rankingCreativos(ctx.admin, args));
+
+    case 'biblioteca_prompts':
+      return JSON.stringify(await biblioteca(ctx.admin, args.servicio));
+
+    case 'listar_publicos': {
+      const { data, error } = await ctx.admin
+        .from('publicos_definiciones')
+        .select('codigo, nombre, tipo, pais, servicio, prioridad, estado, es_control, comportamientos, reglas_seguridad, notas')
+        .eq('organization_id', ORG_ID)
+        .order('prioridad')
+        .order('codigo');
+      if (error) throw new Error(`No se pudieron leer los públicos: ${error.message}`);
+      return JSON.stringify({ total: (data || []).length, publicos: data || [] });
+    }
+
+    case 'proponer_experimento_creativos': {
+      const r = await crearExperimentoCreativos(ctx, args);
+      // proponerExperimentoV4 devuelve la propuesta en su propio arreglo: se registra en la del chat.
+      return JSON.stringify(r);
+    }
+
+    case 'proponer_publicar_creativo': {
+      const r = await proponerPublicacion(ctx, args);
+      ctx.proposals.push(r.propuesta);
+      return JSON.stringify({ propuesta_creada: true, proposal_id: r.propuesta.id, resumen: r.propuesta.resumen });
+    }
+
+    case 'buscar_tendencias':
+      return JSON.stringify(await buscarTendencias(ctx.admin, ctx.userId, { service: args.servicio, tema: args.tema }));
+
+    case 'consultar_tendencias':
+      return JSON.stringify(await listarTendencias(ctx.admin, { service: args.servicio, limite: args.limite }));
+
+    case 'proponer_conceptos_creativos':
+      return JSON.stringify(await proponerConceptos(ctx.admin, ctx.userId, { service: args.servicio, objective: args.objetivo, audience: args.publico, cantidad: args.cantidad }));
+
+    case 'generar_prompt_creativo':
+      return JSON.stringify(await generarPrompt(ctx.admin, ctx.userId, {
+        service: args.servicio, objective: args.objetivo, audience: args.publico, concept: args.concepto, hook: args.hook, headline: args.titular,
+        cta: args.cta, visual_concept: args.escena, style: args.estilo, format: args.formato || '1:1', language: args.idioma || 'es',
+        problema: args.problema, angulo: args.angulo, beneficio: args.beneficio, variable_experimento: args.variable_experimento,
+      }));
+
+    case 'generar_creativo': {
+      const r = await crearCreativo(ctx.admin, ctx.userId, {
+        service: args.servicio, objective: args.objetivo, audience: args.publico, concept: args.concepto, hook: args.hook, headline: args.titular,
+        primary_text: args.texto_principal, cta: args.cta, visual_concept: args.escena, style: args.estilo, format: args.formato || '1:1',
+        language: args.idioma || 'es', prompt: args.prompt, concept_id: args.concept_id,
+        problema: args.problema, angulo: args.angulo, beneficio: args.beneficio, variable_experimento: args.variable_experimento,
+      }, 'generar');
+      return JSON.stringify({ ok: true, creative_id: r.creativo.id, version: r.creativo.version, formato: r.creativo.format, estado: r.creativo.status, modelo: r.modelo, image_url: r.image_url, nota: 'Borrador guardado. No está en Meta. Muéstralo con ![](image_url); hay que aprobarlo antes de proponer su publicación.' });
+    }
+
+    case 'generar_opciones_experimento': {
+      const cantidad = Math.min(Math.max(Number(args.cantidad) || 3, 2), 3);
+      // Un experimento cambia UNA sola variable (por defecto el hook); lo demás queda idéntico entre las opciones.
+      const variable = VARIABLES_EXPERIMENTO_IDS.includes(String(args.variable)) ? String(args.variable) : 'hook';
+      const c = await proponerConceptos(ctx.admin, ctx.userId, { service: args.servicio, objective: args.objetivo, audience: args.publico, cantidad, variable });
+      const estilos = Object.keys(ESTILOS);
+      // En paralelo para no agotar el tiempo de la petición; una imagen fallida no tumba las demás.
+      const res = await Promise.allSettled(c.conceptos.map((k: any, idx: number) => crearCreativo(ctx.admin, ctx.userId, {
+        service: args.servicio, objective: args.objetivo, audience: args.publico, concept: k.concept, hook: k.hook, headline: k.headline,
+        primary_text: k.primary_text, cta: k.cta, visual_concept: k.visual_concept,
+        style: variable === 'estilo' ? estilos[idx % estilos.length] : args.estilo, format: args.formato || '1:1',
+        language: 'es', concept_id: k.concept_id, problema: k.problema, angulo: k.angulo, beneficio: k.beneficio, variable_experimento: variable,
+      }, 'generar')));
+      const opciones = res.map((r, i) => r.status === 'fulfilled'
+        ? { opcion: i + 1, creative_id: r.value.creativo.id, titular: r.value.creativo.headline, hook: r.value.creativo.hook, estilo: r.value.creativo.style, image_url: r.value.image_url }
+        : { opcion: i + 1, error: r.reason instanceof Error ? r.reason.message : String(r.reason) });
+      return JSON.stringify({ ok: opciones.some((o: any) => o.creative_id), variable_probada: variable, opciones, nota: `Borradores guardados; nada está en Meta. Las opciones difieren SOLO en: ${variable}. Muéstralos numerados con ![](image_url) y pregunta cuáles elige el dueño (mínimo 2); al crear el experimento usa variable_tested="${variable}".` });
+    }
+
+    case 'regenerar_creativo': {
+      const r = await crearCreativo(ctx.admin, ctx.userId, {
+        from_creative_id: args.creative_id, changed_variable: args.variable, style: args.estilo, hook: args.hook, prompt: args.prompt,
+      } as any, 'regenerar');
+      return JSON.stringify({ ok: true, creative_id: r.creativo.id, version: r.creativo.version, cambio: r.creativo.changed_variable, image_url: r.image_url, nota: 'Versión nueva; la anterior se conserva.' });
+    }
+
+    case 'origen_clientes': {
+      let q = ctx.admin.from('origen_leads').select('lead_id, nombre, tramite_texto, etapa_nombre, ganado, origen, ad_name, campaign_name, creative_headline, creative_style, creative_version, prompt_name, prompt_version, pagos, ingresos, created_at').order('created_at', { ascending: false }).limit(Math.min(Number(args.limite) || 25, 100));
+      if (args.origen) q = q.eq('origen', args.origen);
+      if (args.solo_cerrados) q = q.or('ganado.eq.true,pagos.gt.0');
+      const [{ data, error }, { data: cob }] = await Promise.all([q, ctx.admin.from('cobertura_atribucion').select('*').maybeSingle()]);
+      if (error) throw new Error(error.message);
+      const sinAnuncio = !!cob && Number(cob.con_anuncio) === 0;
+      return JSON.stringify({
+        cobertura: cob || null,
+        interpretacion: sinAnuncio
+          ? 'ESPERANDO TRÁFICO REAL: ningún lead tiene anuncio de origen demostrable (meta_ads_referidos recibió ' + (cob?.referidos_recibidos ?? 0) + ' referidos). No se puede afirmar qué anuncio trajo a ningún cliente; no lo adivines.'
+          : 'Solo los leads con origen = anuncio tienen atribución demostrable; el resto es sin_origen.',
+        total_filas: (data || []).length, leads: data || [],
+      });
+    }
+
+    case 'cerrar_experimento_creativos':
+      return JSON.stringify(await cerrarExperimentoCreativos(ctx.admin, args.experiment_id, { concluirInconcluso: args.concluir_inconcluso === true }));
+
+>>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
     default:
       throw new Error(`Herramienta de Ads no reconocida: ${name}`);
   }
+}
+
+/** Diagnóstico seguro de errores de escritura de Meta: nunca registra el access token. */
+function extraerErrorMeta(data: any, httpStatus: number) {
+  const e = data?.error || {};
+  return { http_status: httpStatus, type: e?.type ?? null, code: e?.code ?? null, error_subcode: e?.error_subcode ?? null, message: e?.message ?? null, fbtrace_id: e?.fbtrace_id ?? null };
+}
+async function registrarErrorEscrituraMeta(admin: SupabaseClient, userId: string, p: any, accion: string, metaError: Record<string, unknown>, target: Record<string, unknown>) {
+  const { error } = await admin.from('automation_runs').insert({
+    organization_id: ORG_ID, workflow: 'asistente_meta_ads', ref: p.tipo, ok: false,
+    message: String(metaError.message || 'Meta API error'),
+    details: { proposal_id: p.id, executed_by: userId, accion, target, resultado: 'meta_rejected', meta_error: metaError },
+  });
+  if (error) console.error('[Meta Ads] no se pudo registrar el error de Meta:', error.message);
+}
+async function verificarObjetoMeta(token: string, accountId: string, objectId: string, objectType: 'campaign' | 'adset') {
+  const url = `https://graph.facebook.com/v20.0/${encodeURIComponent(objectId)}?fields=id,account_id,status`;
+  const res = await fetch(url, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.error) throw new Error(`No se pudo validar ${objectType} ${objectId} en Meta: ${data?.error?.message || `HTTP ${res.status}`}`);
+  const expected = String(accountId).replace(/^act_/, '');
+  const actual = String(data?.account_id ?? '').replace(/^act_/, '');
+  if (!actual || actual !== expected) throw new Error(`Seguridad: el ${objectType} ${objectId} no pertenece a la cuenta publicitaria configurada.`);
+  if (['DELETED', 'ARCHIVED'].includes(String(data?.status))) {
+    throw new Error(`El ${objectType} ${objectId} ya fue eliminado en Meta (estado ${data.status}); no se puede cambiar ni activar. Si venía de un experimento que falló, no quedó nada creado: usa «Publicar en Meta» en el experimento.`);
+  }
+  return data;
+}
+
+/** Quién es dueño de la cuenta publicitaria, la página y el WhatsApp Business, para explicar un rechazo de "número no vinculado". Solo lectura. */
+async function diagnosticoWhatsApp(token: string, accountId: string, pageId?: string | null): Promise<string> {
+  const g = async (ruta: string) => {
+    try {
+      const r = await fetch(`https://graph.facebook.com/v20.0/${ruta}`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json().catch(() => ({}));
+      return d?.error ? { error: String(d.error.message || 'error').slice(0, 120) } : d;
+    } catch { return { error: 'sin respuesta' }; }
+  };
+  const act = String(accountId).startsWith('act_') ? accountId : `act_${accountId}`;
+  const [cuenta, pagina] = await Promise.all([g(`${act}?fields=business`), pageId ? g(`${pageId}?fields=name,business`) : Promise.resolve(null)]);
+  const negocio = (x: any) => x?.business ? `${x.business.name} (${x.business.id})` : x?.error ? `no verificable: ${x.error}` : 'sin portafolio visible';
+  const negocioCuenta = cuenta?.business?.id;
+  const waba = negocioCuenta ? await g(`${negocioCuenta}/owned_whatsapp_business_accounts?fields=id,name`) : null;
+  const wabas = waba?.data ? (waba.data.map((w: any) => `${w.name} (${w.id})`).join(', ') || 'ninguno') : waba?.error ? `no verificable: ${waba.error}` : 'no verificable';
+  return ` DIAGNÓSTICO — portafolio de la cuenta publicitaria: ${negocio(cuenta)}; portafolio de la página: ${negocio(pagina)}; WhatsApp Business del portafolio de la cuenta: ${wabas}. Si la página y la cuenta están en portafolios distintos, o el WhatsApp Business no aparece en el portafolio de la cuenta, ahí está el bloqueo.`;
+}
+
+// ── Compatibilidad con la Marketing API v20 (verificada con validate_only contra la cuenta real) ──
+// El objetivo "OUTCOME_MESSAGES" ya no existe: los anuncios que abren un chat de WhatsApp son OUTCOME_ENGAGEMENT
+// con destination_type WHATSAPP (así están configuradas las campañas reales de la cuenta).
+export function objetivoMeta(o?: string): string {
+  const v = String(o || '').toUpperCase();
+  return v === 'OUTCOME_MESSAGES' || v === 'MESSAGES' ? 'OUTCOME_ENGAGEMENT' : v || 'OUTCOME_ENGAGEMENT';
+}
+export function esObjetivoMensajes(o?: string): boolean {
+  const v = String(o || '').toUpperCase();
+  return v === 'OUTCOME_MESSAGES' || v === 'MESSAGES' || v === 'OUTCOME_ENGAGEMENT';
+}
+/** Estrategia de puja válida en v20 (LOWEST_COST_WITHOUT_BID_CAP fue rechazada por Meta). */
+export const BID_STRATEGY_META = 'LOWEST_COST_WITHOUT_CAP';
+
+/** Mensaje legible de un error de Meta (incluye el texto para el usuario cuando existe). */
+function mensajeMeta(data: any, http: number): string {
+  const e = data?.error || {};
+  return [e.error_user_msg, e.message].filter(Boolean).join(' — ') || `Meta API error (${http})`;
+}
+
+/** Segmentación de plantilla: la de un conjunto real de la cuenta (la que ya funciona); si no hay, Brasil 21-65. */
+async function plantillaTargeting(token: string, accountId: string): Promise<Record<string, unknown>> {
+  try {
+    const r = await fetch(`https://graph.facebook.com/v20.0/${accountId}/adsets?fields=targeting&limit=1`, { headers: { Authorization: `Bearer ${token}` } });
+    const d = await r.json();
+    const t = d?.data?.[0]?.targeting;
+    if (r.ok && t && typeof t === 'object') return t;
+  } catch { /* se usa el respaldo */ }
+  return { geo_locations: { countries: ['BR'] }, age_min: 21, age_max: 65 };
+}
+
+/** ¿La página puede usarse para crear anuncios con este token? true/false; null si no se pudo comprobar. */
+async function paginaDisponible(token: string, accountId: string, pageId: string): Promise<boolean | null> {
+  try {
+    const r = await fetch(`https://graph.facebook.com/v20.0/${accountId}/promote_pages?fields=id&limit=100`, { headers: { Authorization: `Bearer ${token}` } });
+    const d = await r.json();
+    if (!r.ok || d?.error) return null;
+    return (d.data || []).some((p: any) => String(p.id) === String(pageId));
+  } catch { return null; }
 }
 
 // ── Ejecución Determinista de Propuestas de Ads Confirmadas ──
@@ -1958,16 +2333,16 @@ export async function executeAdsProposal(
       if (!token) {
         throw new Error('No se pudo ejecutar en Meta: Falta configurar el secreto META_ADS_TOKEN en Supabase.');
       }
-      const url = `https://graph.facebook.com/v20.0/${d.campaign_id}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: d.nuevo_estado, access_token: token }),
-      });
+      if (!accountId) throw new Error('No se pudo ejecutar en Meta: Falta configurar el secreto META_AD_ACCOUNT_ID en Supabase.');
+      await verificarObjetoMeta(token, accountId, String(d.campaign_id), 'campaign');
+      const url = `https://graph.facebook.com/v20.0/${encodeURIComponent(d.campaign_id)}`;
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: d.nuevo_estado, access_token: token }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
-        const errorMsg = data.error?.message || `Meta API error (${res.status})`;
-        throw new Error(`Meta rechazó el cambio: ${errorMsg}`);
+        const metaError = extraerErrorMeta(data, res.status);
+        await registrarErrorEscrituraMeta(admin, userId, p, 'ads_cambiar_estado_campana', metaError, { campaign_id: String(d.campaign_id), account_id: String(accountId).replace(/^act_/, ''), requested_status: d.nuevo_estado });
+        const suffix = [metaError.code, metaError.error_subcode].filter(Boolean).join('/');
+        throw new Error(`Meta rechazó el cambio: ${metaError.message || `HTTP ${res.status}`}${suffix ? ` (code ${suffix})` : ''}${metaError.fbtrace_id ? ` [fbtrace_id ${metaError.fbtrace_id}]` : ''}`);
       }
 
       // Registro de auditoría
@@ -2009,16 +2384,15 @@ export async function executeAdsProposal(
 
       // Meta requiere el presupuesto en centavos (cents)
       const dailyBudgetCents = Math.round(Number(d.nuevo_presupuesto) * 100);
-      const url = `https://graph.facebook.com/v20.0/${d.campaign_id}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ daily_budget: dailyBudgetCents, access_token: token }),
-      });
+      if (!accountId) throw new Error('No se pudo ejecutar en Meta: Falta configurar el secreto META_AD_ACCOUNT_ID en Supabase.');
+      await verificarObjetoMeta(token, accountId, String(d.campaign_id), 'campaign');
+      const url = `https://graph.facebook.com/v20.0/${encodeURIComponent(d.campaign_id)}`;
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ daily_budget: dailyBudgetCents, access_token: token }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
-        const errorMsg = data.error?.message || `Meta API error (${res.status})`;
-        throw new Error(`Meta rechazó el cambio de presupuesto: ${errorMsg}`);
+        const metaError = extraerErrorMeta(data, res.status);
+        await registrarErrorEscrituraMeta(admin, userId, p, 'ads_cambiar_presupuesto_campana', metaError, { campaign_id: String(d.campaign_id), account_id: String(accountId).replace(/^act_/, ''), requested_daily_budget_brl: d.nuevo_presupuesto });
+        throw new Error(`Meta rechazó el cambio de presupuesto: ${metaError.message || `HTTP ${res.status}`}${metaError.code ? ` (code ${metaError.code}${metaError.error_subcode ? `/${metaError.error_subcode}` : ''})` : ''}${metaError.fbtrace_id ? ` [fbtrace_id ${metaError.fbtrace_id}]` : ''}`);
       }
 
       await admin.from('automation_runs').insert({
@@ -2062,17 +2436,16 @@ export async function executeAdsProposal(
         throw new Error('No se pudo ejecutar en Meta: Falta configurar el secreto META_ADS_TOKEN en Supabase.');
       }
 
+      if (!accountId) throw new Error('No se pudo ejecutar en Meta: Falta configurar el secreto META_AD_ACCOUNT_ID en Supabase.');
+      await verificarObjetoMeta(token, accountId, String(d.adset_id), 'adset');
       const cents = Math.round(Number(d.nuevo_presupuesto) * 100);
-      const url = `https://graph.facebook.com/v20.0/${d.adset_id}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ daily_budget: cents, access_token: token }),
-      });
+      const url = `https://graph.facebook.com/v20.0/${encodeURIComponent(d.adset_id)}`;
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ daily_budget: cents, access_token: token }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
-        const errorMsg = data.error?.message || `Meta API error (${res.status})`;
-        throw new Error(`Meta rechazó el cambio de presupuesto del conjunto: ${errorMsg}`);
+        const metaError = extraerErrorMeta(data, res.status);
+        await registrarErrorEscrituraMeta(admin, userId, p, 'ads_cambiar_presupuesto_adset', metaError, { adset_id: String(d.adset_id), account_id: String(accountId).replace(/^act_/, ''), requested_daily_budget_brl: d.nuevo_presupuesto });
+        throw new Error(`Meta rechazó el cambio de presupuesto del conjunto: ${metaError.message || `HTTP ${res.status}`}${metaError.code ? ` (code ${metaError.code}${metaError.error_subcode ? `/${metaError.error_subcode}` : ''})` : ''}${metaError.fbtrace_id ? ` [fbtrace_id ${metaError.fbtrace_id}]` : ''}`);
       }
 
       await admin.from('automation_runs').insert({
@@ -2124,17 +2497,17 @@ export async function executeAdsProposal(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: d.nombre,
-          objective: d.objetivo,
+          objective: objetivoMeta(d.objetivo),
           status: 'PAUSED', // Se crea pausada por seguridad
           daily_budget: dailyBudgetCents,
-          special_ad_categories: ['NONE'],
+          bid_strategy: BID_STRATEGY_META,
+          special_ad_categories: [],
           access_token: token,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
-        const errorMsg = data.error?.message || `Meta API error (${res.status})`;
-        throw new Error(`Meta rechazó la creación de campaña: ${errorMsg}`);
+        throw new Error(`Meta rechazó la creación de campaña: ${mensajeMeta(data, res.status)}`);
       }
 
       await admin.from('automation_runs').insert({
@@ -2167,130 +2540,146 @@ export async function executeAdsProposal(
       if (!validacion.valid) {
         throw new Error(`Ejecución cancelada por seguridad: ${validacion.error}`);
       }
-
       if (!token || !accountId) {
         throw new Error('No se pudo crear en Meta: Faltan credenciales META_ADS_TOKEN / META_AD_ACCOUNT_ID en Supabase.');
       }
 
+      const objetivoPedido = d.objetivo || 'OUTCOME_MESSAGES';
+      const mensajes = esObjetivoMensajes(objetivoPedido);
+      const pageId = Deno.env.get('META_PAGE_ID');
+
+      // Comprobaciones previas: si algo no puede funcionar, se dice ANTES de crear nada en Meta.
+      if (mensajes) {
+        if (!pageId) throw new Error('Falta el secreto META_PAGE_ID (id de la página de Facebook de los anuncios).');
+        const disponible = await paginaDisponible(token, accountId, pageId);
+        if (disponible === false) {
+          throw new Error(`Meta no permite crear anuncios con la página ${pageId} desde este token: no está asignada al usuario del sistema con permiso para crear anuncios. En Meta Business Suite → Configuración → Usuarios del sistema → asigna la página (acceso total o "Crear anuncios") y vuelve a confirmar. No se creó nada.`);
+        }
+      }
+      const sinCreativo = (d.variantes || []).filter((v: any) => !v.creative_asset_id);
+      if (sinCreativo.length) {
+        throw new Error(`Las variantes ${sinCreativo.map((v: any) => v.variant_name).join(', ')} no tienen un creativo con imagen del Laboratorio. Genera y aprueba los creativos, vincúlalos al experimento y vuelve a proponerlo. No se creó nada.`);
+      }
+
+      // Públicos por variante: la segmentación de cada una se resuelve ANTES de crear nada en Meta (si falta una opción, no se crea nada).
+      // Una variante sin público usa la segmentación de plantilla de siempre.
+      const segmentacionPorCodigo = new Map<string, Record<string, unknown>>();
+      for (const codigo of new Set((d.variantes || []).map((v: any) => v.publico_codigo || v.audience_definition?.publico_codigo).filter(Boolean) as string[])) {
+        try {
+          segmentacionPorCodigo.set(codigo, (await segmentacionDePublico(admin, ORG_ID, codigo)).targeting);
+        } catch (errPublico) {
+          throw new Error(`No se creó nada en Meta. ${errPublico instanceof Error ? errPublico.message : String(errPublico)}`);
+        }
+      }
+
       const dailyBudgetCents = Math.round(Number(d.presupuesto_diario) * 100);
-      const campUrl = `https://graph.facebook.com/v20.0/${accountId}/campaigns`;
-      const campRes = await fetch(campUrl, {
+      const campRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/campaigns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: d.nombre_campana,
-          objective: d.objetivo || 'OUTCOME_MESSAGES',
+          objective: objetivoMeta(objetivoPedido),
           status: 'PAUSED',
-          daily_budget: dailyBudgetCents,
-          special_ad_categories: ['NONE'],
+          daily_budget: dailyBudgetCents, // presupuesto a nivel de campaña, como las campañas reales de la cuenta
+          bid_strategy: BID_STRATEGY_META,
+          special_ad_categories: [],
           access_token: token,
         }),
       });
       const campData = await campRes.json().catch(() => ({}));
       if (!campRes.ok || campData.error) {
-        const errorMsg = campData.error?.message || `Meta API error (${campRes.status})`;
-        throw new Error(`Meta rechazó la creación de la campaña experimental: ${errorMsg}`);
+        const metaError = extraerErrorMeta(campData, campRes.status);
+        await registrarErrorEscrituraMeta(admin, userId, p, 'ads_experimento_v4', metaError, { account_id: String(accountId).replace(/^act_/, ''), objetivo: objetivoMeta(objetivoPedido) });
+        throw new Error(`Meta rechazó la creación de la campaña experimental: ${mensajeMeta(campData, campRes.status)}`);
       }
       const metaCampaignId = campData.id;
 
-      // Crear AdSets y Ads para las variantes
+      // Conjuntos como los de las campañas reales: sin presupuesto propio, destino WhatsApp, página, misma segmentación.
+      const targeting = await plantillaTargeting(token, accountId);
+      // Números reales de la WABA de Nora según Meta (display_phone_number sin símbolos): son los únicos que Meta reconoce.
+      const numerosWaba: string[] = [];
+      if (mensajes) {
+        try {
+          const { data: ci } = await admin.from('channel_integrations').select('whatsapp_waba_id').eq('organization_id', ORG_ID).maybeSingle();
+          if (ci?.whatsapp_waba_id) {
+            const rn = await fetch(`https://graph.facebook.com/v20.0/${ci.whatsapp_waba_id}/phone_numbers?fields=display_phone_number`, { headers: { Authorization: `Bearer ${token}` } });
+            const dn = await rn.json().catch(() => ({}));
+            for (const x of dn?.data || []) { const dig = String(x.display_phone_number || '').replace(/\D/g, ''); if (dig) numerosWaba.push(dig); }
+          }
+        } catch { /* sin permiso: se usan los números por defecto */ }
+      }
       const variantesResult: any[] = [];
-      const variantes = d.variantes || [];
-      const adsetBudgetCents = variantes.length > 0 ? Math.max(100, Math.round(dailyBudgetCents / variantes.length)) : dailyBudgetCents;
-
-      for (const v of variantes) {
+      for (const v of d.variantes || []) {
+        const codigoPublico = v.publico_codigo || v.audience_definition?.publico_codigo;
+        const targetingVariante = (codigoPublico && segmentacionPorCodigo.get(codigoPublico)) || targeting;
         let adsetId: string | null = null;
         let adId: string | null = null;
         let creativeId: string | null = null;
-
+        let errorVariante: string | null = null;
         try {
-          const adsetRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/adsets`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: `${d.nombre_campana} - ${v.variant_name || 'Variante'}`,
-              campaign_id: metaCampaignId,
-              daily_budget: adsetBudgetCents,
-              billing_event: 'IMPRESSIONS',
-              optimization_goal: d.objetivo === 'OUTCOME_LEADS' ? 'LEAD_GENERATION' : 'CONVERSATIONS',
-              bid_strategy: 'LOWEST_COST_WITHOUT_BID_CAP',
-              status: 'PAUSED',
-              targeting: { geo_locations: { countries: ['BR'] } },
-              access_token: token,
-            }),
-          });
-          const adsetData = await adsetRes.json().catch(() => ({}));
-          if (adsetRes.ok && adsetData.id) {
-            adsetId = adsetData.id;
-
-            const creativeRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/adcreatives`, {
+          // El número debe coincidir con el registrado en la WABA (el de Nora es +55 48 8455-3306, sin el 9); se prueban ambas formas.
+          const numeros = [...new Set([Deno.env.get('WHATSAPP_ADS_NUMBER'), ...numerosWaba, '554884553306', '5548984553306'].filter(Boolean) as string[])];
+          let adsetRes: Response; let adsetData: any = {};
+          for (const [n, numero] of numeros.entries()) {
+            adsetRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/adsets`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                name: `Creative - ${v.variant_name || 'Variante'}`,
-                object_story_spec: {
-                  page_id: accountId.replace(/\D/g, ''),
-                  link_data: {
-                    message: v.copy || v.hook || d.nombre_campana,
-                    name: v.hook || d.nombre_campana,
-                    call_to_action: { type: 'LEARN_MORE' },
-                  },
-                },
+                name: `${d.nombre_campana} - ${v.variant_name || 'Variante'}`,
+                campaign_id: metaCampaignId,
+                billing_event: 'IMPRESSIONS',
+                optimization_goal: mensajes ? 'CONVERSATIONS' : (objetivoMeta(objetivoPedido) === 'OUTCOME_LEADS' ? 'LEAD_GENERATION' : 'LINK_CLICKS'),
+                ...(mensajes ? { destination_type: 'WHATSAPP', promoted_object: { page_id: pageId, whatsapp_phone_number: numero } } : {}),
+                targeting: targetingVariante,
+                status: 'PAUSED',
                 access_token: token,
               }),
             });
-            const creativeData = await creativeRes.json().catch(() => ({}));
-            creativeId = creativeData.id || null;
-
-            if (creativeId) {
-              const adRes = await fetch(`https://graph.facebook.com/v20.0/${accountId}/ads`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  name: `Ad - ${v.variant_name || 'Variante'}`,
-                  adset_id: adsetId,
-                  creative: { creative_id: creativeId },
-                  status: 'PAUSED',
-                  access_token: token,
-                }),
-              });
-              const adData = await adRes.json().catch(() => ({}));
-              adId = adData.id || null;
-            }
+            adsetData = await adsetRes.json().catch(() => ({}));
+            if (adsetRes.ok && adsetData.id) break;
+            if (!mensajes || n === numeros.length - 1 || !/not linked|no est[aá] vinculad/i.test(String(adsetData?.error?.error_user_msg || adsetData?.error?.message || ''))) break;
           }
+          if (!adsetRes!.ok || !adsetData.id) throw new Error(`conjunto: ${mensajeMeta(adsetData, adsetRes!.status)}`);
+          adsetId = adsetData.id;
+          const pub = await publicarCreativoEnMeta(admin, {
+            creative_id: v.creative_asset_id, adset_id: adsetData.id,
+            nombre_anuncio: `${d.nombre_campana} - ${v.variant_name || 'Variante'}`,
+          });
+          adId = pub.ad_id;
+          creativeId = pub.meta_creative_id;
         } catch (errVar) {
-          console.error(`[Meta Graph API V4] Error creando variante ${v.variant_name}:`, errVar);
+          errorVariante = errVar instanceof Error ? errVar.message : String(errVar);
+          console.error(`[Meta Graph API V4] Error creando variante ${v.variant_name}: ${errorVariante}`);
         }
 
         if (d.experiment_id) {
           await admin
             .from('campaign_variants')
-            .update({
-              campaign_id: metaCampaignId,
-              adset_id: adsetId,
-              ad_id: adId,
-              creative_id: creativeId,
-            })
+            .update({ campaign_id: metaCampaignId, adset_id: adsetId, ad_id: adId, creative_id: creativeId })
             .eq('experiment_id', d.experiment_id)
             .eq('variant_name', v.variant_name);
         }
+        variantesResult.push({ variant_name: v.variant_name, adset_id: adsetId, ad_id: adId, creative_id: creativeId, error: errorVariante });
+      }
 
-        variantesResult.push({
-          variant_name: v.variant_name,
-          adset_id: adsetId,
-          ad_id: adId,
-          creative_id: creativeId,
+      // Si NINGUNA variante quedó creada, no se deja una campaña vacía: se elimina lo que acabamos de crear y se explica por qué.
+      if (!variantesResult.some(x => x.ad_id)) {
+        await fetch(`https://graph.facebook.com/v20.0/${metaCampaignId}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'DELETED', access_token: token }),
+        }).catch(() => null);
+        await admin.from('automation_runs').insert({
+          organization_id: ORG_ID, workflow: 'asistente_meta_ads_v4', ref: p.tipo, ok: false,
+          message: `Experimento V4 "${d.nombre_campana}": ninguna variante se pudo crear; se eliminó la campaña vacía ${metaCampaignId}`,
+          details: { proposal_id: p.id, executed_by: userId, accion: 'ads_experimento_v4', campaign_id: metaCampaignId, variantes: variantesResult, resultado: 'revertido' },
         });
+        const diag = variantesResult.some(x => /not linked|no est[aá] vinculad/i.test(String(x.error))) ? (await diagnosticoWhatsApp(token, accountId, pageId)) + ` Números de la WABA de Nora según Meta: ${numerosWaba.join(', ') || 'no verificable'}; probados: ${[...new Set([...numerosWaba, '554884553306', '5548984553306'])].join(', ')}.` : '';
+        throw new Error(`Meta rechazó todas las variantes: ${variantesResult.map(x => `${x.variant_name} → ${x.error}`).join(' | ')}. La campaña vacía se eliminó; no queda nada creado.${diag}`);
       }
 
       if (d.experiment_id) {
         await admin
           .from('campaign_experiments')
-          .update({
-            status: 'approved',
-            start_date: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
+          .update({ status: 'approved', start_date: new Date().toISOString(), updated_at: new Date().toISOString() })
           .eq('id', d.experiment_id);
       }
 
@@ -2302,7 +2691,7 @@ export async function executeAdsProposal(
         status: 'PAUSED',
         effective_status: 'PAUSED',
         daily_budget: d.presupuesto_diario,
-        objective: d.objetivo,
+        objective: objetivoMeta(objetivoPedido),
         account_id: accountId,
         synced_at: new Date().toISOString(),
         last_synced_at: new Date().toISOString(),
@@ -2323,7 +2712,7 @@ export async function executeAdsProposal(
           nombre_campana: d.nombre_campana,
           presupuesto_diario: d.presupuesto_diario,
           variantes: variantesResult,
-          resultado: 'ok',
+          resultado: variantesResult.every(x => x.ad_id) ? 'ok' : 'parcial',
         },
       });
 
@@ -2335,6 +2724,28 @@ export async function executeAdsProposal(
         variantes: variantesResult,
         estado_inicial: 'PAUSED',
       };
+    }
+
+    case 'ads_publicar_creativo': {
+      // Revalidar en el momento de ejecutar: el creativo sigue aprobado y el conjunto sigue existiendo.
+      const { data: c } = await admin.from('creatives').select('status, ad_id').eq('id', d.creative_id).maybeSingle();
+      if (!c || c.status !== 'approved' || c.ad_id) {
+        throw new Error('El creativo ya no está aprobado o ya fue vinculado a un anuncio. Genera una propuesta nueva.');
+      }
+      if (!token || !accountId) throw new Error('No se pudo publicar en Meta: faltan META_ADS_TOKEN / META_AD_ACCOUNT_ID en Supabase.');
+      await verificarObjetoMeta(token, accountId, String(d.adset_id), 'adset');
+      const pub = await publicarCreativoEnMeta(admin, {
+        creative_id: d.creative_id, adset_id: d.adset_id, nombre_anuncio: d.nombre_anuncio,
+      });
+      await admin.from('automation_runs').insert({
+        organization_id: ORG_ID,
+        workflow: 'asistente_meta_ads',
+        ref: p.tipo,
+        ok: true,
+        message: `Creativo ${d.creative_id} publicado como anuncio ${pub.ad_id} en el conjunto ${d.adset_id} (PAUSED)`,
+        details: { proposal_id: p.id, executed_by: userId, accion: p.tipo, ...pub, resultado: 'ok' },
+      });
+      return { ok: true, ...pub, estado_inicial: 'PAUSED' };
     }
 
     default:

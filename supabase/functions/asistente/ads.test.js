@@ -221,7 +221,8 @@ test('11. ADS_TOOL_DEFS expone conjuntos, anuncios y presupuesto de conjunto con
   }
 
   const campanas = ADS_TOOL_DEFS.find(t => t.function.name === 'listar_campanas_ads');
-  assert.deepEqual(campanas.function.parameters.properties.periodo.enum, ['7d', '14d', '30d', 'all']);
+  // El esquema admite además null (Groq estricto manda null en los opcionales); aquí solo importan los valores reales.
+  assert.deepEqual(campanas.function.parameters.properties.periodo.enum.filter(v => v !== null), ['7d', '14d', '30d', 'all']);
 
   const analisis = ADS_TOOL_DEFS.find(t => t.function.name === 'analizar_rendimiento_ads');
   assert.ok(analisis.function.parameters.properties.incluir_anuncios);
@@ -235,4 +236,18 @@ test('12. validateAdsOperation valida el presupuesto de un conjunto con los mism
 
   const excesivo = { tipo: 'cambiar_presupuesto_adset', presupuestoActual: 60, presupuestoNuevo: 220 };
   assert.equal(validateAdsOperation(excesivo, limits).valid, false);
+});
+
+import { objetivoMeta, esObjetivoMensajes, BID_STRATEGY_META } from './ads.ts';
+
+test('Meta v20: OUTCOME_MESSAGES se traduce a OUTCOME_ENGAGEMENT (con destino WhatsApp) y la puja es válida', () => {
+  assert.equal(objetivoMeta('OUTCOME_MESSAGES'), 'OUTCOME_ENGAGEMENT');
+  assert.equal(objetivoMeta('MESSAGES'), 'OUTCOME_ENGAGEMENT');
+  assert.equal(objetivoMeta('OUTCOME_LEADS'), 'OUTCOME_LEADS');
+  assert.equal(objetivoMeta(undefined), 'OUTCOME_ENGAGEMENT');
+  assert.equal(esObjetivoMensajes('OUTCOME_MESSAGES'), true);
+  assert.equal(esObjetivoMensajes('OUTCOME_ENGAGEMENT'), true);
+  assert.equal(esObjetivoMensajes('OUTCOME_LEADS'), false);
+  // Nombre aceptado por la API (el anterior LOWEST_COST_WITHOUT_BID_CAP fue rechazado por Meta).
+  assert.equal(BID_STRATEGY_META, 'LOWEST_COST_WITHOUT_CAP');
 });

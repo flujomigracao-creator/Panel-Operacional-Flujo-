@@ -12,6 +12,7 @@ export default function AdsProposalDetail({ proposal }) {
   const isStatusChange = proposal.tipo === 'ads_cambiar_estado_campana';
   const isCreateCampaign = proposal.tipo === 'ads_crear_campana';
   const isExperimentV4 = proposal.tipo === 'ads_experimento_v4';
+  const isPublishCreative = proposal.tipo === 'ads_publicar_creativo';
 
   const diffPct = Number(d.cambio_porcentual) || 0;
   const isPositive = diffPct >= 0;
@@ -154,6 +155,15 @@ export default function AdsProposalDetail({ proposal }) {
           </div>
         )}
 
+        {isPublishCreative && (
+          <div className="my-2 space-y-1.5 rounded-md bg-chrome-bg-raised p-2.5">
+            <p><span className="text-chrome-text-muted">Titular:</span> <strong className="text-chrome-text-active">{d.titular}</strong></p>
+            <p><span className="text-chrome-text-muted">Texto:</span> {d.texto_principal}</p>
+            <p><span className="text-chrome-text-muted">Conjunto:</span> {d.adset_nombre || d.adset_id} · <span className="text-chrome-text-muted">Formato:</span> {d.formato}</p>
+            <ul className="list-disc pl-4 text-chrome-text-muted">{(d.riesgos || []).map((r, i) => <li key={i}>{r}</li>)}</ul>
+          </div>
+        )}
+
         {d.motivo && !isExperimentV4 && (
           <p className="mt-1 text-chrome-text">
             <span className="text-chrome-text-muted">Motivo:</span> {d.motivo}
@@ -166,6 +176,8 @@ export default function AdsProposalDetail({ proposal }) {
         <span>
           {isExperimentV4
             ? 'Al confirmar, se creará la campaña en Meta Ads (PAUSADA por seguridad hasta confirmación de encendido).'
+            : isPublishCreative
+            ? 'Al confirmar, se subirá la imagen y se creará el anuncio en Meta Ads en estado PAUSADO.'
             : 'Esta acción modificará la configuración real en Meta Ads al confirmar.'}
         </span>
       </div>

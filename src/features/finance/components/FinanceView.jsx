@@ -28,6 +28,8 @@ import {
   marcarGastoPagado,
 } from '../services/financeService';
 
+import TramitesPreciosPanel from './TramitesPreciosPanel';
+
 const REFRESH_MS = 120_000;
 
 function Kpi({ label, value, icon: Icon, tone = 'neutral', hint }) {
@@ -404,6 +406,8 @@ export default function FinanceView() {
           )}
         </Panel>
       </div>
+
+      <TramitesPreciosPanel />
 
       <Panel title="Movimientos recientes" icon={Banknote}>
         {movimientos.length === 0 ? (

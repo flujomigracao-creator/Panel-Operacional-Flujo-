@@ -19,6 +19,10 @@ import {
   leerUltimaSincronizacion,
   META_GRAPH_VERSION,
 } from './ads.ts';
+import {
+  actualizarCreativo, guardarPrompt, proponerPublicacion,
+  crearExperimentoCreativos, cerrarExperimentoCreativos,
+} from './creatives.ts';
 
 const MODEL = 'openai/gpt-oss-120b';
 const MAX_VUELTAS = 6;
@@ -55,6 +59,19 @@ Tu propósito es actuar como el Centro de Inteligencia del negocio y el Motor Ci
 3. Meta Ads & Métricas:
    - Consultar métricas reales con listar_campanas_ads, analizar_rendimiento_ads, comparar_periodos_ads, listar_conjuntos_ads y listar_anuncios_ads.
    - Listar y medir experimentos V4 con listar_experimentos_v4 y medir_experimento_v4.
+   - Creativos: ranking_creativos y biblioteca_prompts muestran qué imagen, concepto y prompt generan conversaciones, clientes y pagos. proponer_experimento_creativos y proponer_publicar_creativo solo crean propuestas; cerrar_experimento_creativos declara ganador únicamente si hay datos suficientes (si responde insuficiente/tendencia, dilo tal cual y no elijas ganador).
+3b. ERES EL AGENTE DE ADS DE LA EMPRESA y sabes hacer el ciclo completo, no solo analizar:
+   a) OBSERVAR: ranking_creativos, biblioteca_prompts y origen_clientes (embudo unificado: qué imagen, prompt y anuncio produce clientes que pagan, y de dónde vienen los clientes que cierra Nora), consultar_aprendizajes_campanas y consultar_tendencias.
+   b) APRENDER DEL MERCADO: usa buscar_tendencias cuando el dueño lo pida o no haya búsquedas recientes. Las tendencias son HIPÓTESIS con fuentes, nunca evidencia del negocio: cítalas y propón probarlas en un experimento; solo un experimento medido es aprendizaje.
+   c) CREAR: proponer_conceptos_creativos → generar_prompt_creativo (el dueño lo revisa) → generar_creativo (de a una imagen y solo cuando el dueño lo pidió, porque cuesta). TODO anuncio lleva titular grande (máx. 40 caracteres), subtítulo/hook, botón CTA y la firma "Flujo de Migração", en el idioma del público, y respeta el formato (1:1, 4:5 o 9:16). Una imagen sin hook ni CTA es un anuncio fallido. Muestra el resultado con ![](image_url).
+   c2) EXPERIMENTO DESDE CERO EN EL CHAT: si el dueño pide un experimento y no hay imágenes, NO te rindas ni lo mandes a otra pantalla: llama a generar_opciones_experimento (2-3 imágenes; pedirlo ya autoriza ese gasto), muéstralas numeradas con ![](image_url), pregunta cuáles elige, y con su respuesta llama a proponer_experimento_creativos con esos creative_id y aprobar_seleccion=true (su elección es la aprobación). generar_opciones_experimento cambia UNA sola variable (por defecto el hook; el dueño puede pedir estilo, cta, beneficio, angulo o concepto_visual) y deja todo lo demás idéntico: usa la variable_probada que devuelve como variable_tested. Un experimento con varias diferencias a la vez no enseña nada. Si hay creativos aprobados del servicio, ofrécelos antes de generar nuevos.
+   c3) BRIEF ESTRUCTURADO Y ESPAÑOL: trabaja SIEMPRE en español (hooks, titulares, subtítulos, CTA y razonamiento), salvo que el dueño pida portugués para una campaña. Al generar o regenerar, pasa el brief completo (servicio, público, objetivo, problema, ángulo, beneficio, hook, CTA, formato y variable_experimento) en vez de pedir "una imagen para CPF": el generador no inventa la estrategia, la convierte en pieza visual. Hook de 3-8 palabras sobre el problema real, nunca genérico.
+   d) VARIAR CON MÉTODO: regenerar_creativo cambia UNA sola variable (estilo, hook, concepto, composición o imagen). Nunca cambies todo a la vez.
+   e0) PUBLICAR UN EXPERIMENTO NO ES "ACTIVAR UNA CAMPAÑA": la publicación la hace el botón «Publicar en Meta» del experimento (Centro de Inteligencia → Experimentos V4). Si el dueño pide publicar, dile que use ese botón; NUNCA propongas proponer_cambiar_estado_campana con el campaign_id de un intento fallido (esas campañas se borran al fallar y no existen).
+   e) EXPERIMENTAR Y PUBLICAR: proponer_experimento_creativos y proponer_publicar_creativo solo crean propuestas; el dueño confirma.
+   e2) PÚBLICOS EN EXPERIMENTOS: un experimento puede llevar públicos de Meta propios de Flujo. Llama a listar_publicos y usa publico_codigos en proponer_experimento_creativos (un código = todas las variantes; varios = uno por variante, para probar el público como variable; incluye el público de control cuando compares una capa de segmentación). Solo los de tipo adquisicion se aplican a conjuntos de anuncios; los de remarketing y exclusión son listas propias. Cada conjunto lleva su segmentación dentro (no se crea un público guardado aparte: Meta no lo permite con este token). Nunca afirmes ni insinúes en los textos de los anuncios la nacionalidad ni el estatus migratorio de quien los ve.
+   f) MEDIR Y APRENDER: cerrar_experimento_creativos. Con datos insuficientes responde INCONCLUSO. La métrica que manda es el cliente que paga, no el clic ni el lead barato.
+   g) VERDAD SOBRE EL ORIGEN: con origen_clientes. Si dice ESPERANDO TRÁFICO REAL o sin_origen, dilo claramente; jamás atribuyas un cliente a un anuncio sin evidencia.
 4. Atribución comercial: Relacionar la inversión con leads y pagos (metricas_atribucion_ads). Si no hay evidencia real por anuncio, indicar atribución no confirmada o desconocida. Nunca inventar correlaciones falsas.
 5. Períodos: cuando el dueño diga "esta semana", "los últimos 7 días", "este mes" o compare períodos, pasa el período a las herramientas (periodo: 7d/14d/30d o desde/hasta en YYYY-MM-DD). Nunca inventes el rango: si no lo dice, usa 7d y di cuál usaste.
 6. Operaciones del negocio: Consultar estado de trámites, clientes, tareas del día, cobros y finanzas.
@@ -82,6 +99,26 @@ Deno.serve(async (req) => {
   let body: any;
   try { body = await req.json(); } catch { return json({ error: 'JSON inválido' }, 400); }
 
+  // 1b. Botón "Publicar en Meta" de un experimento: usa su propuesta pendiente o recrea una desde la última
+  //     (las fallidas/canceladas no se pueden reejecutar) y sigue por el flujo normal de 'ejecutar'.
+  if (body.accion === 'publicar_experimento') {
+    const { data: props } = await admin.from('ai_proposals').select('*').eq('organization_id', ORG_ID).eq('tipo', 'ads_experimento_v4')
+      .eq('payload->>experiment_id', String(body.experiment_id)).order('created_at', { ascending: false }).limit(10);
+    if (!props?.length) return json({ error: 'Este experimento no tiene propuesta de publicación. Pídele a Nora que la prepare.' }, 404);
+    if (props.some((x: any) => x.status === 'executed')) return json({ error: 'Este experimento ya fue publicado en Meta.' }, 409);
+    let objetivo = props.find((x: any) => x.status === 'pending' && x.user_id === u.id);
+    if (!objetivo) {
+      const base = props[0];
+      const { data: nueva, error: eNueva } = await admin.from('ai_proposals').insert({
+        organization_id: ORG_ID, user_id: u.id, tipo: base.tipo, payload: base.payload, resumen: base.resumen,
+      }).select('id').single();
+      if (eNueva || !nueva) return json({ error: `No se pudo preparar la publicación: ${eNueva?.message}` }, 500);
+      objetivo = nueva;
+    }
+    body.accion = 'ejecutar';
+    body.proposal_id = objetivo.id;
+  }
+
   // 2. Ejecutar / cancelar propuestas (sin IA)
   if (body.accion === 'ejecutar' || body.accion === 'cancelar') {
     const { data: p } = await admin.from('ai_proposals').select('*').eq('id', body.proposal_id).eq('user_id', u.id).maybeSingle();
@@ -102,6 +139,22 @@ Deno.serve(async (req) => {
       const { data } = await admin.from('ai_proposals').update({ status: 'failed', result: { error: msg }, executed_at: new Date().toISOString() }).eq('id', p.id).select().single();
       await admin.from('automation_runs').insert({ organization_id: ORG_ID, workflow: 'asistente', ref: p.tipo, ok: false, message: msg, details: { proposal_id: p.id } });
       return json({ ok: false, error: msg, propuesta: data }, 422);
+    }
+  }
+
+  // 2a. Laboratorio de Creativos V5. Escribe solo la Edge Function; lo que toca Meta pasa por propuesta.
+  if (typeof body.accion === 'string' && body.accion.startsWith('creative_')) {
+    try {
+      const a = body.accion;
+      if (a === 'creative_actualizar') return json(await actualizarCreativo(admin, String(body.id), body));
+      if (a === 'creative_prompt_guardar') return json(await guardarPrompt(admin, u.id, body));
+      if (a === 'creative_proponer_publicacion') return json(await proponerPublicacion({ admin, userId: u.id }, body));
+      if (a === 'creative_experimento') return json({ ok: true, ...(await crearExperimentoCreativos({ admin, userId: u.id }, body)) });
+      if (a === 'creative_cerrar_experimento') return json(await cerrarExperimentoCreativos(admin, String(body.experiment_id), { concluirInconcluso: body.concluir_inconcluso === true }));
+      // La generación de conceptos, prompts e imágenes (OpenAI) vive en la función `generar-creativo`.
+      return json({ ok: false, error: 'Acción de creativos desconocida' }, 400);
+    } catch (e) {
+      return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 422);
     }
   }
 

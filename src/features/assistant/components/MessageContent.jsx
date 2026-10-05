@@ -1,6 +1,9 @@
 import React from 'react';
 import { ExternalLink } from 'lucide-react';
 
+// Solo se muestran imágenes firmadas del bucket de creativos de este proyecto (nunca URLs arbitrarias del modelo).
+const IMAGEN_CREATIVO = /^!\[([^\]]*)\]\((https:\/\/[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/sign\/creatives\/[^)\s]+)\)$/i;
+
 const CLIENT_TAG = /\[VIEW_CLIENT:([0-9a-f-]{36}):?([^\]]*)\]/gi;
 
 // **negrita** y botones [VIEW_CLIENT:uuid:nombre] dentro de una línea
@@ -48,6 +51,8 @@ export default function MessageContent({ text, onOpenClient }) {
     }
     flush();
     if (!line.trim()) { blocks.push({ type: 'space', key: idx }); return; }
+    const img = line.trim().match(IMAGEN_CREATIVO);
+    if (img) { blocks.push({ type: 'img', alt: img[1], src: img[2] }); return; }
     const h = line.match(/^#{1,4}\s+(.*)$/);
     blocks.push(h ? { type: 'h', text: h[1] } : { type: 'p', text: line });
   });
@@ -57,6 +62,7 @@ export default function MessageContent({ text, onOpenClient }) {
     <div className="space-y-1.5 text-sm leading-relaxed">
       {blocks.map((b, i) => {
         if (b.type === 'space') return null;
+        if (b.type === 'img') return <img key={i} src={b.src} alt={b.alt || 'Creativo'} loading="lazy" className="max-h-80 w-auto rounded-lg border border-chrome-border" />;
         if (b.type === 'h') return <p key={i} className="pt-1 font-semibold text-chrome-text-active"><Inline text={b.text} onOpenClient={onOpenClient} /></p>;
         if (b.type === 'p') return <p key={i}><Inline text={b.text} onOpenClient={onOpenClient} /></p>;
         const Tag = b.ordered ? 'ol' : 'ul';

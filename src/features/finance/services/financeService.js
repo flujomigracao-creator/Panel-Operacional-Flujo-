@@ -133,6 +133,45 @@ export async function getIngresosPorServicio(fecha = new Date()) {
   return Object.entries(porServicio).map(([servicio, total]) => ({ servicio, total })).sort((a, b) => b.total - a.total);
 }
 
+/**
+ * Catálogo de trámites con precio y costo. El precio de `services.default_price` es la fuente de verdad: un trigger lo copia
+ * a lo que usa Nora (comercial_audios_pitch) y marca su guion/audio como desactualizado si el precio cambió.
+ * "Trámite por definir" (position >= 99) es un comodín interno y no se lista.
+ */
+export async function getTramitesPrecios() {
+  const [servicios, pitch] = await Promise.all([
+    supabase.from('services').select('id, name, description, default_price, default_cost, active, position, kommo_enum_id').lt('position', 99).order('position').then(must),
+    supabase.from('comercial_audios_pitch').select('tramite_enum_id, en_lista, guion_desactualizado, precio_en_guion').then(must),
+  ]);
+  const porEnum = new Map((pitch || []).map((p) => [p.tramite_enum_id, p]));
+  return (servicios || []).map((s) => {
+    const n = s.kommo_enum_id != null ? porEnum.get(s.kommo_enum_id) : null;
+    return {
+      id: s.id,
+      nombre: s.name,
+      descripcion: s.description,
+      precio: s.default_price === null ? null : Number(s.default_price),
+      costo: s.default_cost === null ? null : Number(s.default_cost),
+      activo: s.active,
+      enlazadoKommo: s.kommo_enum_id != null,
+      nora: n ? { enLista: !!n.en_lista, guionDesactualizado: !!n.guion_desactualizado, precioEnGuion: n.precio_en_guion === null ? null : Number(n.precio_en_guion) } : null,
+    };
+  });
+}
+
+/** Crea el trámite con sus etapas estándar (función atómica en la base). Devuelve el id. */
+export async function crearTramite({ nombre, descripcion = '', precio, costo = null }) {
+  return must(await supabase.rpc('crear_tramite', { p_nombre: nombre, p_descripcion: descripcion, p_precio: precio, p_costo: costo }));
+}
+
+export async function actualizarTramitePrecio(id, { precio, costo }) {
+  must(await supabase.from('services').update({ default_price: precio, default_cost: costo }).eq('id', id));
+}
+
+export async function setTramiteActivo(id, activo) {
+  must(await supabase.from('services').update({ active: activo }).eq('id', id));
+}
+
 /** Últimos movimientos (pagos cobrados + gastos), en un solo feed, para ver la actividad reciente. */
 export async function getMovimientosRecientes(limit = 20) {
   const [pagos, gastos] = await Promise.all([

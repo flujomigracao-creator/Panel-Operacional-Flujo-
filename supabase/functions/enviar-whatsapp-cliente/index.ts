@@ -52,20 +52,36 @@ Deno.serve(async (req) => {
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: 'JSON inválido' }, 400); }
-  const clientId = body.client_id;
-  const kommoLeadId = body.kommo_lead_id ? Number(body.kommo_lead_id) : null;
-  const mensaje = String(body.mensaje || '').trim();
-  const storagePath = body.storage_path ? String(body.storage_path) : null;
-  const fileName = body.file_name ? String(body.file_name) : null;
-  const mimeType = body.mime_type ? String(body.mime_type) : null;
-  const caption = body.caption ? String(body.caption) : undefined;
-  if ((!clientId && !kommoLeadId) || (!mensaje && !storagePath)) return json({ error: 'Falta client_id o kommo_lead_id, y mensaje o archivo' }, 400);
-
   const phoneNumberId = Deno.env.get('WHATSAPP_PHONE_NUMBER_ID');
   const whatsappToken = Deno.env.get('WHATSAPP_TOKEN');
   if (!phoneNumberId || !whatsappToken) {
     return json({ error: 'Falta configurar WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_TOKEN en Supabase (Edge Functions → Secrets). El envío directo todavía no está activo.' }, 500);
   }
+
+  // Plantillas aprobadas por Meta de la cuenta (WABA): la única forma de abrir una conversación o escribir pasadas 24 h.
+  if (body.accion === 'plantillas') {
+    const waba = (Deno.env.get('WHATSAPP_WABA_ID') || '').trim() || (await admin.from('channel_integrations').select('whatsapp_waba_id').eq('organization_id', ORG_ID).maybeSingle()).data?.whatsapp_waba_id;
+    if (!waba) return json({ error: 'Falta el id de la cuenta de WhatsApp Business (WABA) para listar plantillas.' }, 500);
+    const res = await fetch(`https://graph.facebook.com/v23.0/${waba}/message_templates?fields=name,language,status,category,components&limit=100`, { headers: { Authorization: `Bearer ${whatsappToken}` } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return json({ error: data?.error?.message || `WhatsApp Templates API ${res.status}` }, 502);
+    const plantillas = (data.data || []).filter((t: any) => t.status === 'APPROVED').map((t: any) => {
+      const cuerpo = (t.components || []).find((c: any) => c.type === 'BODY')?.text || '';
+      const vars = [...new Set([...cuerpo.matchAll(/\{\{(\d+)\}\}/g)].map((m) => Number(m[1])))].sort((a, b) => a - b);
+      return { nombre: t.name, idioma: t.language, categoria: t.category, cuerpo, variables: vars.length };
+    });
+    return json({ ok: true, plantillas });
+  }
+
+  const clientId = body.client_id;
+  const kommoLeadId = body.kommo_lead_id ? Number(body.kommo_lead_id) : null;
+  const plantilla = body.plantilla?.nombre ? body.plantilla : null;
+  const mensaje = String(body.mensaje || '').trim();
+  const storagePath = body.storage_path ? String(body.storage_path) : null;
+  const fileName = body.file_name ? String(body.file_name) : null;
+  const mimeType = body.mime_type ? String(body.mime_type) : null;
+  const caption = body.caption ? String(body.caption) : undefined;
+  if ((!clientId && !kommoLeadId) || (!mensaje && !storagePath && !plantilla)) return json({ error: 'Falta client_id o kommo_lead_id, y mensaje, archivo o plantilla' }, 400);
 
   // Destinatario: un cliente con ficha, o un lead de Comercial (que todavía no tiene ficha).
   let contactId: number | null = null;
@@ -111,6 +127,29 @@ Deno.serve(async (req) => {
   const autor = userProfile?.full_name || 'Operador (panel)';
 
   let wamid: string | null = null;
+
+  if (plantilla) {
+    const params = (plantilla.parametros || []).map((t: unknown) => ({ type: 'text', text: String(t) }));
+    const tRes = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${whatsappToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp', to: telefono, type: 'template',
+        template: { name: String(plantilla.nombre), language: { code: String(plantilla.idioma || 'es') }, components: params.length ? [{ type: 'body', parameters: params }] : [] },
+      }),
+    });
+    const tData = await tRes.json().catch(() => ({}));
+    if (!tRes.ok) return json({ error: tData?.error?.message || `WhatsApp Cloud API ${tRes.status}` }, 502);
+    wamid = tData?.messages?.[0]?.id || null;
+    const texto = String(plantilla.texto || `[Plantilla ${plantilla.nombre}]`);
+    const { error: rpcErr } = await admin.rpc('registrar_mensagem_kommo', {
+      p_message_id: wamid || `panel-${Date.now()}`, p_direction: 'outbound', p_contact_id: contactId, p_lead_id: kommoLeadId,
+      p_text: texto, p_origin: 'whatsapp_cloud_api', p_author_name: autor,
+    });
+    await marcarLeadAtendido();
+    if (rpcErr) return json({ ok: true, wamid, aviso: 'La plantilla se envió pero no se pudo registrar en la conversación: ' + rpcErr.message });
+    return json({ ok: true, wamid });
+  }
 
   if (storagePath) {
     // 1. Bajar el archivo ya subido por el panel a Storage.

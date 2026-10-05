@@ -2,7 +2,8 @@
 // GET  → verificación de Meta (hub.challenge).
 // POST → guarda cada mensaje entrante (texto y archivos) en `messages` con registrar_mensagem_kommo,
 //        asociado al lead por teléfono. Si el número no se conoce, lo deja en `whatsapp_contactos_nuevos`
-//        para que n8n cree el lead en Kommo (pipeline Comercial) y lo vincule.
+//        para que n8n cree el lead en Kommo (pipeline Comercial) y lo vincule. Si el chat viene de un
+//        anuncio de Meta, guarda el `referral` en meta_ads_referidos (atribución anuncio → lead).
 // Secretos: WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID; opcional WHATSAPP_APP_SECRET para validar la firma.
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -74,7 +75,27 @@ async function procesar(body: any) {
           const chave = lead?.telefono_chave || from;
           const { texto, media, tipo } = contenidoDe(m);
 
-          // Elección de la lista de trámites que manda el atendente: se guarda en el lead antes de registrar
+          // Chat abierto desde un anuncio de Meta ("clic a WhatsApp"): se guarda de qué anuncio vino.
+          // Los triggers de meta_ads_referidos lo asignan al lead, ya exista o lo cree n8n después.
+          const ref = m.referral;
+          if (ref && typeof ref === 'object') {
+            const { error: rErr } = await admin.from('meta_ads_referidos').upsert({
+              wamid: m.id,
+              organization_id: ORG_ID,
+              telefono_chave: chave,
+              source_type: ref.source_type ?? null,
+              ad_id: ref.source_type === 'ad' ? (ref.source_id ?? null) : null,
+              source_url: ref.source_url ?? null,
+              headline: ref.headline ?? null,
+              body: ref.body ?? null,
+              ctwa_clid: ref.ctwa_clid ?? null,
+              raw: ref,
+              recibido_at: m.timestamp ? new Date(Number(m.timestamp) * 1000).toISOString() : new Date().toISOString(),
+            }, { onConflict: 'wamid', ignoreDuplicates: true });
+            if (rErr) console.error('referral', rErr.message);
+          }
+
+          // Elección de trámite (botón o lista) que manda el atendente: se guarda en el lead antes de registrar
           // el mensaje, así el atendente pasa directo a la fase de propuesta.
           const eleccion = String(m.interactive?.button_reply?.id || m.interactive?.list_reply?.id || '');
           const enumElegido = Number(eleccion.replace(/^tramite:/, ''));

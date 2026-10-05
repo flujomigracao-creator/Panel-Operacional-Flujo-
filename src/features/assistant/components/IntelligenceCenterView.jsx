@@ -18,18 +18,35 @@ import {
   HelpCircle,
   ArrowRight,
   Filter,
+<<<<<<< HEAD
   Palette,
   BookOpen,
+=======
+  Image as ImageIcon,
+  Rocket,
+>>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useAssistant } from '../context/AssistantContext';
 import * as api from '../services/assistantService';
 import MetricCard from './MetricCard';
 import AlertCard from './AlertCard';
 import CampaignCard from './CampaignCard';
 import CampaignTable from './CampaignTable';
+import CreativesView from './creatives/CreativesView';
+import { cerrarExperimento, publicarExperimento } from '../services/creativesService';
+import MetaStatusBanner from './MetaStatusBanner';
+import LearningSummary from './LearningSummary';
 import PerformanceChart from './PerformanceChart';
+<<<<<<< HEAD
 import CreativesHubView from './CreativesHubView';
 import PromptLibraryView from './PromptLibraryView';
+=======
+import ResumenMeta from './ResumenMeta';
+import MetricasCompletas from './MetricasCompletas';
+import EmbudoMeta from './EmbudoMeta';
+import PublicosMeta from './PublicosMeta';
+>>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
 import { LoadingSpinner } from '@/shared/components/ui/LoadingSpinner';
 
 export default function IntelligenceCenterView() {
@@ -41,10 +58,14 @@ export default function IntelligenceCenterView() {
   const [creatives, setCreatives] = useState([]);
   const [creativePrompts, setCreativePrompts] = useState([]);
   const [error, setError] = useState(null);
+<<<<<<< HEAD
   const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'meta_ads' | 'experimentos' | 'aprendizajes' | 'campanas' | 'creativos' | 'prompts'
+=======
+  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'metricas' | 'meta_ads' | 'creativos' | 'experimentos' | 'aprendizajes' | 'campanas'
+>>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
   const [campaignStatusFilter, setCampaignStatusFilter] = useState('all'); // 'all' | 'ACTIVE' | 'PAUSED' | 'testing' | 'completed'
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
-  const [dateRange, setDateRange] = useState('7d'); // '7d' | '14d' | '30d' | 'custom'
+  const [dateRange, setDateRange] = useState('7d'); // 'hoy' | '7d' | '14d' | '30d' | 'custom'
   // Período personalizado: se pasan fechas explícitas (YYYY-MM-DD) al servicio.
   const [rangoCustom, setRangoCustom] = useState({ desde: '', hasta: '' });
   const [sincronizando, setSincronizando] = useState(false);
@@ -68,10 +89,16 @@ export default function IntelligenceCenterView() {
     }
   };
 
-  const pedirRango = () =>
-    dateRange === 'custom'
+  const pedirRango = () => {
+    if (dateRange === 'hoy') {
+      const d = new Date();
+      const hoy = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return { desde: hoy, hasta: hoy };
+    }
+    return dateRange === 'custom'
       ? { desde: rangoCustom.desde || undefined, hasta: rangoCustom.hasta || undefined }
       : { periodo: dateRange };
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -102,6 +129,43 @@ export default function IntelligenceCenterView() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Cierra el experimento solo si hay volumen/periodo/diferencia suficientes; si no, lo dice y lo deja abierto.
+  const cerrarYAprender = async (exp) => {
+    try {
+      const r = await cerrarExperimento(exp.id);
+      if (r.veredicto === 'ganador') toast.success(`Ganador: ${r.ganador}. Aprendizaje guardado.`);
+      else {
+        toast(r.mensaje || r.motivo || 'Sin datos suficientes todavía.', { duration: 7000 });
+        // Sin evidencia suficiente: el dueño puede cerrarlo explícitamente como INCONCLUSO (sin aprendizaje).
+        if (r.veredicto !== 'inconcluso' && window.confirm('No hay evidencia suficiente para declarar ganador. ¿Cerrar este experimento como INCONCLUSO? (no se guardará ningún aprendizaje)')) {
+          const c = await cerrarExperimento(exp.id, true);
+          toast(c.mensaje || 'Experimento cerrado como inconcluso.', { duration: 6000 });
+        }
+      }
+      await loadData();
+    } catch (err) {
+      toast.error(err.message || 'No se pudo medir el experimento');
+    }
+  };
+
+  const [publicando, setPublicando] = useState(null);
+  // Publica un experimento en Meta. Todo nace en PAUSA: no gasta hasta que se active en Meta.
+  const publicarEnMeta = async (exp) => {
+    const presupuesto = Number(exp.budget || 0).toFixed(2);
+    if (!window.confirm(`¿Publicar "${exp.name}" en Meta?\n\nSe crea la campaña con sus conjuntos y anuncios EN PAUSA (presupuesto R$ ${presupuesto}/día cuando la actives). No se gasta nada hasta que la actives en Meta.`)) return;
+    setPublicando(exp.id);
+    try {
+      const r = await publicarExperimento(exp.id);
+      if (r?.ok === false) throw new Error(r.error || 'Meta rechazó la publicación');
+      toast.success('Experimento creado en Meta (en pausa).', { duration: 6000 });
+      await loadData();
+    } catch (err) {
+      toast.error(err.message || 'No se pudo publicar el experimento', { duration: 9000 });
+    } finally {
+      setPublicando(null);
+    }
+  };
 
   const preguntar = (mensaje) => {
     setOpen(true);
@@ -171,6 +235,14 @@ export default function IntelligenceCenterView() {
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-chrome-border bg-chrome-bg-raised p-0.5 text-xs">
             <button
+              onClick={() => setDateRange('hoy')}
+              className={`rounded-md px-3 py-1.5 font-medium transition-colors ${
+                dateRange === 'hoy' ? 'bg-brand-primary text-white' : 'text-chrome-text hover:text-chrome-text-active'
+              }`}
+            >
+              Hoy
+            </button>
+            <button
               onClick={() => setDateRange('7d')}
               className={`rounded-md px-3 py-1.5 font-medium transition-colors ${
                 dateRange === '7d' ? 'bg-brand-primary text-white' : 'text-chrome-text hover:text-chrome-text-active'
@@ -192,7 +264,7 @@ export default function IntelligenceCenterView() {
                 dateRange === '30d' ? 'bg-brand-primary text-white' : 'text-chrome-text hover:text-chrome-text-active'
               }`}
             >
-              Este mes
+              30 días
             </button>
             <button
               onClick={() => setDateRange('custom')}
@@ -266,6 +338,8 @@ export default function IntelligenceCenterView() {
         )}
       </div>
 
+      <MetaStatusBanner />
+
       {/* Selector de Pestañas Principales (Sección 25) */}
       <div className="flex border-b border-chrome-border/60 gap-1">
         <button
@@ -280,6 +354,39 @@ export default function IntelligenceCenterView() {
           <span>Resumen Ejecutivo</span>
         </button>
         <button
+          onClick={() => setActiveTab('metricas')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
+            activeTab === 'metricas'
+              ? 'border-brand-primary text-brand-primary'
+              : 'border-transparent text-chrome-text-muted hover:text-chrome-text'
+          }`}
+        >
+          <TableIcon size={14} />
+          <span>Métricas</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('embudo')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
+            activeTab === 'embudo'
+              ? 'border-brand-primary text-brand-primary'
+              : 'border-transparent text-chrome-text-muted hover:text-chrome-text'
+          }`}
+        >
+          <Filter size={14} />
+          <span>Embudo</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('publicos')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
+            activeTab === 'publicos'
+              ? 'border-brand-primary text-brand-primary'
+              : 'border-transparent text-chrome-text-muted hover:text-chrome-text'
+          }`}
+        >
+          <Users size={14} />
+          <span>Públicos</span>
+        </button>
+        <button
           onClick={() => setActiveTab('meta_ads')}
           className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
             activeTab === 'meta_ads'
@@ -289,6 +396,17 @@ export default function IntelligenceCenterView() {
         >
           <TrendingUp size={14} />
           <span>Meta Ads ({campanas.length})</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('creativos')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
+            activeTab === 'creativos'
+              ? 'border-brand-primary text-brand-primary'
+              : 'border-transparent text-chrome-text-muted hover:text-chrome-text'
+          }`}
+        >
+          <ImageIcon size={14} />
+          <span>Creativos</span>
         </button>
         <button
           onClick={() => setActiveTab('experimentos')}
@@ -454,134 +572,14 @@ export default function IntelligenceCenterView() {
               ))}
           </div>
 
-          {/* ── PESTAÑA 1: RESUMEN EJECUTIVO (FUNNEL COMPLETO) ── */}
-          {activeTab === 'resumen' && (
-            <div className="space-y-6">
-              {/* KPIs Principales del Negocio */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <MetricCard
-                  title="Inversión Publicitaria"
-                  value={globales.gasto_total !== undefined ? `R$ ${globales.gasto_total.toFixed(2)}` : null}
-                  subtitle={
-                    typeof globales.campanas_activas === 'number'
-                      ? `${globales.campanas_activas} campañas activas`
-                      : 'Estado sincronizado desde Meta'
-                  }
-                  icon={DollarSign}
-                  tone="accent"
-                />
-                <MetricCard
-                  title="Conversaciones WhatsApp"
-                  value={globales.conversaciones_totales}
-                  subtitle={
-                    globales.costo_promedio_conversacion !== null
-                      ? `R$ ${globales.costo_promedio_conversacion.toFixed(2)} por conv.`
-                      : 'Sin costo calculado'
-                  }
-                  icon={MessageSquare}
-                  tone="default"
-                />
-                <MetricCard
-                  title="Leads Comerciales"
-                  value={atribucion.leads?.comerciales ?? atribucion.leads_analizados ?? null}
-                  subtitle={`${atribucion.leads?.atribuidos_meta ?? 0} atribuidos a Meta · ${atribucion.leads_en_propuesta_o_pago ?? 0} en propuesta`}
-                  icon={Users}
-                  tone="default"
-                />
-                <MetricCard
-                  title="Ingresos Cobrados"
-                  value={atribucion.ingresos_totales_registrados != null ? `R$ ${atribucion.ingresos_totales_registrados.toFixed(2)}` : null}
-                  subtitle={
-                    atribucion.clientes_que_pagaron != null
-                      ? `${atribucion.clientes_que_pagaron} clientes pagadores`
-                      : 'Cobros confirmados'
-                  }
-                  badge={atribucion.atribucion_estado}
-                  icon={TrendingUp}
-                  tone="emerald"
-                />
-              </div>
+          {/* ── PESTAÑA 1: RESUMEN (centro de control diario) ── */}
+          {activeTab === 'resumen' && <ResumenMeta rango={pedirRango()} onPreguntar={preguntar} />}
 
-              {/* Diagrama del Funnel Científico: Impresión → Clic → WhatsApp → Lead → Propuesta → Pago → Cliente */}
-              <div className="rounded-xl border border-chrome-border bg-chrome-bg-raised p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-chrome-text-active">
-                      Funnel Integral de Conversión (Impresión → Cliente Pagador)
-                    </h3>
-                    <p className="text-[11px] text-chrome-text-muted">
-                      Conexión real entre inversión en anuncios, atención de Nora, leads y cobros
-                    </p>
-                  </div>
-                  {atribucion.roas_global_estimado != null && (
-                    <span className="rounded-md bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-400 border border-emerald-500/20">
-                      ROAS Global: {atribucion.roas_global_estimado}x
-                    </span>
-                  )}
-                </div>
+          {activeTab === 'metricas' && <MetricasCompletas rango={pedirRango()} />}
 
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 text-center text-xs">
-                  <div className="rounded-lg border border-chrome-border/60 bg-chrome-bg/50 p-2.5">
-                    <p className="text-[10px] uppercase text-chrome-text-muted">1. Impresiones</p>
-                    <p className="text-base font-bold text-chrome-text-active mt-1">{(globales.impresiones_totales || 0).toLocaleString()}</p>
-                    <p className="text-[10px] text-chrome-text-muted mt-0.5">CPM: R$ {(globales.cpm_promedio || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="rounded-lg border border-chrome-border/60 bg-chrome-bg/50 p-2.5">
-                    <p className="text-[10px] uppercase text-chrome-text-muted">2. Clics</p>
-                    <p className="text-base font-bold text-chrome-text-active mt-1">{(globales.clics_totales || 0).toLocaleString()}</p>
-                    <p className="text-[10px] text-sky-400 mt-0.5">CTR: {(globales.ctr_promedio || 0).toFixed(2)}%</p>
-                  </div>
-                  <div className="rounded-lg border border-chrome-border/60 bg-chrome-bg/50 p-2.5">
-                    <p className="text-[10px] uppercase text-chrome-text-muted">3. WhatsApp</p>
-                    <p className="text-base font-bold text-chrome-text-active mt-1">{(globales.conversaciones_totales || 0).toLocaleString()}</p>
-                    <p className="text-[10px] text-indigo-400 mt-0.5">CPC: R$ {(globales.cpc_promedio || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="rounded-lg border border-chrome-border/60 bg-chrome-bg/50 p-2.5">
-                    <p className="text-[10px] uppercase text-chrome-text-muted">4. Leads CRM</p>
-                    <p className="text-base font-bold text-chrome-text-active mt-1">{atribucion.leads?.comerciales || 0}</p>
-                    <p className="text-[10px] text-amber-400 mt-0.5">
-                      {atribucion.costo_por_lead_global ? `CPL: R$ ${atribucion.costo_por_lead_global.toFixed(2)}` : 'Sin CPL'}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-chrome-border/60 bg-chrome-bg/50 p-2.5">
-                    <p className="text-[10px] uppercase text-chrome-text-muted">5. Propuestas</p>
-                    <p className="text-base font-bold text-chrome-text-active mt-1">{atribucion.leads_en_propuesta_o_pago || 0}</p>
-                    <p className="text-[10px] text-purple-400 mt-0.5">En negociación</p>
-                  </div>
-                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2.5">
-                    <p className="text-[10px] uppercase text-emerald-400 font-semibold">6. Clientes Pagadores</p>
-                    <p className="text-base font-bold text-emerald-400 mt-1">{atribucion.clientes_que_pagaron || 0}</p>
-                    <p className="text-[10px] text-emerald-300 mt-0.5">
-                      {atribucion.costo_por_cliente_global ? `CAC: R$ ${atribucion.costo_por_cliente_global.toFixed(2)}` : 'CAC n/d'}
-                    </p>
-                  </div>
-                </div>
-              </div>
+          {activeTab === 'embudo' && <EmbudoMeta rango={pedirRango()} />}
 
-              {/* Hallazgos y Alertas Automáticas */}
-              {hallazgos.length > 0 && (
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-chrome-text-muted">
-                    Hallazgos y Oportunidades Detectadas
-                  </p>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-                    {hallazgos.map((h, i) => (
-                      <AlertCard
-                        key={i}
-                        type={h.tipo}
-                        title={h.titulo}
-                        detail={h.detalle}
-                        actionLabel="Analizar con Asistente"
-                        onAction={() =>
-                          preguntar(`Profundiza en este hallazgo: "${h.titulo}" (${h.detalle}) y dime qué acciones debemos tomar.`)
-                        }
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+          {activeTab === 'publicos' && <PublicosMeta />}
 
           {/* ── PESTAÑA 2: META ADS & RENDIMIENTO ── */}
           {activeTab === 'meta_ads' && (
@@ -640,6 +638,8 @@ export default function IntelligenceCenterView() {
           )}
 
           {/* ── PESTAÑA 3: EXPERIMENTOS CIENTÍFICOS V4 ── */}
+          {activeTab === 'creativos' && <CreativesView />}
+
           {activeTab === 'experimentos' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -750,6 +750,24 @@ export default function IntelligenceCenterView() {
                           </div>
                         )}
 
+                        {/* Publicar en Meta: solo si todas las variantes tienen imagen y aún no hay anuncios */}
+                        {!isCompleted && !vars.some((v) => v.ad_id) && (
+                          vars.length > 0 && vars.every((v) => v.creative_asset_id) ? (
+                            <button
+                              onClick={() => publicarEnMeta(exp)}
+                              disabled={publicando === exp.id}
+                              className="w-full inline-flex items-center justify-center gap-1 rounded-lg bg-brand-primary px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"
+                            >
+                              <Rocket size={13} />
+                              <span>{publicando === exp.id ? 'Publicando en Meta…' : 'Publicar en Meta (en pausa)'}</span>
+                            </button>
+                          ) : (
+                            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-400">
+                              Faltan imágenes: cada variante necesita un creativo. Pídele a Nora «arma este experimento con imágenes».
+                            </p>
+                          )
+                        )}
+
                         {/* Botón para analizar con el asistente */}
                         <button
                           onClick={() => preguntar(`Analiza y mide los resultados del experimento V4 "${exp.name}" (ID: ${exp.id}).`)}
@@ -758,6 +776,15 @@ export default function IntelligenceCenterView() {
                           <Activity size={12} />
                           <span>Medir y Analizar Resultados</span>
                         </button>
+                        {!isCompleted && (
+                          <button
+                            onClick={() => cerrarYAprender(exp)}
+                            className="w-full inline-flex items-center justify-center gap-1 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-400 hover:bg-indigo-500/20"
+                          >
+                            <Lightbulb size={12} />
+                            <span>Medir, cerrar y aprender (solo con datos suficientes)</span>
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -769,6 +796,7 @@ export default function IntelligenceCenterView() {
           {/* ── PESTAÑA 4: LEARNING ENGINE (APRENDIZAJES ACUMULADOS) ── */}
           {activeTab === 'aprendizajes' && (
             <div className="space-y-4">
+              <LearningSummary experiments={experiments} />
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-chrome-text-active flex items-center gap-2">
