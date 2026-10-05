@@ -3,7 +3,8 @@
 //   lista_tramites: manda además los trámites (comercial_audios_pitch.en_lista) como botones para que el cliente elija.
 //   audio_path: audio ya subido a `chat-media` (.ogg = nota de voz; si falla, se manda el texto).
 //   extra_texto: segundo mensaje de texto (ej. la clave PIX cuando el cliente quiere pagar).
-//   submenu: 'agendamiento' → botones RNM/refugio (ids motivo:<enum>); 'residencia' → vía (ids variante:<familiar|mercosur>).
+//   submenu: 'agendamiento' → botones RNM/refugio (ids motivo:<enum>); 'agendamiento_rnm' / 'agendamiento_refugio' → solo
+//            la vía (el cliente ya dijo cuál); 'residencia' → vía (ids variante:<familiar|mercosur>).
 //   datos_pago: manda la plantilla de PIX de Kommo con el valor (o monto_pix si se acordó otro, ej. la mitad) y la plantilla de datos.
 //   solo_datos: manda solo la plantilla de datos (plan "empezar y pagar al final") y avisa que se espera la documentación.
 //   idioma: 'pt' | 'es' para los textos fijos.
@@ -16,6 +17,7 @@
 // Teléfonos +55 00… (DDD inexistente) son clientes simulados para probar a Nora: no se manda nada a WhatsApp.
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { procesarVoz } from './voz.ts';
 
 const BUCKET = 'chat-media';
 const GRAPH = 'https://graph.facebook.com/v23.0';
@@ -28,6 +30,35 @@ function telefonoDestino(raw: string): string {
   if (!digitos) return '';
   if (String(raw).trim().startsWith('+') || digitos.length > 11) return digitos;
   return '55' + digitos;
+}
+
+// Modo texto: lo que se habría dicho en nota de voz se manda escrito. Se quitan las muletillas y los tropiezos que solo
+// tienen sentido al hablar, y Nora se presenta como la asistente virtual de FLUJO.
+function paraTexto(t: string): string {
+  let s = String(t || '');
+  // Tropiezo corregido al hablar: "alguna du... alguna duda" -> "alguna duda".
+  s = s.replace(/((?:\p{L}+\s+){0,2}\p{L}+)\.\.\.\s+/gu, (m, previo: string, off: number, todo: string) => {
+    const resto = todo.slice(off + m.length).toLowerCase();
+    const palabras = previo.split(/\s+/);
+    for (let k = palabras.length; k >= 1; k--) {
+      const cand = palabras.slice(-k).join(' ').toLowerCase();
+      if (cand.length >= 2 && resto.startsWith(cand)) return palabras.slice(0, palabras.length - k).join(' ') + (palabras.length - k ? ' ' : '');
+    }
+    return m;
+  });
+  // Muletillas habladas y pausas ("..." pasa a coma o punto según lo que siga).
+  s = s.replace(/\b(eh+|ehm+|mm+)\b[,.…]*\s*/giu, '');
+  s = s.replace(/([?!.,:;])\s*\.{3,}\s*/g, '$1 ')
+    .replace(/\s*\.{3,}\s*(?=[¿¡\p{Lu}])/gu, '. ')
+    .replace(/\s*\.{3,}\s*(?=\p{Ll})/gu, ', ')
+    .replace(/\s*\.{3,}\s*$/g, '.');
+  // Presentación: asistente virtual de FLUJO.
+  s = s.replace(/\b([Ss]oy)\s+Nora,?\s*(?:del equipo de|de)\s+(FLUJO(?:\s+Migra[cç][aã]o)?)/g, '$1 Nora, la asistente virtual de $2')
+    .replace(/\b([Ss]ou)\s+a\s+Nora,?\s*(?:da equipe d[ae]|do time d[ae]|da)\s+(FLUJO(?:\s+Migra[cç][aã]o)?)/g, '$1 a Nora, a assistente virtual da $2')
+    .replace(/\b([Aa]qui\s+é)\s+a\s+Nora,?\s*(?:da equipe d[ae]|do time d[ae]|da)\s+(FLUJO(?:\s+Migra[cç][aã]o)?)/g, '$1 a Nora, a assistente virtual da $2');
+  s = s.replace(/\s{2,}/g, ' ').replace(/\s+([,.!?])/g, '$1').replace(/,\s*,/g, ',').trim();
+  // Mayúscula al empezar cada frase.
+  return s.replace(/(^|[.!?]\s+)(\p{Ll})/gu, (_m: string, a: string, b: string) => a + b.toUpperCase());
 }
 
 Deno.serve(async (req) => {
@@ -56,6 +87,22 @@ Deno.serve(async (req) => {
   // si no, llega como archivo de audio con ícono de auriculares.
   const esOgg = /\.(ogg|opus)$/i.test(audioPath || '');
   const audioMime = esOgg ? 'audio/ogg; codecs=opus' : 'audio/mpeg';
+  // Prueba interna del efecto de voz: procesa un audio de `chat-media` y lo guarda en pruebas-voz/, sin mandar nada.
+  if (body.probar_voz && audioPath) {
+    const { data: blob, error: dlErr } = await admin.storage.from(BUCKET).download(audioPath);
+    if (dlErr || !blob) return json({ error: dlErr?.message || 'no se pudo leer el audio' }, 404);
+    const entrada = new Uint8Array(await blob.arrayBuffer());
+    const t0 = Date.now();
+    try {
+      const { default: OpusScript } = await import('npm:opusscript@0.1.1');
+      const salida = procesarVoz(entrada, OpusScript, { ruidoDb: Number(body.ruido_db ?? -120), salaMezcla: Number(body.sala ?? 0.16) });
+      const destino = `00000000-0000-0000-0000-000000000001/pruebas-voz/procesado-${Date.now()}.ogg`;
+      const { error: upErr } = await admin.storage.from(BUCKET).upload(destino, salida, { contentType: 'audio/ogg', upsert: true });
+      return json({ ok: !upErr, error: upErr?.message, ms: Date.now() - t0, bytes_in: entrada.length, bytes_out: salida.length, destino });
+    } catch (e) {
+      return json({ ok: false, error: String((e as Error).message || e), ms: Date.now() - t0 }, 500);
+    }
+  }
   if (!kommoLeadId || (!mensaje && !audioPath && !body.lista_tramites && !body.submenu && !body.datos_pago && !body.solo_datos && !body.solo_escribiendo && !body.plantilla)) return json({ error: 'Falta kommo_lead_id y mensaje o audio' }, 400);
 
   const { data: lead } = await admin
@@ -64,7 +111,13 @@ Deno.serve(async (req) => {
     .eq('kommo_lead_id', kommoLeadId)
     .maybeSingle();
   if (!lead) return json({ error: 'Lead no encontrado' }, 404);
-  if (lead.atendente_pausado) return json({ ok: true, omitido: 'atendente pausado para este lead' });
+  if (lead.atendente_pausado && !body.ignorar_pausa) return json({ ok: true, omitido: 'atendente pausado para este lead' });
+
+  // Modo texto (prueba): organization_settings.nora_modo_texto = true → no sale ninguna nota de voz; todo se manda escrito.
+  const { data: ajusteTexto } = await admin.from('organization_settings').select('value').eq('organization_id', '00000000-0000-0000-0000-000000000001').eq('key', 'nora_modo_texto').maybeSingle();
+  const modoTexto = ajusteTexto?.value === true || ajusteTexto?.value?.activo === true;
+  const usarAudio = Boolean(audioPath) && !modoTexto;
+  const mensajeFinal = modoTexto ? paraTexto(mensaje) : mensaje;
 
   const to = telefonoDestino(lead.telefono || '');
   if (!to) return json({ error: 'El lead no tiene teléfono' }, 422);
@@ -99,13 +152,33 @@ Deno.serve(async (req) => {
   }
 
   let primerEnvio = true;
+  // Bienvenida: tras la nota de voz se esperan al menos 5 s antes de mandar lo demás (que el cliente la escuche primero).
+  let pausaTrasAudio = 0;
+  const dormir = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+  let ultimoFueBotones = false;
   const enviar = async (payload: Record<string, unknown>) => {
-    if (!primerEnvio && !simulado) {
+    const esBotones = payload.type === 'interactive';
+    if (!primerEnvio && !simulado && esBotones && ultimoFueBotones) {
+      // Grupos de botones seguidos (lista de trámites, submenús): sin pausa, solo un respiro para que lleguen en orden.
+      await dormir(500);
+    } else if (!primerEnvio && !simulado) {
+      // Pausa entre mensajes como la de una persona: 2–3,5 s + 25 ms por carácter (tope 8 s), con "escribiendo…" los últimos 3 s.
       const texto = String((payload as any)?.text?.body || (payload as any)?.interactive?.body?.text || '');
+      const espera = Math.max(pausaTrasAudio, Math.min(8000, 2000 + Math.random() * 1500 + texto.length * 25));
+      pausaTrasAudio = 0;
+      await dormir(Math.max(0, espera - 3000));
       await escribiendo();
-      await new Promise((ok) => setTimeout(ok, Math.min(3500, 1000 + texto.length * 12)));
+      await dormir(Math.min(3000, espera));
+    }
+    // La primera respuesta a un cliente no sale de golpe: una persona tarda en leer y escribir (más si el mensaje es largo).
+    if (primerEnvio && !simulado && ['conversacion', 'cierre_triagem', 'propuesta'].includes(String(body.fase))) {
+      const espera0 = Math.min(16000, 6000 + mensaje.length * 30 + Math.random() * 4000);
+      await dormir(Math.max(0, espera0 - 4000));
+      await escribiendo();
+      await dormir(Math.min(4000, espera0));
     }
     primerEnvio = false;
+    ultimoFueBotones = esBotones;
     if (simulado) return `wamid.SIM${crypto.randomUUID()}`;
     const r = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
       method: 'POST',
@@ -175,18 +248,33 @@ Deno.serve(async (req) => {
       enviados.push(wamid);
     }
     let audioEnviado = false;
-    if (audioPath && simulado) {
+    if (usarAudio && simulado) {
       const wamid = await enviar({ type: 'audio' });
       await registrar(wamid, mensaje || null, true);
       enviados.push(wamid);
       audioEnviado = true;
-    } else if (audioPath) {
+    } else if (usarAudio) {
       try {
         const { data: blob, error: dlErr } = await admin.storage.from(BUCKET).download(audioPath);
         if (dlErr || !blob) throw new Error(dlErr?.message || 'no se pudo leer el audio');
+        let bytes = new Uint8Array(await blob.arrayBuffer());
+        // Voz de Nora "por micrófono" (ruido leve + sala): solo a los audios que genera el flujo en el momento
+        // (bienvenida-/resp-), nunca a los audios de propuesta grabados. Si algo falla, va el audio original.
+        if (esOgg && Deno.env.get('VOZ_MICROFONO') !== '0' && /\/comercial\/(bienvenida|resp)-[^/]+\.ogg$/i.test(audioPath || '')) {
+          try {
+            const { default: OpusScript } = await import('npm:opusscript@0.1.1');
+            // Ruido apagado por defecto (-120 dB = nada); solo la sala. Para volver a oírlo: secreto VOZ_RUIDO_DB (ej. -30).
+            const procesado = procesarVoz(bytes, OpusScript, { ruidoDb: Number(Deno.env.get('VOZ_RUIDO_DB') ?? -120), salaMezcla: 0.16 });
+            // Se guarda el procesado en el mismo archivo para que el panel reproduzca lo mismo que escuchó el cliente.
+            await admin.storage.from(BUCKET).upload(audioPath!, procesado, { upsert: true, contentType: 'audio/ogg' });
+            bytes = procesado;
+          } catch (e) {
+            console.error('efecto micrófono falló, va el audio original', e);
+          }
+        }
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
-        form.append('file', new Blob([await blob.arrayBuffer()], { type: esOgg ? 'audio/ogg' : 'audio/mpeg' }), esOgg ? 'audio.ogg' : 'audio.mp3');
+        form.append('file', new Blob([bytes], { type: esOgg ? 'audio/ogg' : 'audio/mpeg' }), esOgg ? 'audio.ogg' : 'audio.mp3');
         const up = await fetch(`${GRAPH}/${phoneNumberId}/media`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
         const upData = await up.json().catch(() => ({}));
         if (!up.ok) throw new Error(upData?.error?.message || `Media API ${up.status}`);
@@ -194,13 +282,14 @@ Deno.serve(async (req) => {
         await registrar(wamid, mensaje || null, true);
         enviados.push(wamid);
         audioEnviado = true;
+        if (body.fase === 'bienvenida') pausaTrasAudio = 5000;
       } catch (err) {
         console.error('audio falló, se manda texto', err);
       }
     }
-    if (!audioEnviado && mensaje) {
-      const wamid = await enviar({ type: 'text', text: { body: mensaje } });
-      await registrar(wamid, mensaje, false);
+    if (!audioEnviado && mensajeFinal) {
+      const wamid = await enviar({ type: 'text', text: { body: mensajeFinal } });
+      await registrar(wamid, mensajeFinal, false);
       enviados.push(wamid);
     }
     if (extra) {
@@ -250,6 +339,13 @@ Deno.serve(async (req) => {
         await registrar(w3, espera, false);
         enviados.push(w3);
       }
+      // Después de la lista: invitación a preguntar lo que quiera y aviso de que se espera el envío de los datos.
+      const cierre = body.idioma === 'pt'
+        ? 'Se tiver alguma dúvida, é só nos perguntar por aqui, que estamos para isso. E ficamos atentos ao envio dos seus dados 😊'
+        : 'Si tienes alguna duda, pregúntanos por aquí, que para eso estamos. Y quedamos atentos al envío de tus datos 😊';
+      const w4 = await enviar({ type: 'text', text: { body: cierre } });
+      await registrar(w4, cierre, false);
+      enviados.push(w4);
     }
     if (body.lista_tramites) {
       const { data: tramites } = await admin
@@ -259,11 +355,15 @@ Deno.serve(async (req) => {
         .order('orden', { ascending: true });
       // Botones a la vista (no lista desplegable). WhatsApp: máximo 3 botones por mensaje y 20 caracteres por título,
       // así que van en grupos de 3, un mensaje por grupo.
-      const botones = (tramites || []).map((t: any) => ({ id: `tramite:${t.tramite_enum_id}`, title: String(t.tramite_nombre).slice(0, 20) }));
+      const TITULO_BOTON: Record<number, string> = { 166574: 'Renovar por email' };
+      const botones = (tramites || []).map((t: any) => ({ id: `tramite:${t.tramite_enum_id}`, title: String(TITULO_BOTON[Number(t.tramite_enum_id)] || t.tramite_nombre).slice(0, 20) }));
       const grupos: { id: string; title: string }[][] = [];
       for (let i = 0; i < botones.length; i += 3) grupos.push(botones.slice(i, i + 3));
       for (let i = 0; i < grupos.length; i++) {
-        const cuerpo = i === 0 ? (body.idioma === 'pt' ? 'Escolha o serviço que você precisa:' : 'Elija el trámite que necesita:') : (body.idioma === 'pt' ? 'Ou:' : 'O:');
+        // Un solo trámite disponible (renovación de refugio por email): el mensaje invita a tocar el botón en vez de "elegir".
+        const cuerpo = botones.length === 1
+          ? (body.idioma === 'pt' ? 'Ajudamos você a renovar o seu refúgio por e-mail, sem filas nem viagens. Toque no botão para começar 👇' : 'Te ayudamos a renovar tu refugio por email, sin colas ni viajes. Toca el botón para empezar 👇')
+          : i === 0 ? (body.idioma === 'pt' ? 'Escolha o serviço que você precisa:\n• Agendamento na Polícia Federal\n• Renovação de refúgio por e-mail' : 'Elige el trámite que necesitas:\n• Agendamiento en la Policía Federal\n• Renovación de refugio por email') : (body.idioma === 'pt' ? 'Ou:' : 'O:');
         const wamid = await enviar({
           type: 'interactive',
           interactive: {
@@ -282,6 +382,13 @@ Deno.serve(async (req) => {
         { cuerpo: body.idioma === 'pt' ? 'Para que é o agendamento?' : '¿Para qué es el agendamiento?', opciones: [{ id: 'motivo:165690', title: 'RNM (1ª vía)' }, { id: 'motivo:165692', title: 'RNM (2ª vía)' }] },
         { cuerpo: body.idioma === 'pt' ? 'Ou é para refúgio?' : '¿O es para refugio?', opciones: [{ id: 'motivo:166572', title: 'Refugio (1ª vez)' }, { id: 'motivo:166574', title: 'Refugio (renovación)' }] },
       ],
+      // El cliente ya dijo si era para RNM o para refugio: solo falta precisar cuál.
+      agendamiento_rnm: [
+        { cuerpo: body.idioma === 'pt' ? 'É a primeira via do RNM ou a segunda?' : '¿Es la primera vía del RNM o la segunda?', opciones: [{ id: 'motivo:165690', title: 'RNM (1ª vía)' }, { id: 'motivo:165692', title: 'RNM (2ª vía)' }] },
+      ],
+      agendamiento_refugio: [
+        { cuerpo: body.idioma === 'pt' ? 'É a primeira vez ou a renovação do refúgio?' : '¿Es la primera vez o una renovación del refugio?', opciones: [{ id: 'motivo:166572', title: 'Refugio (1ª vez)' }, { id: 'motivo:166574', title: 'Refugio (renovación)' }] },
+      ],
       residencia: [
         { cuerpo: body.idioma === 'pt' ? 'Por qual via é a sua residência permanente?' : '¿Por qué vía es su residencia permanente?', opciones: [{ id: 'variante:familiar', title: 'Reunión familiar' }, { id: 'variante:mercosur', title: 'Acuerdo Mercosur' }] },
       ],
@@ -296,6 +403,20 @@ Deno.serve(async (req) => {
         await registrar(wamid, `${p.cuerpo}\n${p.opciones.map((b) => `[${b.title}]`).join(' ')}`, false);
         enviados.push(wamid);
       }
+    }
+    // Después de la propuesta: pregunta escrita si le interesa y botón para pagar ya (lo atiende un asesor).
+    if (body.fase === 'propuesta') {
+      const pt = body.idioma === 'pt';
+      const cuerpo = pt
+        ? 'Você tem interesse na nossa proposta e quer continuar? Se sim, te passo para um assessor, que te envia os dados de que precisamos e os dados para o pagamento. Se você já quer pagar, é só tocar no botão 👇'
+        : '¿Te interesa nuestra propuesta y quieres continuar? Si es así, te paso con un asesor para que te envíe los datos que necesitamos y los datos para el pago. Si ya quieres pagar, solo toca el botón 👇';
+      const boton = { id: 'pagar:ya', title: pt ? 'Quero pagar já' : 'Quiero pagar ya' };
+      const wamid = await enviar({
+        type: 'interactive',
+        interactive: { type: 'button', body: { text: cuerpo }, action: { buttons: [{ type: 'reply', reply: boton }] } },
+      });
+      await registrar(wamid, `${cuerpo}\n[${boton.title}]`, false);
+      enviados.push(wamid);
     }
   } catch (err) {
     return json({ ok: false, error: String((err as Error).message || err), enviados }, 502);
