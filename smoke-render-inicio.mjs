@@ -33,7 +33,7 @@ try {
   const v2 = {
     version: 2, generado_en: new Date().toISOString(), zona: 'America/Sao_Paulo',
     resultados_periodo: {
-      oportunidades: { actual: { oportunidades: 264, personas: 253, con_anuncio: 78, sin_atribucion: 186, sin_servicio_elegido: 151, pagadas: 3, maduras_7d: 142, pagadas_7d: 0, maduras_30d: 0, pagadas_30d: 0, pagadas_con_anuncio: 2, ingresos_con_anuncio: 129 }, previo: null },
+      oportunidades: { actual: { oportunidades: 264, personas: 253, con_anuncio: 78, sin_atribucion: 186, sin_servicio_elegido: 159, sin_servicio_activas: 58, sin_servicio_perdidas: 101, pagadas: 3, maduras_7d: 142, pagadas_7d: 0, maduras_30d: 0, pagadas_30d: 0, pagadas_con_anuncio: 2, ingresos_con_anuncio: 129 }, previo: null },
       cobrado: { actual: { n: 16, total: 1365, atribuido: 5, ambiguo: 0, sin_coincidencia: 2, sin_oportunidad: 9 }, previo: null },
       gasto: { actual: { total: 564.01, conversaciones: 177 }, previo: null },
       ingresos_por_servicio: [{ servicio: 'RNM (1ª vía)', total: 229, n: 3 }],

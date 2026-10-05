@@ -76,7 +76,8 @@ export function derivarResumen(r) {
   const pagadasConAnuncio = cero(a.pagadas_con_anuncio);
 
   return {
-    oportunidades: { total: opp, personas: cero(a.personas), sinServicio: cero(a.sin_servicio_elegido), var: variacion(opp, oppPrev), previo: oppPrev },
+    // Calidad del CRM: las perdidas sin servicio no son trabajo pendiente; solo cuentan las activas.
+    oportunidades: { total: opp, personas: cero(a.personas), sinServicio: cero(a.sin_servicio_elegido), sinServicioActivas: cero(a.sin_servicio_activas), sinServicioPerdidas: cero(a.sin_servicio_perdidas), var: variacion(opp, oppPrev), previo: oppPrev },
     // Conciliación (atribucion_pagos): cada pago va a UNA oportunidad o queda sin atribución confirmada.
     cobrado: {
       total: cobrado, pagos: cero(rp.cobrado?.actual?.n), var: variacion(cobrado, cobradoPrev),

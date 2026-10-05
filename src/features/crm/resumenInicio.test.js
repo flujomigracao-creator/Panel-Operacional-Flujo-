@@ -33,7 +33,7 @@ const crudo = (extra = {}) => ({
   generado_en: '2026-10-05T05:00:00Z',
   resultados_periodo: {
     oportunidades: {
-      actual: { oportunidades: 264, personas: 253, con_anuncio: 78, sin_atribucion: 186, sin_servicio_elegido: 151, pagadas: 3,
+      actual: { oportunidades: 264, personas: 253, con_anuncio: 78, sin_atribucion: 186, sin_servicio_elegido: 159, sin_servicio_activas: 58, sin_servicio_perdidas: 101, pagadas: 3,
         maduras_7d: 142, pagadas_7d: 1, maduras_30d: 0, pagadas_30d: 0, pagadas_con_anuncio: 2, ingresos_con_anuncio: 129 },
       previo: null,
     },
@@ -66,7 +66,11 @@ test('oportunidades vs personas: no se confunden', () => {
   const o = derivarResumen(crudo()).oportunidades;
   assert.equal(o.total, 264);
   assert.equal(o.personas, 253);
-  assert.equal(o.sinServicio, 151);
+  assert.equal(o.sinServicio, 159);
+  // las perdidas no cuentan como trabajo pendiente
+  assert.equal(o.sinServicioActivas, 58);
+  assert.equal(o.sinServicioPerdidas, 101);
+  assert.equal(o.sinServicioActivas + o.sinServicioPerdidas, o.sinServicio);
 });
 
 test('sin período previo no inventa variación (null, no 0 ni infinito)', () => {

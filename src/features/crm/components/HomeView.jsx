@@ -241,7 +241,7 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Kpi label="Oportunidades (una por servicio)" status={stResumen} onRetry={() => resumenQ.refetch()}
                   value={r?.oportunidades.total} delta={r?.oportunidades.var}
-                  sub={r && `${r.oportunidades.personas} personas distintas · ${r.oportunidades.sinServicio} sin servicio elegido`} onClick={() => onNavigate('comercial')} />
+                  sub={r && `${r.oportunidades.personas} personas distintas · ${r.oportunidades.sinServicioActivas} activas sin servicio elegido (${r.oportunidades.sinServicioPerdidas} sin servicio ya perdidas)`} onClick={() => onNavigate('comercial')} />
                 <Kpi label="Cobrado" status={stResumen} onRetry={() => resumenQ.refetch()}
                   value={r && fmtBRL(r.cobrado.total, 2)} delta={r?.cobrado.var}
                   sub={r && `${r.cobrado.pagos} pagos · ${r.cobrado.atribuidos} ligados a una oportunidad${r.cobrado.sinAtribucionConfirmada ? ` · ${r.cobrado.sinAtribucionConfirmada} sin atribución confirmada (${r.cobrado.sinOportunidad} de clientes sin oportunidad, ${r.cobrado.sinCoincidencia} sin servicio coincidente${r.cobrado.ambiguos ? `, ${r.cobrado.ambiguos} ambiguos` : ''})` : ''}`} onClick={() => onNavigate('finance')} />
