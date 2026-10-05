@@ -137,7 +137,8 @@ export function derivarEmbudo(e) {
     { id: 'iniciado', label: 'Trámite iniciado', n: cero(a.iniciado) },
   ];
   // La tasa del último paso es respecto al pago solo si hay pagos; un trámite sin pago no entra en esa tasa.
-  const conTasa = pasos.map((p, i) => ({ ...p, tasa: i === 0 ? null : pct(p.n, pasos[i - 1].n), deOportunidades: pct(p.n, opp) }));
+  // Si un paso supera al anterior (p. ej. trámites iniciados sin pago en el CRM) no hay 'tasa de avance': >100 % engaña.
+  const conTasa = pasos.map((p, i) => ({ ...p, tasa: i === 0 || p.n > pasos[i - 1].n ? null : pct(p.n, pasos[i - 1].n), deOportunidades: pct(p.n, opp) }));
   return {
     pasos: conTasa,
     perdidas: cero(a.perdidas),

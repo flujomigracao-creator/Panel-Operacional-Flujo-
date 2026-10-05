@@ -18,19 +18,19 @@ function Table({ title, count, action, onAction, head, children, empty }) {
   return (
     <section className="rounded-md border border-border bg-bg-surface">
       <header className="flex items-center gap-2 px-4 py-3">
-        <h2 className="text-[13px] font-semibold text-text-primary">{title}</h2>
-        {count > 0 && <span className="text-xs text-text-muted">{count}</span>}
-        {action && <button onClick={onAction} className="ml-auto text-xs text-brand-primary hover:underline">{action}</button>}
+        <h2 className="text-sm lg:text-[15px] font-semibold text-text-primary">{title}</h2>
+        {count > 0 && <span className="text-[13px] lg:text-sm text-text-muted">{count}</span>}
+        {action && <button onClick={onAction} className="ml-auto text-[13px] lg:text-sm text-brand-primary hover:underline">{action}</button>}
       </header>
-      <table className="w-full border-collapse text-[13px]">
+      <table className="w-full border-collapse text-sm lg:text-[15px]">
         <thead>
-          <tr className="border-y border-border bg-bg-base text-left text-[11px] uppercase tracking-wide text-text-muted">
-            {head.map((h, i) => <th key={h} className={`h-8 px-4 font-medium ${i === head.length - 1 ? 'text-right' : ''}`}>{h}</th>)}
+          <tr className="border-y border-border bg-bg-base text-left text-xs uppercase tracking-wide text-text-muted">
+            {head.map((h, i) => <th key={h} className={`h-9 px-4 font-medium ${i === head.length - 1 ? 'text-right' : ''}`}>{h}</th>)}
           </tr>
         </thead>
         <tbody>{children}</tbody>
       </table>
-      {empty && <p className="px-4 py-4 text-[13px] text-text-muted">{empty}</p>}
+      {empty && <p className="px-4 py-4 text-sm lg:text-[15px] text-text-muted">{empty}</p>}
     </section>
   );
 }
@@ -38,7 +38,7 @@ function Table({ title, count, action, onAction, head, children, empty }) {
 // Aviso de error con reintento: un fallo de carga nunca debe verse como "no hay nada".
 function ErrorNote({ what, onRetry }) {
   return (
-    <div className="flex items-center gap-2 rounded-md border border-danger/40 bg-danger/5 px-4 py-2.5 text-[13px] text-danger">
+    <div className="flex items-center gap-2 rounded-md border border-danger/40 bg-danger/5 px-4 py-2.5 text-sm lg:text-[15px] text-danger">
       <AlertTriangle size={14} />
       <span>No se pudo cargar {what}. Las cifras de este bloque no son fiables.</span>
       <button onClick={onRetry} className="ml-auto underline">Reintentar</button>
@@ -57,18 +57,18 @@ function Kpi({ label, value, sub, delta, deltaGood = true, onClick, tone = '', s
     <div role={clickable ? 'button' : undefined} tabIndex={clickable ? 0 : undefined}
       onClick={clickable ? onClick : undefined}
       onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
-      className={`rounded-md border bg-bg-surface px-4 py-3 text-left transition-colors ${status === 'error' ? 'border-danger/40' : 'border-border'} ${clickable ? 'cursor-pointer hover:border-border-hover' : ''}`}>
-      <p className="text-[11px] uppercase tracking-wide text-text-muted">{label}</p>
+      className={`rounded-md border bg-bg-surface px-5 py-4 text-left transition-colors ${status === 'error' ? 'border-danger/40' : 'border-border'} ${clickable ? 'cursor-pointer hover:border-border-hover' : ''}`}>
+      <p className="text-xs uppercase tracking-wide text-text-muted">{label}</p>
       {status === 'loading' && (
         <>
           <div className="mt-2 h-7 w-20 animate-pulse rounded bg-bg-base" />
-          <p className="mt-2 text-xs text-text-muted">Cargando…</p>
+          <p className="mt-2 text-[13px] lg:text-sm text-text-muted">Cargando…</p>
         </>
       )}
       {status === 'error' && (
         <>
-          <p className="mt-1 text-2xl font-semibold text-danger">Error</p>
-          <p className="mt-1 flex items-center gap-2 text-xs text-danger">
+          <p className="mt-1 text-3xl lg:text-4xl font-semibold text-danger">Error</p>
+          <p className="mt-1 flex items-center gap-2 text-[13px] lg:text-sm text-danger">
             No se pudo cargar.
             {onRetry && <button onClick={(e) => { e.stopPropagation(); onRetry(); }} className="underline">Reintentar</button>}
           </p>
@@ -76,8 +76,8 @@ function Kpi({ label, value, sub, delta, deltaGood = true, onClick, tone = '', s
       )}
       {status === 'ok' && (
         <>
-          <p className={`mt-1 text-2xl font-semibold ${tone || 'text-text-primary'}`}>{value}</p>
-          <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-text-muted">
+          <p className={`mt-1 text-3xl lg:text-4xl font-semibold ${tone || 'text-text-primary'}`}>{value}</p>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[13px] lg:text-sm text-text-muted">
             {d && <span className={deltaTone}>{d} vs. período anterior</span>}
             {!d && delta === null && <span>sin base de comparación</span>}
             {sub && <span>{sub}</span>}
@@ -91,11 +91,11 @@ function Kpi({ label, value, sub, delta, deltaGood = true, onClick, tone = '', s
 // Tarjeta ancha (embudo, economía, servicios) con el mismo contrato de estados.
 function Panel({ title, status = 'ok', onRetry, children }) {
   return (
-    <div className={`rounded-md border bg-bg-surface px-4 py-3 ${status === 'error' ? 'border-danger/40' : 'border-border'}`}>
-      <p className="text-[11px] uppercase tracking-wide text-text-muted">{title}</p>
+    <div className={`rounded-md border bg-bg-surface px-5 py-4 ${status === 'error' ? 'border-danger/40' : 'border-border'}`}>
+      <p className="text-xs uppercase tracking-wide text-text-muted">{title}</p>
       {status === 'loading' && <div className="mt-3 space-y-2"><div className="h-4 w-2/3 animate-pulse rounded bg-bg-base" /><div className="h-4 w-1/2 animate-pulse rounded bg-bg-base" /></div>}
       {status === 'error' && (
-        <p className="mt-2 flex items-center gap-2 text-[13px] text-danger">
+        <p className="mt-2 flex items-center gap-2 text-sm lg:text-[15px] text-danger">
           <AlertTriangle size={14} /> No se pudo cargar. Estas cifras no son fiables.
           {onRetry && <button onClick={onRetry} className="ml-auto underline">Reintentar</button>}
         </p>
@@ -193,13 +193,13 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
 
   return (
     <div className="flex-1 overflow-y-auto bg-bg-base">
-      <div className="mx-auto flex max-w-6xl flex-col gap-5 px-6 py-6">
+      <div className="flex w-full flex-col gap-6 px-6 py-6 lg:px-10 2xl:px-14">
         <div>
-          <p className="text-xs text-text-muted">
+          <p className="text-[13px] lg:text-sm text-text-muted">
             {firstName ? `Hola, ${firstName} · ` : ''}{new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })}
           </p>
-          <h1 className="mt-0.5 text-lg font-semibold text-text-primary">Resumen de la empresa</h1>
-          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-text-secondary">
+          <h1 className="mt-0.5 text-2xl font-semibold text-text-primary">Resumen de la empresa</h1>
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm lg:text-[15px] text-text-secondary">
             {summary.map(([text, go, tone], i) => (
               <React.Fragment key={text}>
                 {i > 0 && <span className="text-text-disabled">·</span>}
@@ -212,33 +212,33 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
         {/* ── Resumen ejecutivo ── */}
         <section className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex overflow-hidden rounded-md border border-border text-xs">
+            <div className="flex overflow-hidden rounded-md border border-border text-[13px] lg:text-sm">
               {FILTROS.map((f) => (
                 <button key={f.id} onClick={() => setFiltro(f.id)}
                   className={`px-3 py-1.5 ${filtro === f.id ? 'bg-brand-primary text-white' : 'bg-bg-surface text-text-secondary hover:bg-bg-base'}`}>{f.label}</button>
               ))}
             </div>
             {filtro === 'custom' && (
-              <span className="flex items-center gap-1 text-xs text-text-secondary">
+              <span className="flex items-center gap-1 text-[13px] lg:text-sm text-text-secondary">
                 <input type="date" value={custom.desde} onChange={(e) => setCustom((c) => ({ ...c, desde: e.target.value }))} className="rounded border border-border bg-bg-surface px-2 py-1" />
                 <span>→</span>
                 <input type="date" value={custom.hasta} onChange={(e) => setCustom((c) => ({ ...c, hasta: e.target.value }))} className="rounded border border-border bg-bg-surface px-2 py-1" />
               </span>
             )}
-            <span className="ml-auto flex items-center gap-2 text-xs text-text-muted">
+            <span className="ml-auto flex items-center gap-2 text-[13px] lg:text-sm text-text-muted">
               {periodoOk && <span>{periodoOk.desde} → {periodoOk.hasta} · hora de São Paulo</span>}
               {actualizado && !resumenQ.isError && <span>· actualizado {actualizado}</span>}
               <button onClick={refrescarTodo} title="Actualizar" className="rounded p-1 hover:bg-bg-surface"><RefreshCw size={13} className={resumenQ.isFetching ? 'animate-spin' : ''} /></button>
             </span>
           </div>
 
-          {!periodo && <p className="text-[13px] text-text-muted">Elige las dos fechas del período personalizado.</p>}
-          {periodo?.error && <p className="text-[13px] text-danger">{periodo.error}</p>}
+          {!periodo && <p className="text-sm lg:text-[15px] text-text-muted">Elige las dos fechas del período personalizado.</p>}
+          {periodo?.error && <p className="text-sm lg:text-[15px] text-danger">{periodo.error}</p>}
 
           {periodoOk && (
             <>
-              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">Resultados del período seleccionado</h2>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Resultados del período seleccionado</h2>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Kpi label="Oportunidades (una por servicio)" status={stResumen} onRetry={() => resumenQ.refetch()}
                   value={r?.oportunidades.total} delta={r?.oportunidades.var}
                   sub={r && `${r.oportunidades.personas} personas distintas · ${r.oportunidades.sinServicio} sin servicio elegido`} onClick={() => onNavigate('comercial')} />
@@ -261,18 +261,18 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
                   <>
                     <ul className="mt-2 space-y-1.5">
                       {emb.pasos.map((p) => (
-                        <li key={p.id} className="grid grid-cols-[9.5rem_1fr_auto] items-center gap-3 text-[13px]">
+                        <li key={p.id} className="grid grid-cols-[11rem_1fr_auto] items-center gap-3 text-sm lg:text-[15px]">
                           <span className="text-text-secondary">{p.label}</span>
                           <span className="h-2 rounded bg-bg-base">
                             <span className="block h-2 rounded bg-brand-primary" style={{ width: `${Math.min(100, p.deOportunidades ?? 0)}%` }} />
                           </span>
                           <span className="whitespace-nowrap text-text-primary">{p.n}
-                            <span className="text-text-muted">{p.tasa != null ? ` · ${fmtPct(p.tasa)} del paso anterior` : ''}</span>
+                            <span className="text-text-muted">{p.tasa != null ? ` · ${fmtPct(p.tasa)} del paso anterior` : p.id !== 'oportunidades' ? ` · ${fmtPct(p.deOportunidades)} de las oportunidades` : ''}</span>
                           </span>
                         </li>
                       ))}
                     </ul>
-                    <p className="mt-2 text-xs text-text-muted">
+                    <p className="mt-2 text-[13px] lg:text-sm text-text-muted">
                       {emb.perdidas} oportunidades perdidas ({fmtPct(emb.perdidasPct, 0)}) · {emb.sinServicio} sin servicio elegido
                       {emb.iniciadoSinPago ? ` · ${emb.iniciadoSinPago} trámites iniciados sin pago confirmado en el CRM` : ''}.
                       Las oportunidades recientes aún pueden avanzar.
@@ -281,11 +281,11 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
                 )}
               </Panel>
 
-              <div className="grid gap-3 lg:grid-cols-2">
+              <div className="grid gap-4 xl:grid-cols-2">
                 <Panel title="Economía del período · resultado tras publicidad" status={stResumen} onRetry={() => resumenQ.refetch()}>
                   {eco && (
                     <>
-                      <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-[13px]">
+                      <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-sm lg:text-[15px]">
                         <span className="text-text-muted">Cobrado</span><span className="text-right text-text-primary">{fmtBRL(eco.cobrado, 2)}</span>
                         <span className="text-text-muted">Gasto en Meta</span><span className="text-right text-text-primary">{eco.gasto == null ? '—' : fmtBRL(eco.gasto, 2)}</span>
                         <span className="font-medium text-text-secondary">Resultado tras publicidad</span>
@@ -293,7 +293,7 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
                         <span className="text-text-muted">Cobrado por cada R$ 1 de Meta</span><span className="text-right text-text-primary">{eco.roas == null ? '—' : eco.roas.toFixed(2)}</span>
                         <span className="text-text-muted">…solo de pagos con anuncio identificado</span><span className="text-right text-text-primary">{eco.roasAtribuido == null ? '—' : eco.roasAtribuido.toFixed(2)}</span>
                       </div>
-                      <p className="mt-2 text-xs text-text-muted">
+                      <p className="mt-2 text-[13px] lg:text-sm text-text-muted">
                         No es margen neto{stEmbudo === 'ok' && eco.faltan.length ? `: faltan ${eco.faltan.join(' y ')}.` : stEmbudo === 'ok' ? '.' : ': no se pudo comprobar qué costos hay registrados.'}
                         {' '}Cobrado y gasto son del mismo período, pero el gasto de hoy puede dar pagos más adelante.
                       </p>
@@ -304,13 +304,13 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
                 <Panel title="Anuncios de origen · identificados, no demostrados" status={stResumen} onRetry={() => resumenQ.refetch()}>
                   {r && (
                     <>
-                      <div className="mt-2 grid gap-y-1 text-[13px]">
+                      <div className="mt-2 grid gap-y-1 text-sm lg:text-[15px]">
                         <p><span className="text-text-primary">{r.atribucion.conAnuncio}</span> <span className="text-text-muted">con anuncio identificado ({fmtPct(r.atribucion.conAnuncioPct, 0)})</span></p>
                         <p><span className="text-text-primary">{r.atribucion.sinAtribucion}</span> <span className="text-text-muted">sin atribución confirmada</span></p>
                         <p><span className="text-text-primary">{r.atribucion.pagadasConAnuncio}</span> <span className="text-text-muted">pagadas con anuncio · {fmtBRL(r.atribucion.ingresosConAnuncio, 2)}</span></p>
                         <p><span className="text-text-primary">{fmtBRL(r.atribucion.costoPorOportunidad, 2)}</span> <span className="text-text-muted">por oportunidad con anuncio</span></p>
                       </div>
-                      <p className="mt-2 text-xs text-text-muted">
+                      <p className="mt-2 text-[13px] lg:text-sm text-text-muted">
                         {r.atribucion.muestraSuficiente
                           ? `Costo por cliente atribuido: ${fmtBRL(r.atribucion.costoPorCliente, 2)}.`
                           : `Costo por cliente atribuido: no disponible (se necesitan al menos ${MIN_PAGOS_ATRIBUIDOS} pagos con anuncio; hay ${r.atribucion.pagadasConAnuncio}).`}
@@ -323,9 +323,9 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
 
               <Panel title="Ingresos cobrados por servicio (período)" status={stResumen} onRetry={() => resumenQ.refetch()}>
                 {r && (r.porServicio.length === 0
-                  ? <p className="mt-2 text-[13px] text-text-muted">Sin pagos confirmados en el período.</p>
+                  ? <p className="mt-2 text-sm lg:text-[15px] text-text-muted">Sin pagos confirmados en el período.</p>
                   : (
-                    <ul className="mt-2 grid gap-x-8 gap-y-1 text-[13px] sm:grid-cols-2">
+                    <ul className="mt-2 grid gap-x-8 gap-y-1 text-sm lg:text-[15px] sm:grid-cols-2">
                       {r.porServicio.map((s) => (
                         <li key={s.servicio} className="flex justify-between gap-3">
                           <span className="truncate text-text-secondary">{s.servicio}</span>
@@ -336,14 +336,14 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
                   ))}
               </Panel>
 
-              <h2 className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">Situación actual (no depende del período)</h2>
+              <h2 className="mt-1 text-xs font-semibold uppercase tracking-wide text-text-muted">Situación actual (no depende del período)</h2>
               {r && r.actual.meta.estado !== 'ok' && (
-                <div className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/5 px-4 py-2 text-[13px] text-warning">
+                <div className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/5 px-4 py-2 text-sm lg:text-[15px] text-warning">
                   <AlertTriangle size={14} /> {r.actual.meta.texto}. El gasto y las conversaciones de Meta pueden estar desactualizados.
                   <button onClick={() => onNavigate('intelligence')} className="ml-auto underline">Ver Meta Ads</button>
                 </div>
               )}
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Kpi label="Propuestas abiertas" status={stResumen} onRetry={() => resumenQ.refetch()}
                   value={r && fmtBRL(r.actual.potencial.total)}
                   sub={r && `${r.actual.potencial.n} sin pago · potencial, no dinero cobrado${r.actual.potencial.sinMovimiento14d ? ` · ${r.actual.potencial.sinMovimiento14d} sin movimiento 14+ días` : ''}`}
@@ -369,7 +369,7 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
           head={['Cliente', 'Trámite', 'Estado', 'Responsable', 'Actualizado']}
           empty={tramites.data && pending.length === 0 && (active.length === 0 || checklist.data) ? 'Ningún trámite trabado.' : null}>
           {pending.slice(0, 12).map(({ t, issue }) => (
-            <tr key={t.id} onClick={() => onOpenTramite(t.id)} className="h-10 cursor-pointer border-b border-border last:border-0 hover:bg-bg-base">
+            <tr key={t.id} onClick={() => onOpenTramite(t.id)} className="h-12 cursor-pointer border-b border-border last:border-0 hover:bg-bg-base">
               <td className="whitespace-nowrap px-4 font-medium text-text-primary">{t.clients?.full_name || 'Sin nombre'}</td>
               <td className="px-4 text-text-secondary">{t.services?.name || '—'}</td>
               <td className="px-4"><span className="inline-flex items-center gap-1.5"><span className={`h-1.5 w-1.5 rounded-full ${ISSUE_DOT[issue.level]}`} /><span className={ISSUE_TONE[issue.level]}>{issue.text}</span></span></td>
@@ -379,11 +379,11 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
           ))}
         </Table>
 
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid gap-6 xl:grid-cols-2">
           <Table title="Conversaciones sin responder" count={waiting.length} action="Abrir" onAction={() => onNavigate('chats')}
             head={['Cliente', 'Trámite', 'Último mensaje', '']} empty={convs.data && waiting.length === 0 ? 'Nadie esperando respuesta.' : null}>
             {waiting.slice(0, 8).map((c) => (
-              <tr key={c.id} onClick={() => onOpenChat(c.client_id || (c.kommo_contact_id ? `k${c.kommo_contact_id}` : null))} className="h-10 cursor-pointer border-b border-border last:border-0 hover:bg-bg-base">
+              <tr key={c.id} onClick={() => onOpenChat(c.client_id || (c.kommo_contact_id ? `k${c.kommo_contact_id}` : null))} className="h-12 cursor-pointer border-b border-border last:border-0 hover:bg-bg-base">
                 <td className="whitespace-nowrap px-4 font-medium text-text-primary">{c.display_name || 'Sin nombre'}</td>
                 <td className="px-4 text-text-secondary">{serviceByClient[c.client_id] || '—'}</td>
                 <td className="max-w-[180px] truncate px-4 text-text-secondary">{c.last_content || 'Archivo'}</td>
@@ -398,7 +398,7 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
               const closable = t.origem === 'tarefa' && !AUTO_CLOSE.has(t.tipo);
               const overdue = t.vence_em && new Date(t.vence_em) <= endOfToday();
               return (
-                <tr key={`${t.origem}-${t.tipo}-${t.ref_id}`} className="h-10 border-b border-border last:border-0">
+                <tr key={`${t.origem}-${t.tipo}-${t.ref_id}`} className="h-12 border-b border-border last:border-0">
                   <td className="w-10 pl-4">
                     {closable && (
                       <button onClick={() => done(t)} title="Marcar como hecha"

@@ -186,3 +186,12 @@ test('economía: el margen neto solo se habilita con gastos y costos cargados', 
   assert.equal(eco.margenNetoDisponible, true);
   assert.equal(eco.faltan.length, 0);
 });
+
+test('embudo: un paso mayor que el anterior no muestra tasa >100 % (se compara con las oportunidades)', () => {
+  const e = derivarEmbudo(crudoEmbudo());
+  // trámite iniciado (5) > pago (3): sin tasa de avance, pero sí su peso sobre las oportunidades
+  assert.equal(e.pasos[3].tasa, null);
+  assert.ok(Math.abs(e.pasos[3].deOportunidades - (5 / 264) * 100) < 1e-9);
+  // los pasos que sí avanzan conservan su tasa
+  assert.ok(e.pasos[2].tasa <= 100);
+});
