@@ -18,13 +18,10 @@ import {
   HelpCircle,
   ArrowRight,
   Filter,
-<<<<<<< HEAD
   Palette,
   BookOpen,
-=======
   Image as ImageIcon,
   Rocket,
->>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAssistant } from '../context/AssistantContext';
@@ -38,15 +35,12 @@ import { cerrarExperimento, publicarExperimento } from '../services/creativesSer
 import MetaStatusBanner from './MetaStatusBanner';
 import LearningSummary from './LearningSummary';
 import PerformanceChart from './PerformanceChart';
-<<<<<<< HEAD
 import CreativesHubView from './CreativesHubView';
 import PromptLibraryView from './PromptLibraryView';
-=======
 import ResumenMeta from './ResumenMeta';
 import MetricasCompletas from './MetricasCompletas';
 import EmbudoMeta from './EmbudoMeta';
 import PublicosMeta from './PublicosMeta';
->>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
 import { LoadingSpinner } from '@/shared/components/ui/LoadingSpinner';
 
 export default function IntelligenceCenterView() {
@@ -58,11 +52,7 @@ export default function IntelligenceCenterView() {
   const [creatives, setCreatives] = useState([]);
   const [creativePrompts, setCreativePrompts] = useState([]);
   const [error, setError] = useState(null);
-<<<<<<< HEAD
-  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'meta_ads' | 'experimentos' | 'aprendizajes' | 'campanas' | 'creativos' | 'prompts'
-=======
-  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'metricas' | 'meta_ads' | 'creativos' | 'experimentos' | 'aprendizajes' | 'campanas'
->>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
+  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'metricas' | 'meta_ads' | 'creativos' | 'experimentos' | 'aprendizajes' | 'campanas' | 'creativos_v5' | 'prompts'
   const [campaignStatusFilter, setCampaignStatusFilter] = useState('all'); // 'all' | 'ACTIVE' | 'PAUSED' | 'testing' | 'completed'
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
   const [dateRange, setDateRange] = useState('7d'); // 'hoy' | '7d' | '14d' | '30d' | 'custom'
@@ -442,9 +432,9 @@ export default function IntelligenceCenterView() {
           <span>Campañas</span>
         </button>
         <button
-          onClick={() => setActiveTab('creativos')}
+          onClick={() => setActiveTab('creativos_v5')}
           className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
-            activeTab === 'creativos'
+            activeTab === 'creativos_v5'
               ? 'border-brand-primary text-brand-primary'
               : 'border-transparent text-chrome-text-muted hover:text-chrome-text'
           }`}
@@ -495,7 +485,7 @@ export default function IntelligenceCenterView() {
           💡 Ver aprendizajes
         </button>
         <button
-          onClick={() => { setActiveTab('creativos'); preguntar('Genera el ranking de creativos ordenado por menor costo por cliente pagador para CPF.'); }}
+          onClick={() => { setActiveTab('creativos_v5'); preguntar('Genera el ranking de creativos ordenado por menor costo por cliente pagador para CPF.'); }}
           className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-400 hover:bg-indigo-500/20 transition-colors flex items-center gap-1"
         >
           <Palette size={12} /> 🎨 Ranking de Creativos V5
@@ -950,7 +940,7 @@ export default function IntelligenceCenterView() {
           )}
 
           {/* ── PESTAÑA 6: CREATIVOS V5 ── */}
-          {activeTab === 'creativos' && (
+          {activeTab === 'creativos_v5' && (
             <CreativesHubView
               creatives={creatives}
               prompts={creativePrompts}
