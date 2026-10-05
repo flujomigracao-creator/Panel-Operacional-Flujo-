@@ -44,3 +44,11 @@ Conclusión: **la historia completa es recuperable** (el SQL está en Supabase),
 - `resumen_inicio_v2`: ≈ 70–120 ms con cualquier período (1 a 366 días). `resumen_embudo`: ≈ 5 ms. `atribucion_pagos()`: ≈ 1–3 ms. La vista `crm_conversations` (conversaciones sin responder): ≈ 17 ms con 2.510 mensajes; es la que crecerá con el volumen.
 - Datos: 281 oportunidades, 16 pagos, 223 conversaciones.
 - Índices existentes relevantes: `payments(client_id)`, `payments(client_service_id)`, `client_services(client_id)`, `clients(organization_id, phone_key)` (único), `comercial_leads(organization_id, …)`. **Falta** un índice sobre `comercial_leads(client_id)`; con este volumen no es medible. **Decisión: no crear índices ahora.** Revisar con `EXPLAIN ANALYZE` cuando las oportunidades superen unos miles o `resumen_inicio_v2` pase de ≈ 300 ms.
+
+## Cambios posteriores al inventario (2026-10-05)
+
+Aplicados en producción y versionados aquí: `resumen_inicio_v2_identidad_telefone_chave` (20261005114607), `resumen_inicio_v2_sin_servicio_activas` (20261005114808), `tareas_sin_servicio` (20261005115108) y `cron_tareas_sin_servicio` (20261005115140).
+Se activó la extensión **pg_cron** (antes no estaba) y existe un trabajo `tareas_sin_servicio` (cada hora, en punto). Para reconstruir desde cero hay que habilitar pg_cron antes de aplicar `cron_tareas_sin_servicio`.
+
+### Regla de tareas para oportunidades sin servicio elegido (decidida el 2026-10-05)
+48 h de espera desde la creación · reintento cada 48 h, máximo 3 tareas por oportunidad y ninguna nueva mientras la anterior siga abierta · cola común (la tabla `tasks` no tiene responsable). No se crea tarea si la oportunidad está perdida o perdida por silencio, ya se envió a Operacional, el cliente ya pagó, está en «Seguimiento (Sin Respuesta)» (ya la sigue Nora) o la conversación está viva. Primera ejecución: 6 tareas (de 58 oportunidades activas sin servicio; 101 más ya estaban perdidas).
