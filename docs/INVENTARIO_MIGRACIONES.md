@@ -52,3 +52,9 @@ Se activó la extensión **pg_cron** (antes no estaba) y existe un trabajo `tare
 
 ### Regla de tareas para oportunidades sin servicio elegido (decidida el 2026-10-05)
 48 h de espera desde la creación · reintento cada 48 h, máximo 3 tareas por oportunidad y ninguna nueva mientras la anterior siga abierta · cola común (la tabla `tasks` no tiene responsable). No se crea tarea si la oportunidad está perdida o perdida por silencio, ya se envió a Operacional, el cliente ya pagó, está en «Seguimiento (Sin Respuesta)» (ya la sigue Nora) o la conversación está viva. Primera ejecución: 6 tareas (de 58 oportunidades activas sin servicio; 101 más ya estaban perdidas).
+
+### Actualización (2026-10-05, tarde): 205 migraciones, regla de tareas verificada
+- Migraciones en producción: **205** = 201 del inventario + 3 de esta serie (`…114808`, `…115108`, `…115140`) + 1 ajena (`20261005151017 nora_catalogo_solo_tramites_en_lista`, aplicada por otra sesión; **no tiene archivo en el repositorio**). El recuento sube con cada cambio: para refrescarlo,
+  `select count(*), max(version) from supabase_migrations.schema_migrations;`
+- Regla `tareas_sin_servicio`: 9 tareas abiertas = 6 de la primera ejecución (11:00) + 1 en cada una de las ejecuciones de las 14:00, 15:00 y 16:00 (oportunidades que cruzaron las 48 h). Todas son del intento 1, de 9 oportunidades distintas; 0 `dedupe_key` repetidas, 0 pares de tareas de la misma oportunidad con menos de 48 h entre sí, 0 oportunidades con más de una tarea abierta. El trabajo de pg_cron se ejecutó con éxito cada hora.
+- Los indicadores del Inicio cambian con los datos (p. ej. oportunidades sin servicio 159 → 162; activas 58 → 55): no reutilizar cifras de informes anteriores.
