@@ -34,11 +34,11 @@ try {
     version: 2, generado_en: new Date().toISOString(), zona: 'America/Sao_Paulo',
     resultados_periodo: {
       oportunidades: { actual: { oportunidades: 264, personas: 253, con_anuncio: 78, sin_atribucion: 186, sin_servicio_elegido: 151, pagadas: 3, maduras_7d: 142, pagadas_7d: 0, maduras_30d: 0, pagadas_30d: 0, pagadas_con_anuncio: 2, ingresos_con_anuncio: 129 }, previo: null },
-      cobrado: { actual: { n: 14, total: 1208, sin_oportunidad: 9 }, previo: null },
+      cobrado: { actual: { n: 16, total: 1365, atribuido: 5, ambiguo: 0, sin_coincidencia: 2, sin_oportunidad: 9 }, previo: null },
       gasto: { actual: { total: 564.01, conversaciones: 177 }, previo: null },
       ingresos_por_servicio: [{ servicio: 'RNM (1ª vía)', total: 229, n: 3 }],
     },
-    situacion_actual: { potencial: { n: 138, total: 8196, sin_movimiento_14d: 0 }, conversaciones_pendientes: 39, meta_sync: { ultimo_ok: new Date().toISOString(), ultimo_resultado: true } },
+    situacion_actual: { potencial: { n: 143, total: 9508, sin_actividad_7d: 109, sin_actividad_14d: 0 }, conversaciones_pendientes: 39, meta_sync: { ultimo_ok: new Date().toISOString(), ultimo_resultado: true } },
   };
   const emb = {
     version: 1, embudo: { actual: { oportunidades: 264, con_servicio: 113, propuesta: 141, pago: 3, iniciado: 5, iniciado_sin_pago: 2, perdidas: 171 }, previo: null },

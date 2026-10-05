@@ -244,7 +244,7 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
                   sub={r && `${r.oportunidades.personas} personas distintas · ${r.oportunidades.sinServicio} sin servicio elegido`} onClick={() => onNavigate('comercial')} />
                 <Kpi label="Cobrado" status={stResumen} onRetry={() => resumenQ.refetch()}
                   value={r && fmtBRL(r.cobrado.total, 2)} delta={r?.cobrado.var}
-                  sub={r && `${r.cobrado.pagos} pagos confirmados${r.cobrado.sinOportunidad ? ` · ${r.cobrado.sinOportunidad} sin oportunidad asociable` : ''}`} onClick={() => onNavigate('finance')} />
+                  sub={r && `${r.cobrado.pagos} pagos · ${r.cobrado.atribuidos} ligados a una oportunidad${r.cobrado.sinAtribucionConfirmada ? ` · ${r.cobrado.sinAtribucionConfirmada} sin atribución confirmada (${r.cobrado.sinOportunidad} de clientes sin oportunidad, ${r.cobrado.sinCoincidencia} sin servicio coincidente${r.cobrado.ambiguos ? `, ${r.cobrado.ambiguos} ambiguos` : ''})` : ''}`} onClick={() => onNavigate('finance')} />
                 <Kpi label="Conversión por oportunidad" status={stResumen} onRetry={() => resumenQ.refetch()}
                   value={r && fmtPct(r.conversion.acumulada)}
                   sub={r && (r.conversion.acumulada == null ? 'sin oportunidades en el período'
@@ -346,7 +346,7 @@ export default function HomeView({ onNavigate, onOpenChat, onNavigateToClient, o
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Kpi label="Propuestas abiertas" status={stResumen} onRetry={() => resumenQ.refetch()}
                   value={r && fmtBRL(r.actual.potencial.total)}
-                  sub={r && `${r.actual.potencial.n} sin pago · potencial, no dinero cobrado${r.actual.potencial.sinMovimiento14d ? ` · ${r.actual.potencial.sinMovimiento14d} sin movimiento 14+ días` : ''}`}
+                  sub={r && `${r.actual.potencial.n} sin pago · potencial, no dinero cobrado${r.actual.potencial.sinActividad7d ? ` · ${r.actual.potencial.sinActividad7d} sin actividad real en 7+ días (${r.actual.potencial.sinActividad14d} en 14+)` : ''}`}
                   onClick={() => onNavigate('comercial')} />
                 <Kpi label="Conversaciones pendientes" status={stResumen} onRetry={() => resumenQ.refetch()}
                   value={r && (r.actual.conversacionesPendientes ?? '—')} sub="sin respuesta ahora mismo"

@@ -77,7 +77,14 @@ export function derivarResumen(r) {
 
   return {
     oportunidades: { total: opp, personas: cero(a.personas), sinServicio: cero(a.sin_servicio_elegido), var: variacion(opp, oppPrev), previo: oppPrev },
-    cobrado: { total: cobrado, pagos: cero(rp.cobrado?.actual?.n), sinOportunidad: cero(rp.cobrado?.actual?.sin_oportunidad), var: variacion(cobrado, cobradoPrev) },
+    // Conciliación (atribucion_pagos): cada pago va a UNA oportunidad o queda sin atribución confirmada.
+    cobrado: {
+      total: cobrado, pagos: cero(rp.cobrado?.actual?.n), var: variacion(cobrado, cobradoPrev),
+      atribuidos: cero(rp.cobrado?.actual?.atribuido), ambiguos: cero(rp.cobrado?.actual?.ambiguo),
+      sinCoincidencia: cero(rp.cobrado?.actual?.sin_coincidencia), sinOportunidad: cero(rp.cobrado?.actual?.sin_oportunidad),
+      // pagos que no se pueden atribuir con certeza a una oportunidad
+      sinAtribucionConfirmada: cero(rp.cobrado?.actual?.ambiguo) + cero(rp.cobrado?.actual?.sin_coincidencia) + cero(rp.cobrado?.actual?.sin_oportunidad),
+    },
     // Conversión por OPORTUNIDAD: pago posterior, mismo cliente y mismo servicio. Las de plazo solo cuentan las que ya lo cumplieron.
     conversion: {
       acumulada: pct(cero(a.pagadas), opp), pagadas: cero(a.pagadas), oportunidades: opp,
@@ -98,7 +105,8 @@ export function derivarResumen(r) {
     },
     porServicio: (rp.ingresos_por_servicio || []).map((s) => ({ servicio: s.servicio, total: cero(s.total), n: cero(s.n) })),
     actual: {
-      potencial: { total: cero(sa.potencial?.total), n: cero(sa.potencial?.n), sinMovimiento14d: cero(sa.potencial?.sin_movimiento_14d) },
+      // Actividad comercial REAL (mensajes, atención, seguimiento); updated_at no sirve: las sincronizaciones también lo tocan.
+      potencial: { total: cero(sa.potencial?.total), n: cero(sa.potencial?.n), sinActividad7d: cero(sa.potencial?.sin_actividad_7d), sinActividad14d: cero(sa.potencial?.sin_actividad_14d) },
       conversacionesPendientes: num(sa.conversaciones_pendientes),
       meta: saludMeta(sa.meta_sync),
     },

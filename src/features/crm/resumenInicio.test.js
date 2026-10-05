@@ -37,12 +37,12 @@ const crudo = (extra = {}) => ({
         maduras_7d: 142, pagadas_7d: 1, maduras_30d: 0, pagadas_30d: 0, pagadas_con_anuncio: 2, ingresos_con_anuncio: 129 },
       previo: null,
     },
-    cobrado: { actual: { n: 14, total: 1208, sin_oportunidad: 9 }, previo: null },
+    cobrado: { actual: { n: 16, total: 1365, atribuido: 5, ambiguo: 0, sin_coincidencia: 2, sin_oportunidad: 9 }, previo: null },
     gasto: { actual: { total: 564.01, conversaciones: 177 }, previo: null },
     ingresos_por_servicio: [{ servicio: 'RNM', total: '229.00', n: 3 }],
   },
   situacion_actual: {
-    potencial: { n: 138, total: 8196, sin_movimiento_14d: 0 },
+    potencial: { n: 143, total: 9508, sin_actividad_7d: 109, sin_actividad_14d: 0 },
     conversaciones_pendientes: 39,
     meta_sync: { ultimo_ok: '2026-10-05T04:50:00Z', ultimo_resultado: true },
   },
@@ -107,15 +107,25 @@ test('sin gasto no hay costos; sin oportunidades no hay porcentaje', () => {
   assert.equal(r.atribucion.conAnuncioPct, null);
 });
 
-test('pagos sin oportunidad asociable se exponen (el cruce no explica todo el cobrado)', () => {
+test('conciliación de pagos: atribuidos vs sin atribución confirmada', () => {
   const c = derivarResumen(crudo()).cobrado;
-  assert.equal(c.pagos, 14);
+  assert.equal(c.pagos, 16);
+  assert.equal(c.atribuidos, 5);
   assert.equal(c.sinOportunidad, 9);
+  assert.equal(c.sinCoincidencia, 2);
+  assert.equal(c.sinAtribucionConfirmada, 11);
+  assert.equal(c.atribuidos + c.sinAtribucionConfirmada, c.pagos);
+});
+
+test('propuestas abiertas: la inactividad se mide con actividad real', () => {
+  const p = derivarResumen(crudo()).actual.potencial;
+  assert.equal(p.sinActividad7d, 109);
+  assert.equal(p.sinActividad14d, 0);
 });
 
 test('situación actual va aparte de los resultados del período', () => {
   const r = derivarResumen(crudo());
-  assert.equal(r.actual.potencial.n, 138);
+  assert.equal(r.actual.potencial.n, 143);
   assert.equal(r.actual.conversacionesPendientes, 39);
   assert.equal(r.actual.meta.estado === 'ok' || r.actual.meta.estado === 'atrasado', true);
 });
@@ -165,8 +175,8 @@ test('embudo: sin pagos la tasa del siguiente paso es null (no 0 ni infinito)', 
 
 test('economía: solo resultado tras publicidad, nunca margen neto sin costos registrados', () => {
   const eco = derivarEconomia(derivarResumen(crudo()), derivarEmbudo(crudoEmbudo()));
-  assert.ok(Math.abs(eco.resultadoTrasPublicidad - (1208 - 564.01)) < 1e-9);
-  assert.ok(Math.abs(eco.roas - 1208 / 564.01) < 1e-9);
+  assert.ok(Math.abs(eco.resultadoTrasPublicidad - (1365 - 564.01)) < 1e-9);
+  assert.ok(Math.abs(eco.roas - 1365 / 564.01) < 1e-9);
   assert.equal(eco.margenNetoDisponible, false);
   assert.equal(eco.faltan.length, 2);
 });
