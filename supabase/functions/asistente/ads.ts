@@ -9,6 +9,11 @@ import {
   proponerExperimentoV4,
   medirExperimentoV4,
   listarExperimentosV4,
+  generarConceptosCreativos,
+  listarPrompts,
+  guardarPrompt,
+  rankingCreativos,
+  compararCreativos,
 } from './campaign_science.ts';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
@@ -1559,6 +1564,81 @@ export const ADS_TOOL_DEFS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'ranking_creativos_ads',
+      description: 'Genera el ranking de creativos publicitarios por métrica real de negocio (costo_por_cliente, clientes, conversaciones, ctr) conectando impresiones Meta con leads de CRM y clientes pagadores.',
+      parameters: {
+        type: 'object',
+        properties: {
+          servicio: str('Filtrar por servicio publicitario (CPF, Agendamento PF, RNM, Residência Permanente, Refúgio)'),
+          metrica: {
+            type: 'string',
+            enum: ['costo_por_cliente', 'clientes', 'conversaciones', 'ctr'],
+            description: 'Métrica por la cual ordenar el ranking',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'consultar_biblioteca_prompts',
+      description: 'Consulta la biblioteca de prompts creativos de Flujo de Migração para saber qué instrucciones e ideas visuales generan mejores creativos y conversiones.',
+      parameters: {
+        type: 'object',
+        properties: {
+          servicio: str('Filtrar por servicio (CPF, RNM, etc.)'),
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generar_concepto_creativo',
+      description: 'Genera conceptos de creativos publicitarios de alta conversión con prompt para imagen profesional, copy persuasivo, titular y llamada a la acción para un servicio específico.',
+      parameters: {
+        type: 'object',
+        properties: {
+          servicio: str('Servicio objetivo: CPF, Agendamento PF, RNM, Residência Permanente, Refúgio'),
+          concepto: {
+            type: 'string',
+            enum: ['servicio_directo', 'persona_documentacion', 'problema_solucion', 'institucional', 'ganador_historico'],
+            description: 'Línea conceptual visual para el anuncio publicitario',
+          },
+          formato: {
+            type: 'string',
+            enum: ['1:1', '4:5', '9:16'],
+            description: 'Formato o relación de aspecto (1:1 Feed, 4:5 Portrait, 9:16 Stories/Reels)',
+          },
+        },
+        required: ['servicio'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'comparar_creativos_ads',
+      description: 'Compara hasta 4 creativos publicitarios cara a cara (A vs B vs C vs D) evaluando gasto, impresiones, clics, conversaciones, clientes pagadores y costo por cliente para determinar el ganador.',
+      parameters: {
+        type: 'object',
+        properties: {
+          creative_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Lista de IDs de creativos a comparar (entre 2 y 4 IDs)',
+          },
+        },
+        required: ['creative_ids'],
+      },
+    },
+  },
 ];
 
 // ── Ejecución de Herramientas de Ads en el ciclo del Asistente ──
@@ -1836,6 +1916,26 @@ export async function runAdsTool(
     case 'listar_experimentos_v4': {
       const experimentos = await listarExperimentosV4(ctx.admin, args.limite || 20);
       return JSON.stringify({ total: experimentos.length, experimentos });
+    }
+
+    case 'ranking_creativos_ads': {
+      const ranking = await rankingCreativos(ctx.admin, args?.metrica || 'costo_por_cliente', args?.servicio);
+      return JSON.stringify({ total: ranking.length, ranking });
+    }
+
+    case 'consultar_biblioteca_prompts': {
+      const prompts = await listarPrompts(ctx.admin, args?.servicio);
+      return JSON.stringify({ total: prompts.length, prompts });
+    }
+
+    case 'generar_concepto_creativo': {
+      const concepto = generarConceptosCreativos(args?.servicio, args?.concepto, args?.formato);
+      return JSON.stringify(concepto);
+    }
+
+    case 'comparar_creativos_ads': {
+      const comparacion = await compararCreativos(ctx.admin, args?.creative_ids || []);
+      return JSON.stringify(comparacion);
     }
 
     default:

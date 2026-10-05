@@ -771,3 +771,346 @@ export async function listarExperimentosV4(admin: SupabaseClient, limite = 20) {
   }
   return exps || [];
 }
+
+// ── 7. Motor Científico V5: Generación y Gestión de Creativos Publicitarios ──
+
+export const SERVICIOS_SOPORTADOS = ['CPF', 'Agendamento PF', 'RNM', 'Residência Permanente', 'Refúgio'] as const;
+export type ServicioPublicitario = (typeof SERVICIOS_SOPORTADOS)[number];
+
+export const FORMATOS_CREATIVOS = ['1:1', '4:5', '9:16'] as const;
+export type FormatoCreativo = (typeof FORMATOS_CREATIVOS)[number];
+
+export const CONCEPTOS_VISUALES = [
+  'persona_documentacion',
+  'problema_solucion',
+  'servicio_directo',
+  'institucional',
+  'ganador_historico',
+] as const;
+export type ConceptoVisual = (typeof CONCEPTOS_VISUALES)[number];
+
+export interface GeneradorConceptoOutput {
+  service: string;
+  visual_concept: string;
+  format: string;
+  prompt_imagen: string;
+  headline: string;
+  primary_text: string;
+  cta: string;
+  variables: Record<string, string>;
+}
+
+export function generarConceptosCreativos(
+  service: string,
+  concepto: string = 'servicio_directo',
+  formato: string = '1:1'
+): GeneradorConceptoOutput {
+  const normServicio = SERVICIOS_SOPORTADOS.find(s => s.toLowerCase() === service.toLowerCase()) || 'CPF';
+  const aspecto = formato === '9:16' ? 'vertical 9:16 for Stories and Reels' : formato === '4:5' ? 'portrait 4:5 for Feed' : 'square 1:1 for Feed';
+
+  let promptImg = '';
+  let headline = '';
+  let copy = '';
+  let cta = 'Enviar mensaje';
+
+  switch (concepto) {
+    case 'persona_documentacion':
+      promptImg = `Professional commercial advertising photography, ${aspecto}. Realistic South American immigrant in Brazil holding clean legal documentation folder, smiling with relief and confidence, modern urban Brazilian architectural background out of focus, warm natural golden hour lighting, cinematic color grading, authentic emotional expression, 8k resolution, no artificial text, clean layout for marketing ad.`;
+      headline = `Tu ${normServicio} en Brasil, seguro y sin complicaciones`;
+      copy = `Llegar a un nuevo país ya tiene suficientes desafíos. Regulariza tu ${normServicio} con el equipo legal de Flujo de Migração y evita errores que demoren tu proceso. Atención 100% en español.`;
+      break;
+
+    case 'problema_solucion':
+      promptImg = `High-end conceptual advertising photography, ${aspecto}. Visual contrast split: left side representing confusing bureaucratic documents and crowded lines in black and white, right side in full vibrant color showing a calm professional consultation with digital approval and warm lighting, sophisticated legal service branding style, ultra realistic, no distorted text.`;
+      headline = `¿Complicaciones con tu ${normServicio}? Lo resolvemos`;
+      copy = `Olvídate de las filas interminables y los formularios confusos de la Receita y la Policía Federal. Te acompañamos paso a paso hasta que tengas tu trámite listo en mano.`;
+      break;
+
+    case 'institucional':
+      promptImg = `Modern corporate architectural and legal office aesthetic, ${aspecto}. Professional desk with Brazilian legal paperwork, elegant brass pen, official passport, soft ambient office lighting, clean minimalist composition with deep navy blue and emerald tones, high authority commercial look, Photorealistic 8k, sharp focus.`;
+      headline = `Asesoría Legal Especializada en Migración Brasileña`;
+      copy = `Flujo de Migração: Más de 10 años de experiencia ayudando a extranjeros a obtener su ${normServicio} y residencia legal en Brasil con respaldo profesional garantizado.`;
+      break;
+
+    case 'ganador_historico':
+      promptImg = `Action-oriented editorial marketing photography, ${aspecto}. Young expat in São Paulo or Rio holding their official Brazilian document with a joyful relaxed smile while walking along a sunny modern avenue, authentic candid style, vibrant natural Brazilian colors, cinematic daylight, professional commercial ad standard.`;
+      headline = `Tu ${normServicio} listo en tiempo récord`;
+      copy = `El trámite más importante para trabajar, abrir cuenta bancaria y vivir legalmente en Brasil. Toca el botón para hablar directamente con nuestro equipo por WhatsApp.`;
+      break;
+
+    case 'servicio_directo':
+    default:
+      promptImg = `Clean commercial advertising photo, ${aspecto}. Warm and approachable immigration advisor in modern Brazilian office environment presenting approved official documents with friendly welcoming smile, premium corporate color palette, studio lighting, hyper realistic, crisp details.`;
+      headline = `Tramita tu ${normServicio} hoy mismo`;
+      copy = `Obtén tu ${normServicio} en Brasil sin demoras innecesarias. Te guiamos con los requisitos exactos y preparamos toda tu documentación. Inicia ahora por WhatsApp.`;
+      break;
+  }
+
+  return {
+    service: normServicio,
+    visual_concept: concepto,
+    format: formato,
+    prompt_imagen: promptImg,
+    headline,
+    primary_text: copy,
+    cta,
+    variables: {
+      nacionalidad_objetivo: 'Hispanoamericanos en Brasil',
+      canal_destino: 'WhatsApp Directo',
+      estilo_fotografico: 'Comercial realista alta fidelidad',
+    },
+  };
+}
+
+// ── 8. Biblioteca de Prompts (Lectura, Guardado y Performance Acumulada) ──
+
+export async function listarPrompts(admin: SupabaseClient, service?: string) {
+  let q = admin
+    .from('creative_prompts')
+    .select('*')
+    .order('clientes', { ascending: false })
+    .order('created_at', { ascending: false });
+
+  if (service) {
+    q = q.ilike('service', `%${service}%`);
+  }
+
+  const { data, error } = await q;
+  if (error) {
+    console.error('[Creative Prompts] Error listando prompts:', error.message);
+    return [];
+  }
+  return data || [];
+}
+
+export async function guardarPrompt(
+  admin: SupabaseClient,
+  promptData: {
+    nombre: string;
+    service: string;
+    prompt: string;
+    version?: string;
+    concepto?: string;
+    variables?: Record<string, unknown>;
+  }
+) {
+  const { data, error } = await admin
+    .from('creative_prompts')
+    .insert({
+      organization_id: ORG_ID,
+      nombre: promptData.nombre,
+      service: promptData.service,
+      prompt: promptData.prompt,
+      version: promptData.version || 'v1.0',
+      concepto: promptData.concepto || 'servicio_directo',
+      variables: promptData.variables || {},
+    })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`Error guardando prompt en la biblioteca: ${error.message}`);
+  }
+  return data;
+}
+
+// ── 9. Biblioteca de Creativos (Lectura, Guardado, Ranking y Comparador) ──
+
+export async function listarCreativos(
+  admin: SupabaseClient,
+  filtros?: { service?: string; format?: string; visual_concept?: string; limit?: number }
+) {
+  let q = admin
+    .from('campaign_creatives')
+    .select(`
+      id, service, prompt_text, prompt_version, image_url, format, headline, primary_text, cta,
+      visual_concept, meta_creative_id, ad_id, campaign_id, adset_id, status, created_at,
+      creative_prompts(id, nombre, version)
+    `)
+    .order('created_at', { ascending: false })
+    .limit(filtros?.limit || 50);
+
+  if (filtros?.service) q = q.ilike('service', `%${filtros.service}%`);
+  if (filtros?.format) q = q.eq('format', filtros.format);
+  if (filtros?.visual_concept) q = q.eq('visual_concept', filtros.visual_concept);
+
+  const { data, error } = await q;
+  if (error) {
+    console.error('[Creatives Hub] Error listando creativos:', error.message);
+    return [];
+  }
+  return data || [];
+}
+
+export async function guardarCreativo(
+  admin: SupabaseClient,
+  creativeData: {
+    prompt_id?: string;
+    service: string;
+    prompt_text: string;
+    prompt_version?: string;
+    image_url: string;
+    format?: string;
+    headline?: string;
+    primary_text?: string;
+    cta?: string;
+    visual_concept?: string;
+    meta_creative_id?: string;
+    ad_id?: string;
+    campaign_id?: string;
+    adset_id?: string;
+    status?: string;
+  }
+) {
+  const { data, error } = await admin
+    .from('campaign_creatives')
+    .insert({
+      organization_id: ORG_ID,
+      prompt_id: creativeData.prompt_id || null,
+      service: creativeData.service,
+      prompt_text: creativeData.prompt_text,
+      prompt_version: creativeData.prompt_version || 'v1.0',
+      image_url: creativeData.image_url,
+      format: creativeData.format || '1:1',
+      headline: creativeData.headline || null,
+      primary_text: creativeData.primary_text || null,
+      cta: creativeData.cta || 'Enviar mensaje',
+      visual_concept: creativeData.visual_concept || 'servicio_directo',
+      meta_creative_id: creativeData.meta_creative_id || null,
+      ad_id: creativeData.ad_id || null,
+      campaign_id: creativeData.campaign_id || null,
+      adset_id: creativeData.adset_id || null,
+      status: creativeData.status || 'draft',
+    })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`Error guardando creativo: ${error.message}`);
+  }
+
+  // Si tiene prompt asociado, incrementar contador de creativos generados
+  if (creativeData.prompt_id) {
+    const { data: p } = await admin
+      .from('creative_prompts')
+      .select('creativos_generados')
+      .eq('id', creativeData.prompt_id)
+      .maybeSingle();
+    if (p) {
+      await admin
+        .from('creative_prompts')
+        .update({ creativos_generados: (p.creativos_generados || 0) + 1, updated_at: new Date().toISOString() })
+        .eq('id', creativeData.prompt_id);
+    }
+  }
+
+  return data;
+}
+
+// ── 10. Ranking y Comparador de Creativos (Métricas Reales de Negocio) ──
+
+export async function rankingCreativos(
+  admin: SupabaseClient,
+  metrica: string = 'costo_por_cliente',
+  service?: string
+) {
+  const creativos = await listarCreativos(admin, { service });
+  if (!creativos.length) return [];
+
+  const adIds = creativos.map(c => c.ad_id).filter(Boolean);
+
+  const insightsPorAd: Record<string, { spend: number; impressions: number; clicks: number; conversations: number }> = {};
+  if (adIds.length > 0) {
+    const { data: ins } = await admin
+      .from('meta_ads_insights')
+      .select('ad_id, gasto, impresiones, clics, conversaciones')
+      .in('ad_id', adIds);
+    for (const r of ins || []) {
+      const aid = String((r as any).ad_id);
+      if (!insightsPorAd[aid]) insightsPorAd[aid] = { spend: 0, impressions: 0, clicks: 0, conversations: 0 };
+      insightsPorAd[aid].spend += Number((r as any).gasto) || 0;
+      insightsPorAd[aid].impressions += Number((r as any).impresiones) || 0;
+      insightsPorAd[aid].clicks += Number((r as any).clics) || 0;
+      insightsPorAd[aid].conversations += Number((r as any).conversaciones) || 0;
+    }
+  }
+
+  const { data: leads } = await admin
+    .from('comercial_leads')
+    .select('id, meta_ad_id, meta_creative_id, client_id');
+  const { data: pagos } = await admin
+    .from('payments')
+    .select('amount, client_id')
+    .eq('status', 'paid');
+
+  const clientesQuePagaronIds = new Set((pagos || []).map(p => p.client_id).filter(Boolean));
+
+  const ranked = creativos.map(c => {
+    const aid = c.ad_id ? String(c.ad_id) : '';
+    const ins = insightsPorAd[aid] || { spend: 0, impressions: 0, clicks: 0, conversations: 0 };
+
+    const leadsDelCreativo = (leads || []).filter(l =>
+      (c.ad_id && (l as any).meta_ad_id === c.ad_id) ||
+      (c.meta_creative_id && (l as any).meta_creative_id === c.meta_creative_id)
+    );
+
+    const clientesDelCreativo = leadsDelCreativo.filter(l => clientesQuePagaronIds.has(l.client_id)).length;
+    const ctr = ins.impressions > 0 ? (ins.clicks / ins.impressions) * 100 : null;
+    const cpc = ins.clicks > 0 ? ins.spend / ins.clicks : null;
+    const cpcConv = ins.conversations > 0 ? ins.spend / ins.conversations : null;
+    const costoCliente = clientesDelCreativo > 0 ? ins.spend / clientesDelCreativo : null;
+
+    return {
+      creative_id: c.id,
+      headline: c.headline || 'Sin título',
+      service: c.service,
+      format: c.format,
+      visual_concept: c.visual_concept,
+      image_url: c.image_url,
+      prompt_text: c.prompt_text,
+      spend: ins.spend > 0 ? ins.spend : null,
+      impressions: ins.impressions > 0 ? ins.impressions : null,
+      clicks: ins.clicks > 0 ? ins.clicks : null,
+      ctr: ctr !== null ? Math.round(ctr * 100) / 100 : null,
+      cpc: cpc !== null ? Math.round(cpc * 100) / 100 : null,
+      conversations: ins.conversations > 0 ? ins.conversations : null,
+      cost_per_conversation: cpcConv !== null ? Math.round(cpcConv * 100) / 100 : null,
+      leads: leadsDelCreativo.length > 0 ? leadsDelCreativo.length : null,
+      paying_customers: clientesDelCreativo > 0 ? clientesDelCreativo : null,
+      cost_per_customer: costoCliente !== null ? Math.round(costoCliente * 100) / 100 : null,
+    };
+  });
+
+  return ranked.sort((a, b) => {
+    if (metrica === 'conversaciones') return (b.conversations || 0) - (a.conversations || 0);
+    if (metrica === 'ctr') return (b.ctr || 0) - (a.ctr || 0);
+    if (metrica === 'clientes') return (b.paying_customers || 0) - (a.paying_customers || 0);
+    if (a.cost_per_customer && b.cost_per_customer) return a.cost_per_customer - b.cost_per_customer;
+    if (a.cost_per_customer) return -1;
+    if (b.cost_per_customer) return 1;
+    if (a.cost_per_conversation && b.cost_per_conversation) return a.cost_per_conversation - b.cost_per_conversation;
+    return (b.conversations || 0) - (a.conversations || 0);
+  });
+}
+
+export async function compararCreativos(
+  admin: SupabaseClient,
+  creativeIds: string[]
+) {
+  if (!creativeIds || !creativeIds.length) return { error: 'Se requieren al menos 2 creativos para comparar.' };
+
+  const ids = creativeIds.slice(0, 4);
+  const todos = await rankingCreativos(admin);
+  const seleccionados = todos.filter(c => ids.includes(c.creative_id));
+
+  return {
+    comparados: seleccionados.length,
+    creativos: seleccionados,
+    ganador_recomendado: seleccionados.sort((a, b) => {
+      if (a.cost_per_customer && b.cost_per_customer) return a.cost_per_customer - b.cost_per_customer;
+      if (a.cost_per_customer) return -1;
+      if (b.cost_per_customer) return 1;
+      return (a.cost_per_conversation || 999) - (b.cost_per_conversation || 999);
+    })[0] || null,
+  };
+}

@@ -18,6 +18,8 @@ import {
   HelpCircle,
   ArrowRight,
   Filter,
+  Palette,
+  BookOpen,
 } from 'lucide-react';
 import { useAssistant } from '../context/AssistantContext';
 import * as api from '../services/assistantService';
@@ -26,6 +28,8 @@ import AlertCard from './AlertCard';
 import CampaignCard from './CampaignCard';
 import CampaignTable from './CampaignTable';
 import PerformanceChart from './PerformanceChart';
+import CreativesHubView from './CreativesHubView';
+import PromptLibraryView from './PromptLibraryView';
 import { LoadingSpinner } from '@/shared/components/ui/LoadingSpinner';
 
 export default function IntelligenceCenterView() {
@@ -34,8 +38,10 @@ export default function IntelligenceCenterView() {
   const [data, setData] = useState(null);
   const [experiments, setExperiments] = useState([]);
   const [learnings, setLearnings] = useState([]);
+  const [creatives, setCreatives] = useState([]);
+  const [creativePrompts, setCreativePrompts] = useState([]);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'meta_ads' | 'experimentos' | 'aprendizajes' | 'campanas'
+  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'meta_ads' | 'experimentos' | 'aprendizajes' | 'campanas' | 'creativos' | 'prompts'
   const [campaignStatusFilter, setCampaignStatusFilter] = useState('all'); // 'all' | 'ACTIVE' | 'PAUSED' | 'testing' | 'completed'
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
   const [dateRange, setDateRange] = useState('7d'); // '7d' | '14d' | '30d' | 'custom'
@@ -71,14 +77,18 @@ export default function IntelligenceCenterView() {
     setLoading(true);
     setError(null);
     try {
-      const [adsRes, expsRes, learningsRes] = await Promise.all([
+      const [adsRes, expsRes, learningsRes, creativesRes, promptsRes] = await Promise.all([
         api.getAdsData(pedirRango()),
         api.getCampaignExperiments(30),
         api.getCampaignLearnings(),
+        api.getCampaignCreatives(),
+        api.getCreativePrompts(),
       ]);
       setData(adsRes);
       setExperiments(expsRes || []);
       setLearnings(learningsRes || []);
+      setCreatives(creativesRes || []);
+      setCreativePrompts(promptsRes || []);
     } catch (err) {
       // El detalle técnico va a la consola; al usuario se le muestra un mensaje entendible.
       console.error('[Centro de Inteligencia] Error cargando métricas:', err?.detalle || err);
@@ -313,12 +323,34 @@ export default function IntelligenceCenterView() {
           <Layers size={14} />
           <span>Campañas</span>
         </button>
+        <button
+          onClick={() => setActiveTab('creativos')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
+            activeTab === 'creativos'
+              ? 'border-brand-primary text-brand-primary'
+              : 'border-transparent text-chrome-text-muted hover:text-chrome-text'
+          }`}
+        >
+          <Palette size={14} />
+          <span>Creativos V5 ({creatives.length})</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('prompts')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
+            activeTab === 'prompts'
+              ? 'border-brand-primary text-brand-primary'
+              : 'border-transparent text-chrome-text-muted hover:text-chrome-text'
+          }`}
+        >
+          <BookOpen size={14} />
+          <span>Prompts ({creativePrompts.length})</span>
+        </button>
       </div>
 
       {/* Barra de Acciones Rápidas con el Asistente Científico */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-brand-primary/20 bg-brand-primary/5 p-3">
         <span className="text-xs font-semibold text-brand-primary flex items-center gap-1">
-          <Sparkles size={13} /> Flujos Científicos V4:
+          <Sparkles size={13} /> Flujos Científicos V4 / V5:
         </span>
         <button
           onClick={() => preguntar('Diseña una campaña V4 para CPF analizando histórico y aprendizajes previos.')}
@@ -343,6 +375,18 @@ export default function IntelligenceCenterView() {
           className="rounded-lg border border-chrome-border bg-chrome-bg px-3 py-1 text-xs font-medium text-chrome-text hover:border-brand-primary hover:text-brand-primary transition-colors"
         >
           💡 Ver aprendizajes
+        </button>
+        <button
+          onClick={() => { setActiveTab('creativos'); preguntar('Genera el ranking de creativos ordenado por menor costo por cliente pagador para CPF.'); }}
+          className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-400 hover:bg-indigo-500/20 transition-colors flex items-center gap-1"
+        >
+          <Palette size={12} /> 🎨 Ranking de Creativos V5
+        </button>
+        <button
+          onClick={() => preguntar('Consulta la biblioteca de prompts de CPF y sugiere qué instrucción visual podemos iterar para mejorar la tasa de conversación a clientes.')}
+          className="rounded-lg border border-chrome-border bg-chrome-bg px-3 py-1 text-xs font-medium text-chrome-text hover:border-brand-primary hover:text-brand-primary transition-colors flex items-center gap-1"
+        >
+          <BookOpen size={12} /> 📚 Consultar Biblioteca Prompts
         </button>
       </div>
 
@@ -875,6 +919,25 @@ export default function IntelligenceCenterView() {
                 />
               )}
             </div>
+          )}
+
+          {/* ── PESTAÑA 6: CREATIVOS V5 ── */}
+          {activeTab === 'creativos' && (
+            <CreativesHubView
+              creatives={creatives}
+              prompts={creativePrompts}
+              onRefresh={loadData}
+              onAskAssistant={preguntar}
+            />
+          )}
+
+          {/* ── PESTAÑA 7: BIBLIOTECA DE PROMPTS ── */}
+          {activeTab === 'prompts' && (
+            <PromptLibraryView
+              prompts={creativePrompts}
+              onRefresh={loadData}
+              onAskAssistant={preguntar}
+            />
           )}
 
           {/* Límites de Seguridad Activos */}

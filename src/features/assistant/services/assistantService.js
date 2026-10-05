@@ -511,3 +511,98 @@ export async function getCampaignLearnings(service) {
   }
   return data || [];
 }
+
+// ── Motor Científico V5: Creativos y Biblioteca de Prompts ──
+
+export async function getCampaignCreatives(filters = {}) {
+  let q = supabase
+    .from('campaign_creatives')
+    .select(`
+      id, service, prompt_text, prompt_version, image_url, format, headline, primary_text, cta,
+      visual_concept, meta_creative_id, ad_id, campaign_id, adset_id, status, created_at,
+      creative_prompts(id, nombre, version)
+    `)
+    .order('created_at', { ascending: false })
+    .limit(filters.limit || 50);
+
+  if (filters.service) q = q.ilike('service', `%${filters.service}%`);
+  if (filters.format) q = q.eq('format', filters.format);
+  if (filters.visual_concept) q = q.eq('visual_concept', filters.visual_concept);
+
+  const { data, error } = await q;
+  if (error) {
+    console.error('[Campaign Creatives] Error:', error.message);
+    return [];
+  }
+  return data || [];
+}
+
+export async function getCreativePrompts(service) {
+  let q = supabase
+    .from('creative_prompts')
+    .select('*')
+    .order('clientes', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (service) {
+    q = q.ilike('service', `%${service}%`);
+  }
+
+  const { data, error } = await q;
+  if (error) {
+    console.error('[Creative Prompts] Error:', error.message);
+    return [];
+  }
+  return data || [];
+}
+
+export async function saveCampaignCreative(creativeData) {
+  const { data, error } = await supabase
+    .from('campaign_creatives')
+    .insert({
+      organization_id: '00000000-0000-0000-0000-000000000001',
+      prompt_id: creativeData.prompt_id || null,
+      service: creativeData.service,
+      prompt_text: creativeData.prompt_text,
+      prompt_version: creativeData.prompt_version || 'v1.0',
+      image_url: creativeData.image_url,
+      format: creativeData.format || '1:1',
+      headline: creativeData.headline || null,
+      primary_text: creativeData.primary_text || null,
+      cta: creativeData.cta || 'Enviar mensaje',
+      visual_concept: creativeData.visual_concept || 'servicio_directo',
+      status: creativeData.status || 'draft',
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[Save Creative] Error:', error.message);
+    throw new Error(error.message);
+  }
+  return data;
+}
+
+export async function saveCreativePrompt(promptData) {
+  const { data, error } = await supabase
+    .from('creative_prompts')
+    .insert({
+      organization_id: '00000000-0000-0000-0000-000000000001',
+      nombre: promptData.nombre,
+      service: promptData.service,
+      prompt: promptData.prompt,
+      version: promptData.version || 'v1.0',
+      concepto: promptData.concepto || 'servicio_directo',
+      variables: promptData.variables || {},
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[Save Prompt] Error:', error.message);
+    throw new Error(error.message);
+  }
+  return data;
+}
+
