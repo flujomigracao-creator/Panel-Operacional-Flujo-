@@ -52,7 +52,7 @@ export default function IntelligenceCenterView() {
   const [creatives, setCreatives] = useState([]);
   const [creativePrompts, setCreativePrompts] = useState([]);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'metricas' | 'meta_ads' | 'creativos' | 'experimentos' | 'aprendizajes' | 'campanas' | 'prompts'
+  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'metricas' | 'meta_ads' | 'creativos' | 'experimentos' | 'aprendizajes' | 'campanas' | 'creativos_v5' | 'prompts'
   const [campaignStatusFilter, setCampaignStatusFilter] = useState('all'); // 'all' | 'ACTIVE' | 'PAUSED' | 'testing' | 'completed'
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
   const [dateRange, setDateRange] = useState('7d'); // 'hoy' | '7d' | '14d' | '30d' | 'custom'
@@ -432,9 +432,9 @@ export default function IntelligenceCenterView() {
           <span>Campañas</span>
         </button>
         <button
-          onClick={() => setActiveTab('creativos')}
+          onClick={() => setActiveTab('creativos_v5')}
           className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-semibold transition-colors ${
-            activeTab === 'creativos'
+            activeTab === 'creativos_v5'
               ? 'border-brand-primary text-brand-primary'
               : 'border-transparent text-chrome-text-muted hover:text-chrome-text'
           }`}
@@ -485,7 +485,7 @@ export default function IntelligenceCenterView() {
           💡 Ver aprendizajes
         </button>
         <button
-          onClick={() => { setActiveTab('creativos'); preguntar('Genera el ranking de creativos ordenado por menor costo por cliente pagador para CPF.'); }}
+          onClick={() => { setActiveTab('creativos_v5'); preguntar('Genera el ranking de creativos ordenado por menor costo por cliente pagador para CPF.'); }}
           className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-400 hover:bg-indigo-500/20 transition-colors flex items-center gap-1"
         >
           <Palette size={12} /> 🎨 Ranking de Creativos V5
@@ -940,7 +940,7 @@ export default function IntelligenceCenterView() {
           )}
 
           {/* ── PESTAÑA 6: CREATIVOS V5 ── */}
-          {activeTab === 'creativos' && (
+          {activeTab === 'creativos_v5' && (
             <CreativesHubView
               creatives={creatives}
               prompts={creativePrompts}

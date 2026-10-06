@@ -489,7 +489,7 @@ Formula la hipótesis científica, define la variante control vs tratamiento, es
               </div>
 
               {/* Tarjeta Mockup Ad */}
-              <div className="rounded-xl border border-chrome-border bg-neutral-950 p-3 shadow-xl space-y-3 text-white max-w-sm mx-auto">
+              <div className="rounded-xl border border-chrome-border bg-neutral-950 p-3 shadow-xl space-y-3 text-white w-full max-w-[24rem] mx-auto">
                 {/* Cabecera del Ad */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">

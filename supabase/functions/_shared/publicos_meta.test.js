@@ -54,3 +54,30 @@ test('publicosPorVariante: uno para todos, uno por variante o error', () => {
   assert.deepEqual(publicosPorVariante(['A', 'B'], 2), ['A', 'B']);
   assert.throws(() => publicosPorVariante(['A', 'B', 'C'], 2), /uno por variante/);
 });
+
+const CAT_REG = [
+  ...CATALOGO,
+  { clase: 'behaviors', meta_id: '6018797127999', nombre: 'Vivieron en Venezuela (anteriormente expatriados - Venezuela)' },
+  { clase: 'region', meta_id: '458', nombre: 'Roraima' },
+  { clase: 'region', meta_id: '441', nombre: 'Amazonas' },
+  { clase: 'region', meta_id: '460', nombre: 'Estado de São Paulo' },
+];
+const DEF_VE = {
+  codigo: 'VE_FRONTERA_POLOS_ADQ', nombre: 'Venezuela · frontera y polos', tipo: 'adquisicion', edad_min: 21, edad_max: 65,
+  ubicacion: { paises: ['BR'], regiones: ['Roraima', 'Amazonas', 'Estado de Sao Paulo'] },
+  comportamientos: [{ empieza: 'Vivieron en Venezuela' }],
+};
+
+test('armarSegmentacion: con regiones, la ubicación son solo esas regiones (por clave del catálogo, sin acentos)', () => {
+  const t = armarSegmentacion(DEF_VE, CAT_REG);
+  assert.deepEqual(t.geo_locations, { regions: [{ key: '458' }, { key: '441' }, { key: '460' }] });
+  assert.deepEqual(t.flexible_spec[0].behaviors.map((b) => b.id), ['6018797127999']);
+});
+
+test('armarSegmentacion: si falta una región pedida, falla sin sustituirla', () => {
+  assert.throws(() => armarSegmentacion({ ...DEF_VE, ubicacion: { regiones: ['Roraima', 'Narnia'] } }, CAT_REG), /Narnia/);
+});
+
+test('armarSegmentacion: sin regiones sigue usando el país', () => {
+  assert.deepEqual(armarSegmentacion(DEF, CAT_REG).geo_locations, { countries: ['BR'] });
+});

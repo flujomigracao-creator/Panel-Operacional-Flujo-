@@ -6,10 +6,11 @@
 //   generar     → imagen nueva (v1)
 //   regenerar   → versión nueva a partir de un creativo, cambiando UNA variable declarada; conserva el historial
 //   subir       → imagen propia (sin OpenAI)
+//   listar_referencias / subir_referencia / borrar_referencia → fotos de la persona para el modo "Aparezco yo" (con_persona + persona_pose en generar/regenerar)
 //   tendencias  → búsqueda web de tendencias de mercado (hipótesis con fuentes, guardadas en ad_trends)
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { ORG_ID, crearCreativo, generarPrompt, proponerConceptos, modeloImagen, modeloTexto, openaiConfigurado } from '../_shared/creative_store.ts';
+import { ORG_ID, crearCreativo, generarPrompt, proponerConceptos, modeloImagen, modeloTexto, openaiConfigurado, listarReferencias, subirReferencia, borrarReferencia } from '../_shared/creative_store.ts';
 import { sanearError } from '../_shared/creative_logic.ts';
 import { buscarTendencias, listarTendencias } from '../_shared/trends.ts';
 
@@ -46,6 +47,9 @@ Deno.serve(async (req) => {
       case 'generar': return json(await crearCreativo(admin, u.id, body, 'generar'));
       case 'regenerar': return json(await crearCreativo(admin, u.id, body, 'regenerar'));
       case 'subir': return json(await crearCreativo(admin, u.id, body, 'subir'));
+      case 'listar_referencias': return json({ ok: true, referencias: await listarReferencias(admin) });
+      case 'subir_referencia': return json(await subirReferencia(admin, body));
+      case 'borrar_referencia': return json(await borrarReferencia(admin, body));
       case 'tendencias': return json(await buscarTendencias(admin, u.id, body));
       case 'listar_tendencias': return json(await listarTendencias(admin, body));
       default: return json({ ok: false, error: 'Acción desconocida' }, 400);

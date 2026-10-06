@@ -540,12 +540,13 @@ export async function getCampaignLearnings(service) {
 // ── Motor Científico V5: Creativos y Biblioteca de Prompts ──
 
 export async function getCampaignCreatives(filters = {}) {
+  // La tabla vigente es `creatives` (V5); `campaign_creatives` ya no existe. Se conserva la forma que usan las vistas.
   let q = supabase
-    .from('campaign_creatives')
+    .from('creatives')
     .select(`
-      id, service, prompt_text, prompt_version, image_url, format, headline, primary_text, cta,
+      id, service, prompt_text, prompt_version, image_path, format, headline, primary_text, cta,
       visual_concept, meta_creative_id, ad_id, campaign_id, adset_id, status, created_at,
-      creative_prompts(id, nombre, version)
+      creative_prompts(id, name, version)
     `)
     .order('created_at', { ascending: false })
     .limit(filters.limit || 50);
@@ -559,14 +560,26 @@ export async function getCampaignCreatives(filters = {}) {
     console.error('[Campaign Creatives] Error:', error.message);
     return [];
   }
-  return data || [];
+  const filas = data || [];
+  const rutas = [...new Set(filas.map(f => f.image_path).filter(Boolean))];
+  let firmadas = {};
+  if (rutas.length) {
+    const { data: urls } = await supabase.storage.from('creatives').createSignedUrls(rutas, 3600);
+    firmadas = Object.fromEntries((urls || []).filter(u => u.signedUrl).map(u => [u.path, u.signedUrl]));
+  }
+  return filas.map(f => ({
+    ...f,
+    image_url: firmadas[f.image_path] || null,
+    creative_prompts: f.creative_prompts ? { ...f.creative_prompts, nombre: f.creative_prompts.name } : null,
+  }));
 }
 
 export async function getCreativePrompts(service) {
+  // `clientes` y los resultados viven en la vista prompt_resultados (la tabla creative_prompts no los tiene).
   let q = supabase
-    .from('creative_prompts')
+    .from('prompt_resultados')
     .select('*')
-    .order('clientes', { ascending: false })
+    .order('clientes', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
     .limit(50);
 
@@ -579,7 +592,7 @@ export async function getCreativePrompts(service) {
     console.error('[Creative Prompts] Error:', error.message);
     return [];
   }
-  return data || [];
+  return (data || []).map(p => ({ ...p, nombre: p.name, concepto: p.concept }));
 }
 
 export async function saveCampaignCreative(creativeData) {
@@ -614,11 +627,11 @@ export async function saveCreativePrompt(promptData) {
     .from('creative_prompts')
     .insert({
       organization_id: '00000000-0000-0000-0000-000000000001',
-      nombre: promptData.nombre,
+      name: promptData.nombre,
       service: promptData.service,
       prompt: promptData.prompt,
-      version: promptData.version || 'v1.0',
-      concepto: promptData.concepto || 'servicio_directo',
+      version: Number.parseInt(String(promptData.version ?? '1').replace(/\D/g, ''), 10) || 1,
+      concept: promptData.concepto || 'servicio_directo',
       variables: promptData.variables || {},
     })
     .select()

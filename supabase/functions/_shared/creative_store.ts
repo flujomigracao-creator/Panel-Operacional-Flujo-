@@ -5,6 +5,7 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import {
   CONCEPTOS, ESTILOS, OBJETIVOS, construirPromptPublicitario, tamanosCandidatos, validarCreativo, validarCambio,
   tipoImagen, rutaImagen, elegirModeloImagen, sanearError, ajustarPromptRegeneracion, asegurarTextos, textosLiterales, PRINCIPIOS_CREATIVOS,
+  anexarPersona, POSES_PERSONA,
 } from './creative_logic.ts';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
@@ -103,7 +104,7 @@ export async function proponerConceptos(admin: SupabaseClient, userId: string, i
   try {
     r = await chatJson(
       `${PRINCIPIOS_CREATIVOS}\nRespondes SOLO JSON. Texto en español neutro, claro, sin promesas de resultado garantizado ni suplantar a organismos oficiales.`,
-      `Servicio: ${i.service}. Objetivo: ${i.objective || 'conversaciones de WhatsApp'}. Público: ${i.audience || 'extranjeros en Brasil'}. ${contexto}\nDevuelve {"conceptos":[...${cantidad} objetos]}. Cada objeto: {"concept": uno de ${JSON.stringify(CONCEPTOS)}, "hook": frase de 3-8 palabras, "headline": máx 40 caracteres, "primary_text": máx 300 caracteres, "cta": texto de botón corto, "visual_concept": escena en 1-2 frases, "problema": problema real del cliente en una frase, "angulo": ángulo del anuncio, "beneficio": beneficio breve}. ${i.variable && VARIABLES_EXPERIMENTO[i.variable] ? `ES UN EXPERIMENTO CIENTÍFICO: las ${cantidad} variantes cambian ÚNICAMENTE ${VARIABLES_EXPERIMENTO[i.variable]}; todo lo demás (concept, escena, problema, beneficio, cta salvo que la variable sea el CTA) debe ser IDÉNTICO entre ellas, palabra por palabra en lo que no cambia.` : 'Conceptos visuales distintos entre sí.'} REGLAS: (1) el titular y el hook son TEXTO DE ANUNCIO real y listo para publicar, nunca la descripción de un formato (nada de "Reel: …"); las piezas son imágenes estáticas. (2) Meta restringe anuncios que afirman o asumen atributos personales del lector (nacionalidad, estatus migratorio, situación económica…): redacta sobre el SERVICIO ("Gestión de tu CPF", "Cita en la Polícia Federal sin filas") y NO sobre el lector ("¿Eres extranjero?", "¿Eres estudiante internacional?"). (3) Sin promesas garantizadas ni plazos inventados. (4) ${hayHistorial ? 'Puedes usar variacion_ganadora solo si se apoya en los resultados reales de arriba.' : 'NO uses variacion_ganadora: aún no hay ganador demostrado.'}`,
+      `Servicio: ${i.service}. Objetivo: ${i.objective || 'conversaciones de WhatsApp'}. Público: ${i.audience || 'extranjeros en Brasil'}. ${contexto}\nDevuelve {"conceptos":[...${cantidad} objetos]}. Cada objeto: {"concept": uno de ${JSON.stringify(CONCEPTOS)}, "hook": frase de 3-8 palabras, "headline": máx 40 caracteres, "primary_text": máx 300 caracteres, "cta": texto de botón corto, "whatsapp_message": lo que el CLIENTE escribe al tocar el anuncio, en primera persona y específico de esta oferta (máx 80 caracteres, p. ej. «Quiero renovar mi refugio»; NUNCA «quiero más información»), "visual_concept": escena en 1-2 frases, "problema": problema real del cliente en una frase, "angulo": ángulo del anuncio, "beneficio": beneficio breve}. ${i.variable && VARIABLES_EXPERIMENTO[i.variable] ? `ES UN EXPERIMENTO CIENTÍFICO: las ${cantidad} variantes cambian ÚNICAMENTE ${VARIABLES_EXPERIMENTO[i.variable]}; todo lo demás (concept, escena, problema, beneficio, cta salvo que la variable sea el CTA) debe ser IDÉNTICO entre ellas, palabra por palabra en lo que no cambia.` : 'Conceptos visuales distintos entre sí.'} REGLAS: (1) el titular y el hook son TEXTO DE ANUNCIO real y listo para publicar, nunca la descripción de un formato (nada de "Reel: …"); las piezas son imágenes estáticas. (2) Meta restringe anuncios que afirman o asumen atributos personales del lector (nacionalidad, estatus migratorio, situación económica…): redacta sobre el SERVICIO ("Gestión de tu CPF", "Cita en la Polícia Federal sin filas") y NO sobre el lector ("¿Eres extranjero?", "¿Eres estudiante internacional?"). (3) Sin promesas garantizadas ni plazos inventados. (4) ${hayHistorial ? 'Puedes usar variacion_ganadora solo si se apoya en los resultados reales de arriba.' : 'NO uses variacion_ganadora: aún no hay ganador demostrado.'}`,
     );
   } catch (e) {
     await registrarGeneracion(admin, { user_id: userId, kind: 'concepts', model: await modeloTexto().catch(() => 'desconocido'), status: 'error', error: String(e) });
@@ -113,7 +114,7 @@ export async function proponerConceptos(admin: SupabaseClient, userId: string, i
     const concept = (CONCEPTOS as readonly string[]).includes(c.concept) ? c.concept : 'mensaje_directo';
     return {
       concept, hook: String(c.hook || '').slice(0, 120), headline: String(c.headline || '').slice(0, 40), primary_text: String(c.primary_text || '').slice(0, 300),
-      cta: String(c.cta || '').slice(0, 30), visual_concept: String(c.visual_concept || '').slice(0, 300),
+      cta: String(c.cta || '').slice(0, 30), whatsapp_message: String(c.whatsapp_message || '').slice(0, 120), visual_concept: String(c.visual_concept || '').slice(0, 300),
       problema: String(c.problema || '').slice(0, 200), angulo: String(c.angulo || '').slice(0, 120), beneficio: String(c.beneficio || '').slice(0, 160),
     };
   });
@@ -158,13 +159,69 @@ export async function generarPrompt(admin: SupabaseClient, userId: string, d: Da
   }
 }
 
+// ── Fotos de referencia de la persona ("Aparezco yo"): bucket privado, ruta refs/persona/ ──
+const REFS_DIR = 'refs/persona';
+const MAX_REFS = 5;
+
+export async function listarReferencias(admin: SupabaseClient) {
+  const { data } = await admin.storage.from(BUCKET).list(REFS_DIR, { limit: 20, sortBy: { column: 'created_at', order: 'asc' } });
+  const archivos = (data || []).filter((f: any) => f.name && !f.name.startsWith('.'));
+  const refs = [];
+  for (const f of archivos) {
+    const path = `${REFS_DIR}/${f.name}`;
+    refs.push({ path, name: f.name, url: await urlFirmada(admin, path) });
+  }
+  return refs;
+}
+
+export async function subirReferencia(admin: SupabaseClient, i: { image_base64?: string; mime?: string }) {
+  if (!i.image_base64) throw new Error('Falta la imagen.');
+  const t = tipoImagen(i.mime);
+  if (!t) throw new Error('Formato de imagen no permitido (usa PNG, JPG o WebP).');
+  const bytes = b64ToBytes(i.image_base64.replace(/^data:[^,]+,/, ''));
+  if (bytes.length > MAX_BYTES_IMAGEN) throw new Error('La imagen supera 8 MB.');
+  if ((await listarReferencias(admin)).length >= MAX_REFS) throw new Error(`Máximo ${MAX_REFS} fotos de referencia: borra alguna antes de subir otra.`);
+  const path = `${REFS_DIR}/${crypto.randomUUID()}.${t.ext}`;
+  const up = await admin.storage.from(BUCKET).upload(path, bytes, { contentType: t.mime, upsert: false });
+  if (up.error) throw new Error(`No se pudo guardar la foto: ${sanearError(up.error.message)}`);
+  return { ok: true, referencias: await listarReferencias(admin) };
+}
+
+export async function borrarReferencia(admin: SupabaseClient, i: { path?: string }) {
+  if (!i.path || !i.path.startsWith(`${REFS_DIR}/`) || i.path.includes('..')) throw new Error('Ruta de referencia no válida.');
+  await admin.storage.from(BUCKET).remove([i.path]);
+  return { ok: true, referencias: await listarReferencias(admin) };
+}
+
+async function bytesDeReferencias(admin: SupabaseClient) {
+  const refs = await listarReferencias(admin);
+  if (!refs.length) throw new Error('Para usar "Aparezco yo" sube antes al menos 1 foto de referencia.');
+  const out: { bytes: Uint8Array; mime: string; name: string }[] = [];
+  for (const r of refs.slice(0, MAX_REFS)) {
+    const { data } = await admin.storage.from(BUCKET).download(r.path);
+    if (data) out.push({ bytes: new Uint8Array(await data.arrayBuffer()), mime: data.type || 'image/png', name: r.name });
+  }
+  return out;
+}
+
 // ── Imagen (OpenAI Images API) ──
-async function generarImagen(prompt: string, formato: string) {
+async function generarImagen(prompt: string, formato: string, referencias?: { bytes: Uint8Array; mime: string; name: string }[]) {
   const model = await modeloImagen();
   let ultimoError: unknown = null;
   for (const size of tamanosCandidatos(formato)) {
     try {
-      const d = await openai('/images/generations', { method: 'POST', body: JSON.stringify({ model, prompt, size, n: 1 }) });
+      let d: any;
+      if (referencias?.length) {
+        // Edición con fotos de referencia: multipart (sin Content-Type JSON; fetch fija el boundary).
+        const fd = new FormData();
+        fd.append('model', model); fd.append('prompt', prompt); fd.append('size', size); fd.append('quality', 'high'); fd.append('n', '1');
+        for (const r of referencias) fd.append('image[]', new Blob([r.bytes], { type: r.mime }), r.name);
+        const resp = await fetch(`${OPENAI}/images/edits`, { method: 'POST', headers: { Authorization: `Bearer ${clave()}` }, body: fd });
+        d = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(`OpenAI rechazó la solicitud (${resp.status}): ${sanearError(d?.error?.message || '')}`);
+      } else {
+        d = await openai('/images/generations', { method: 'POST', body: JSON.stringify({ model, prompt, size, n: 1 }) });
+      }
       const b64 = d?.data?.[0]?.b64_json;
       if (!b64) throw new Error('OpenAI no devolvió la imagen.');
       // El tamaño realmente usado queda en el uso registrado (para saber si el formato fue exacto o de respaldo).
@@ -214,10 +271,12 @@ export interface EntradaCreativo {
   prompt?: string; prompt_id?: string; prompt_name?: string; concept_id?: string;
   from_creative_id?: string; changed_variable?: string; variant?: string; experiment_id?: string;
   image_base64?: string; mime?: string;
+  whatsapp_message?: string; // texto con el que se abre el chat de WhatsApp (el cliente solo toca Enviar)
+  con_persona?: boolean; persona_pose?: string; // "Aparezco yo": usa las fotos de referencia (refs/persona/)
   problema?: string; angulo?: string; beneficio?: string; variable_experimento?: string;
 }
 
-const COLS = 'id, service, objective, concept, format, prompt_id, prompt_text, prompt_version, hook, headline, primary_text, cta, visual_concept, image_path, image_source, status, parent_creative_id, root_creative_id, version, variant, changed_variable, model, style, audience, language, experiment_id, campaign_id, adset_id, ad_id, created_at';
+const COLS = 'id, service, objective, concept, format, prompt_id, prompt_text, prompt_version, hook, headline, primary_text, cta, visual_concept, image_path, image_source, status, parent_creative_id, root_creative_id, version, variant, changed_variable, model, style, audience, language, experiment_id, campaign_id, adset_id, ad_id, created_at, whatsapp_message';
 
 export async function crearCreativo(admin: SupabaseClient, userId: string, entrada: EntradaCreativo, modo: 'generar' | 'subir' | 'regenerar') {
   let i = { ...entrada };
@@ -234,7 +293,7 @@ export async function crearCreativo(admin: SupabaseClient, userId: string, entra
     const heredado: Record<string, unknown> = {
       service: padre.service, objective: padre.objective, audience: padre.audience, concept: padre.concept, format: padre.format, style: padre.style, language: padre.language,
       hook: padre.hook, headline: padre.headline, primary_text: padre.primary_text, cta: padre.cta, visual_concept: padre.visual_concept,
-      prompt_id: padre.prompt_id, experiment_id: padre.experiment_id, prompt: padre.prompt_text,
+      prompt_id: padre.prompt_id, experiment_id: padre.experiment_id, prompt: padre.prompt_text, whatsapp_message: padre.whatsapp_message,
     };
     // Solo se sobrescribe con valores realmente enviados; un campo vacío del formulario no borra lo heredado.
     for (const [k, v] of Object.entries(entrada)) if (v !== undefined && v !== null && v !== '') heredado[k] = v;
@@ -270,8 +329,11 @@ export async function crearCreativo(admin: SupabaseClient, userId: string, entra
     const { count } = await admin.from('creative_generations').select('id', { count: 'exact', head: true }).eq('organization_id', ORG_ID).eq('kind', 'image').eq('status', 'ok').gte('created_at', hoy.toISOString());
     if ((count ?? 0) >= MAX_IMAGENES_POR_DIA) throw new Error(`Se alcanzó el tope de ${MAX_IMAGENES_POR_DIA} imágenes generadas hoy (control de costo).`);
     try {
-      const g = await generarImagen(promptTexto, formato);
-      bytes = g.bytes; mime = g.mime; modelo = g.model; usage = g.usage;
+      if (i.persona_pose && !POSES_PERSONA[i.persona_pose]) throw new Error(`Pose no válida. Usa una de: ${Object.keys(POSES_PERSONA).join(', ')}.`);
+      // prompt_text se guarda SIN la parte de la persona: así regenerar no la duplica.
+      const refs = i.con_persona ? await bytesDeReferencias(admin) : undefined;
+      const g = await generarImagen(i.con_persona ? anexarPersona(promptTexto, i.persona_pose) : promptTexto, formato, refs);
+      bytes = g.bytes; mime = g.mime; modelo = g.model; usage = { ...(g.usage as object), con_persona: !!i.con_persona, persona_pose: i.con_persona ? (i.persona_pose || 'pared') : null };
     } catch (e) {
       await registrarGeneracion(admin, { user_id: userId, kind: 'image', model: await modeloImagen().catch(() => 'desconocido'), status: 'error', error: String(e) });
       throw new Error(sanearError(String(e instanceof Error ? e.message : e)));
@@ -301,6 +363,7 @@ export async function crearCreativo(admin: SupabaseClient, userId: string, entra
     id, organization_id: ORG_ID, service: i.service, objective: i.objective || null, audience: i.audience || null, concept: i.concept || null, format: formato,
     style: i.style || null, language: i.language || null, prompt_id: prompt.id, prompt_text: promptTexto, prompt_version: prompt.version,
     hook: i.hook || null, headline: i.headline || null, primary_text: i.primary_text || null, cta: i.cta || null, visual_concept: i.visual_concept || null,
+    whatsapp_message: (i.whatsapp_message || '').trim().slice(0, 120) || null,
     image_path: path, image_source: modo === 'subir' ? 'uploaded' : 'generated', image_mime: t.mime, image_bytes: bytes.length, model: modelo,
     version, variant: i.variant || null, changed_variable: padre ? i.changed_variable : null, parent_creative_id: padre?.id ?? null, root_creative_id: rootId,
     concept_id: i.concept_id || null, experiment_id: i.experiment_id || null, created_by: userId,

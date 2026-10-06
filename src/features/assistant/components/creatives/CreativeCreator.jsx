@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import * as cr from '../../services/creativesService';
 
 const VACIO = {
-  concept: 'mensaje_directo', hook: '', headline: '', primary_text: '', cta: 'Enviar mensaje', visual_concept: '',
+  concept: 'mensaje_directo', hook: '', headline: '', primary_text: '', cta: 'Enviar mensaje', whatsapp_message: '', visual_concept: '',
   prompt: '', prompt_id: '', style: 'minimalista_corporativo', concept_id: '',
 };
 
@@ -19,6 +19,7 @@ function ConceptoEditable({ c, i, ctx, prompts, onChange, onListo }) {
 
   const datos = () => ({
     service: ctx.service, format: ctx.format, objective: ctx.objective, audience: ctx.audience || undefined, language: ctx.language,
+    con_persona: ctx.con_persona || undefined, persona_pose: ctx.con_persona ? ctx.persona_pose : undefined,
     ...c, prompt_id: c.prompt_id || undefined, prompt: c.prompt || undefined, concept_id: c.concept_id || undefined,
   });
 
@@ -82,6 +83,9 @@ function ConceptoEditable({ c, i, ctx, prompts, onChange, onListo }) {
           <input className={campo} value={c.cta} onChange={e => set('cta', e.target.value)} />
         </label>
       </div>
+      <label className={`block ${etiqueta}`}>Mensaje de WhatsApp (lo que el cliente envía al tocar el anuncio; vacío = el del servicio, nunca «más información»)
+        <input className={campo} maxLength={120} placeholder="Quiero renovar mi refugio" value={c.whatsapp_message || ''} onChange={e => set('whatsapp_message', e.target.value)} />
+      </label>
       <label className={`block ${etiqueta}`}>Texto principal
         <textarea rows={2} className={campo} value={c.primary_text} onChange={e => set('primary_text', e.target.value)} />
       </label>
@@ -113,8 +117,65 @@ function ConceptoEditable({ c, i, ctx, prompts, onChange, onListo }) {
   );
 }
 
+// "Aparezco yo": fotos de referencia de la persona + pose. Las imágenes se generan como ilustración usando esas fotos.
+function PanelPersona({ ctx, set }) {
+  const [refs, setRefs] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const cargar = () => cr.listarReferencias().then(r => setRefs(r.referencias || [])).catch(() => setRefs([]));
+  useEffect(() => { cargar(); }, []);
+
+  const subir = async (e) => {
+    const archivos = [...(e.target.files || [])];
+    e.target.value = '';
+    if (!archivos.length) return;
+    setBusy(true);
+    try {
+      let r;
+      for (const f of archivos) r = await cr.subirReferencia({ image_base64: await cr.archivoABase64(f), mime: f.type });
+      setRefs(r?.referencias || []);
+      toast.success('Foto(s) de referencia guardada(s)');
+    } catch (err) { toast.error(err.message); } finally { setBusy(false); }
+  };
+  const borrar = async (path) => {
+    setBusy(true);
+    try { const r = await cr.borrarReferencia(path); setRefs(r.referencias || []); } catch (err) { toast.error(err.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="space-y-2 rounded-xl border border-chrome-border bg-chrome-bg-raised p-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="inline-flex items-center gap-2 text-xs font-semibold text-chrome-text-active">
+          <input type="checkbox" checked={!!ctx.con_persona} disabled={!refs.length}
+            onChange={e => set('con_persona', e.target.checked)} />
+          Aparezco yo (ilustración con mi cara, sonriendo y dando la bienvenida)
+        </label>
+        {ctx.con_persona && (
+          <select className={`${campo} w-auto`} value={ctx.persona_pose} onChange={e => set('persona_pose', e.target.value)}>
+            {Object.entries(cr.POSES_PERSONA).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        )}
+        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-chrome-border px-3 py-1.5 text-xs text-chrome-text hover:bg-chrome-bg">
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />} Subir fotos de referencia
+          <input type="file" multiple accept="image/png,image/jpeg,image/webp" className="hidden" disabled={busy} onChange={subir} />
+        </label>
+      </div>
+      {!refs.length && <p className="text-[11px] text-chrome-text-muted">Sube 1 a 5 fotos tuyas (de frente, con buena luz) para activar la opción.</p>}
+      {!!refs.length && (
+        <div className="flex flex-wrap gap-2">
+          {refs.map(r => (
+            <div key={r.path} className="relative">
+              {r.url && <img src={r.url} alt="Referencia" className="h-16 w-12 rounded object-cover" />}
+              <button disabled={busy} onClick={() => borrar(r.path)} title="Quitar" className="absolute -right-1 -top-1 rounded-full bg-red-600 px-1 text-[10px] leading-4 text-white">×</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CreativeCreator({ prompts, onCreado }) {
-  const [ctx, setCtx] = useState({ service: cr.SERVICIOS[0], format: '1:1', objective: 'conversaciones', audience: '', language: 'es' });
+  const [ctx, setCtx] = useState({ service: cr.SERVICIOS[0], format: '1:1', objective: 'conversaciones', audience: '', language: 'es', con_persona: false, persona_pose: 'pared' });
   const [cantidad, setCantidad] = useState(3);
   const [conceptos, setConceptos] = useState([]);
   const [pensando, setPensando] = useState(false);
@@ -173,6 +234,8 @@ export default function CreativeCreator({ prompts, onCreado }) {
           </button>
         </div>
       </div>
+
+      <PanelPersona ctx={ctx} set={set} />
 
       {aviso && <p className="text-[11px] text-chrome-text-muted">{aviso}</p>}
 

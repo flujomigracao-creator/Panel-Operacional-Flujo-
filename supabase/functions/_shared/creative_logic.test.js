@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  evaluarGanador, pValorDosProporciones, construirPromptPublicitario, validarCreativo, tipoImagen, tamanoOpenAI,
+  evaluarGanador, pValorDosProporciones, construirPromptPublicitario, validarCreativo, tipoImagen, tamanoOpenAI, anexarPersona, POSES_PERSONA,
 } from './creative_logic.ts';
 
 const v = (nombre, imp, conv, gasto, cli = 0) => ({ nombre, impresiones: imp, clics: Math.round(imp / 50), gasto, conversaciones: conv, clientes_pagaron: cli });
@@ -155,4 +155,24 @@ test('asegurarTextos: si la IA reescribió un texto, se añade el literal exacto
   const r = asegurarTextos(roto, t);
   assert.ok(r.startsWith(roto) && r.includes('VERBATIM') && r.includes('"Escríbenos por WhatsApp"') && r.includes('"Flujo de Migração"'));
   assert.ok(!r.includes('· "Tu CPF sin complicaciones"'));
+});
+
+test('anexarPersona: conserva el prompt, pide ilustración sonriente y respeta la pose', () => {
+  const out = anexarPersona('Base prompt', 'mostrador');
+  assert.ok(out.startsWith('Base prompt'));
+  assert.match(out, /illustration/i);
+  assert.match(out, /smile/i);
+  assert.ok(out.includes(POSES_PERSONA.mostrador));
+  assert.ok(anexarPersona('x', 'no-existe').includes(POSES_PERSONA.pared)); // pose desconocida → la de respaldo
+});
+
+test('mensajeWhatsApp: el del creativo manda, luego el del servicio, nunca uno genérico', async () => {
+  const { mensajeWhatsApp, paginaBienvenidaWhatsApp } = await import('./creative_logic.ts');
+  assert.equal(mensajeWhatsApp({ whatsapp_message: ' Quiero renovar mi refugio ', service: 'Refúgio' }), 'Quiero renovar mi refugio');
+  assert.equal(mensajeWhatsApp({ service: 'Agendamento PF' }), 'Quiero comenzar mi agendamiento');
+  assert.equal(mensajeWhatsApp({ service: 'Residência Permanente' }), 'Quiero hacer mi residencia');
+  assert.equal(mensajeWhatsApp({ service: 'Servicio raro' }), null);
+  const j = JSON.parse(paginaBienvenidaWhatsApp('Quiero renovar mi refugio'));
+  assert.equal(j.text_format.customer_action_type, 'autofill_message');
+  assert.equal(j.text_format.message.autofill_message.content, 'Quiero renovar mi refugio');
 });

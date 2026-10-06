@@ -344,6 +344,47 @@ export function rutaImagen(servicio: string, creativeId: string, version: number
   return `${slug}/${creativeId}/v${version}/image.${ext}`;
 }
 
+/** Mensaje que el cliente envía por defecto al tocar el anuncio, según el servicio (en español, primera persona). */
+export const MENSAJE_WHATSAPP_POR_SERVICIO: Record<string, string> = {
+  'CPF': 'Quiero hacer mi CPF',
+  'Agendamento PF': 'Quiero comenzar mi agendamiento',
+  'RNM': 'Quiero hacer mi RNM',
+  'Residência Permanente': 'Quiero hacer mi residencia',
+  'Refúgio': 'Quiero hacer mi solicitud de refugio',
+};
+
+/** El mensaje explícito del creativo manda; si no hay, el del servicio; nunca el genérico «quiero más información». */
+export function mensajeWhatsApp(c: { whatsapp_message?: string | null; service?: string | null }): string | null {
+  const propio = String(c.whatsapp_message || '').trim();
+  if (propio) return propio.slice(0, 120);
+  return MENSAJE_WHATSAPP_POR_SERVICIO[String(c.service || '')] ?? null;
+}
+
+/**
+ * page_welcome_message de un anuncio Click-to-WhatsApp: el chat se abre con `mensaje` ya escrito en el cuadro de texto
+ * (el cliente solo toca Enviar). Es un JSON dentro de un string, como lo pide la Marketing API.
+ */
+export function paginaBienvenidaWhatsApp(mensaje: string, saludo = '¡Hola! Toca Enviar para empezar.'): string {
+  return JSON.stringify({
+    type: 'VISUAL_EDITOR', version: 2, landing_screen_type: 'welcome_message', media_type: 'text',
+    text_format: { customer_action_type: 'autofill_message', message: { autofill_message: { content: mensaje }, text: saludo } },
+  });
+}
+
+/** Poses disponibles para el modo "Aparezco yo". */
+export const POSES_PERSONA: Record<string, string> = {
+  pared: 'leaning casually with his shoulder against a wall, arms relaxed, one hand raised in a friendly welcome wave',
+  mostrador: 'leaning with one forearm on a reception counter, open and inviting posture',
+  brazos: 'leaning back against a wall with arms crossed in a relaxed, confident way',
+  saludo: 'standing and waving hello with a big welcoming gesture',
+};
+
+/** Anexa al prompt la instrucción de que aparezca la persona de las fotos de referencia (ilustración, sonriendo, dando la bienvenida). */
+export function anexarPersona(prompt: string, pose = 'pared'): string {
+  const p = POSES_PERSONA[pose] || POSES_PERSONA.pared;
+  return `${prompt}\n\nMAIN CHARACTER: stylized high-quality digital illustration (clean cartoon look, soft shading, vibrant colors) of the SAME man shown in the reference photos. Keep his recognizable face, skin tone, short hair, mustache and beard, and a navy blue polo shirt. He has a big warm genuine smile and is welcoming the viewer, ${p}. He is the clear focal point and leaves free space for the ad text. Do not render any text other than the ad texts already specified.`;
+}
+
 /** Elige el modelo de imagen más reciente de una lista de ids (gpt-image-N); configurable y con respaldo. */
 export function elegirModeloImagen(ids: string[], respaldo = 'gpt-image-1'): string {
   const cand = ids.map(id => ({ id, m: /^gpt-image-(\d+(?:\.\d+)?)$/.exec(id) })).filter(x => x.m).map(x => ({ id: x.id, v: parseFloat(x.m![1]) }));

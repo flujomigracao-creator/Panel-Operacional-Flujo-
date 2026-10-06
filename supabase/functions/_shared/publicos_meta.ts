@@ -9,7 +9,7 @@ export interface DefinicionPublico {
   codigo: string;
   nombre: string;
   tipo: string;
-  ubicacion?: { paises?: string[] } | null;
+  ubicacion?: { paises?: string[]; regiones?: string[] } | null;
   edad_min?: number | null;
   edad_max?: number | null;
   comportamientos?: { buscar?: string; empieza: string }[] | null;
@@ -46,8 +46,22 @@ export function armarSegmentacion(def: DefinicionPublico, catalogo: OpcionCatalo
   }
   if (faltan.length) throw new Error(`El catálogo de Meta no tiene: ${faltan.map((f) => `«${f}»`).join(', ')}. No se usa otra segmentación en su lugar.`);
 
+  // Regiones (estados) de Brasil por nombre: salen del catálogo guardado (clase «region»). Con regiones, la ubicación son SOLO esas regiones.
+  const regionesPedidas = def.ubicacion?.regiones || [];
+  const regiones = catalogo.filter((o) => o.clase === 'region');
+  const regionesElegidas: { key: string }[] = [];
+  const sinRegion: string[] = [];
+  for (const r of regionesPedidas) {
+    const op = regiones.find((o) => sinAcentos(o.nombre) === sinAcentos(r));
+    if (op) regionesElegidas.push({ key: op.meta_id }); else sinRegion.push(r);
+  }
+  if (sinRegion.length) throw new Error(`El catálogo de Meta no tiene las regiones: ${sinRegion.map((f) => `«${f}»`).join(', ')}. No se usa otra ubicación en su lugar.`);
+  const geo = regionesElegidas.length
+    ? { geo_locations: { regions: regionesElegidas } }
+    : { geo_locations: { countries: def.ubicacion?.paises?.length ? def.ubicacion.paises : ['BR'] } };
+
   return {
-    geo_locations: { countries: def.ubicacion?.paises?.length ? def.ubicacion.paises : ['BR'] },
+    ...geo,
     age_min: def.edad_min ?? 21,
     age_max: def.edad_max ?? 65,
     locales: [idioma],
@@ -61,7 +75,7 @@ export async function segmentacionDePublico(admin: SupabaseClient, orgId: string
   const { data: def, error } = await admin.from('publicos_definiciones').select('codigo, nombre, tipo, ubicacion, edad_min, edad_max, comportamientos, es_control').eq('organization_id', orgId).eq('codigo', codigo).maybeSingle();
   if (error) throw new Error(`No se pudo leer el público ${codigo}: ${error.message}`);
   if (!def) throw new Error(`El público «${codigo}» no existe. Usa listar_publicos para ver los disponibles.`);
-  const { data: catalogo, error: errCat } = await admin.from('meta_opciones_segmentacion').select('clase, meta_id, nombre').in('clase', ['locale', 'behaviors']).limit(5000);
+  const { data: catalogo, error: errCat } = await admin.from('meta_opciones_segmentacion').select('clase, meta_id, nombre').in('clase', ['locale', 'behaviors', 'region']).limit(5000);
   if (errCat) throw new Error(`No se pudo leer el catálogo de Meta: ${errCat.message}`);
   return { targeting: armarSegmentacion(def as DefinicionPublico, (catalogo || []) as OpcionCatalogo[]), nombre: def.nombre };
 }
