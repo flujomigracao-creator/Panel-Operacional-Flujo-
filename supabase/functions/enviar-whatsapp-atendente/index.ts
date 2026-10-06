@@ -410,8 +410,8 @@ Deno.serve(async (req) => {
     if (body.fase === 'propuesta') {
       const pt = body.idioma === 'pt';
       const cuerpo = pt
-        ? 'Você tem interesse na nossa proposta e quer continuar? Se sim, te passo para um assessor, que te envia os dados de que precisamos e os dados para o pagamento. Se você já quer pagar, é só tocar no botão 👇'
-        : '¿Te interesa nuestra propuesta y quieres continuar? Si es así, te paso con un asesor para que te envíe los datos que necesitamos y los datos para el pago. Si ya quieres pagar, solo toca el botón 👇';
+        ? 'Você tem interesse na nossa proposta e quer continuar? Se sim, toque no botão e eu te envio os dados de que precisamos e os dados para o pagamento. Se tiver alguma dúvida, é só me perguntar 👇'
+        : '¿Te interesa nuestra propuesta y quieres continuar? Si es así, toca el botón y te envío los datos que necesitamos y los datos para el pago. Si tienes alguna duda, pregúntame con confianza 👇';
       const boton = { id: 'pagar:ya', title: pt ? 'Quero pagar já' : 'Quiero pagar ya' };
       const wamid = await enviar({
         type: 'interactive',
