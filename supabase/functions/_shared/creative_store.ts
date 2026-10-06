@@ -104,7 +104,7 @@ export async function proponerConceptos(admin: SupabaseClient, userId: string, i
   try {
     r = await chatJson(
       `${PRINCIPIOS_CREATIVOS}\nRespondes SOLO JSON. Texto en español neutro, claro, sin promesas de resultado garantizado ni suplantar a organismos oficiales.`,
-      `Servicio: ${i.service}. Objetivo: ${i.objective || 'conversaciones de WhatsApp'}. Público: ${i.audience || 'extranjeros en Brasil'}. ${contexto}\nDevuelve {"conceptos":[...${cantidad} objetos]}. Cada objeto: {"concept": uno de ${JSON.stringify(CONCEPTOS)}, "hook": frase de 3-8 palabras, "headline": máx 40 caracteres, "primary_text": máx 300 caracteres, "cta": texto de botón corto, "visual_concept": escena en 1-2 frases, "problema": problema real del cliente en una frase, "angulo": ángulo del anuncio, "beneficio": beneficio breve}. ${i.variable && VARIABLES_EXPERIMENTO[i.variable] ? `ES UN EXPERIMENTO CIENTÍFICO: las ${cantidad} variantes cambian ÚNICAMENTE ${VARIABLES_EXPERIMENTO[i.variable]}; todo lo demás (concept, escena, problema, beneficio, cta salvo que la variable sea el CTA) debe ser IDÉNTICO entre ellas, palabra por palabra en lo que no cambia.` : 'Conceptos visuales distintos entre sí.'} REGLAS: (1) el titular y el hook son TEXTO DE ANUNCIO real y listo para publicar, nunca la descripción de un formato (nada de "Reel: …"); las piezas son imágenes estáticas. (2) Meta restringe anuncios que afirman o asumen atributos personales del lector (nacionalidad, estatus migratorio, situación económica…): redacta sobre el SERVICIO ("Gestión de tu CPF", "Cita en la Polícia Federal sin filas") y NO sobre el lector ("¿Eres extranjero?", "¿Eres estudiante internacional?"). (3) Sin promesas garantizadas ni plazos inventados. (4) ${hayHistorial ? 'Puedes usar variacion_ganadora solo si se apoya en los resultados reales de arriba.' : 'NO uses variacion_ganadora: aún no hay ganador demostrado.'}`,
+      `Servicio: ${i.service}. Objetivo: ${i.objective || 'conversaciones de WhatsApp'}. Público: ${i.audience || 'extranjeros en Brasil'}. ${contexto}\nDevuelve {"conceptos":[...${cantidad} objetos]}. Cada objeto: {"concept": uno de ${JSON.stringify(CONCEPTOS)}, "hook": frase de 3-8 palabras, "headline": máx 40 caracteres, "primary_text": máx 300 caracteres, "cta": texto de botón corto, "whatsapp_message": lo que el CLIENTE escribe al tocar el anuncio, en primera persona y específico de esta oferta (máx 80 caracteres, p. ej. «Quiero renovar mi refugio»; NUNCA «quiero más información»), "visual_concept": escena en 1-2 frases, "problema": problema real del cliente en una frase, "angulo": ángulo del anuncio, "beneficio": beneficio breve}. ${i.variable && VARIABLES_EXPERIMENTO[i.variable] ? `ES UN EXPERIMENTO CIENTÍFICO: las ${cantidad} variantes cambian ÚNICAMENTE ${VARIABLES_EXPERIMENTO[i.variable]}; todo lo demás (concept, escena, problema, beneficio, cta salvo que la variable sea el CTA) debe ser IDÉNTICO entre ellas, palabra por palabra en lo que no cambia.` : 'Conceptos visuales distintos entre sí.'} REGLAS: (1) el titular y el hook son TEXTO DE ANUNCIO real y listo para publicar, nunca la descripción de un formato (nada de "Reel: …"); las piezas son imágenes estáticas. (2) Meta restringe anuncios que afirman o asumen atributos personales del lector (nacionalidad, estatus migratorio, situación económica…): redacta sobre el SERVICIO ("Gestión de tu CPF", "Cita en la Polícia Federal sin filas") y NO sobre el lector ("¿Eres extranjero?", "¿Eres estudiante internacional?"). (3) Sin promesas garantizadas ni plazos inventados. (4) ${hayHistorial ? 'Puedes usar variacion_ganadora solo si se apoya en los resultados reales de arriba.' : 'NO uses variacion_ganadora: aún no hay ganador demostrado.'}`,
     );
   } catch (e) {
     await registrarGeneracion(admin, { user_id: userId, kind: 'concepts', model: await modeloTexto().catch(() => 'desconocido'), status: 'error', error: String(e) });
@@ -114,7 +114,7 @@ export async function proponerConceptos(admin: SupabaseClient, userId: string, i
     const concept = (CONCEPTOS as readonly string[]).includes(c.concept) ? c.concept : 'mensaje_directo';
     return {
       concept, hook: String(c.hook || '').slice(0, 120), headline: String(c.headline || '').slice(0, 40), primary_text: String(c.primary_text || '').slice(0, 300),
-      cta: String(c.cta || '').slice(0, 30), visual_concept: String(c.visual_concept || '').slice(0, 300),
+      cta: String(c.cta || '').slice(0, 30), whatsapp_message: String(c.whatsapp_message || '').slice(0, 120), visual_concept: String(c.visual_concept || '').slice(0, 300),
       problema: String(c.problema || '').slice(0, 200), angulo: String(c.angulo || '').slice(0, 120), beneficio: String(c.beneficio || '').slice(0, 160),
     };
   });
@@ -271,11 +271,12 @@ export interface EntradaCreativo {
   prompt?: string; prompt_id?: string; prompt_name?: string; concept_id?: string;
   from_creative_id?: string; changed_variable?: string; variant?: string; experiment_id?: string;
   image_base64?: string; mime?: string;
+  whatsapp_message?: string; // texto con el que se abre el chat de WhatsApp (el cliente solo toca Enviar)
   con_persona?: boolean; persona_pose?: string; // "Aparezco yo": usa las fotos de referencia (refs/persona/)
   problema?: string; angulo?: string; beneficio?: string; variable_experimento?: string;
 }
 
-const COLS = 'id, service, objective, concept, format, prompt_id, prompt_text, prompt_version, hook, headline, primary_text, cta, visual_concept, image_path, image_source, status, parent_creative_id, root_creative_id, version, variant, changed_variable, model, style, audience, language, experiment_id, campaign_id, adset_id, ad_id, created_at';
+const COLS = 'id, service, objective, concept, format, prompt_id, prompt_text, prompt_version, hook, headline, primary_text, cta, visual_concept, image_path, image_source, status, parent_creative_id, root_creative_id, version, variant, changed_variable, model, style, audience, language, experiment_id, campaign_id, adset_id, ad_id, created_at, whatsapp_message';
 
 export async function crearCreativo(admin: SupabaseClient, userId: string, entrada: EntradaCreativo, modo: 'generar' | 'subir' | 'regenerar') {
   let i = { ...entrada };
@@ -292,7 +293,7 @@ export async function crearCreativo(admin: SupabaseClient, userId: string, entra
     const heredado: Record<string, unknown> = {
       service: padre.service, objective: padre.objective, audience: padre.audience, concept: padre.concept, format: padre.format, style: padre.style, language: padre.language,
       hook: padre.hook, headline: padre.headline, primary_text: padre.primary_text, cta: padre.cta, visual_concept: padre.visual_concept,
-      prompt_id: padre.prompt_id, experiment_id: padre.experiment_id, prompt: padre.prompt_text,
+      prompt_id: padre.prompt_id, experiment_id: padre.experiment_id, prompt: padre.prompt_text, whatsapp_message: padre.whatsapp_message,
     };
     // Solo se sobrescribe con valores realmente enviados; un campo vacío del formulario no borra lo heredado.
     for (const [k, v] of Object.entries(entrada)) if (v !== undefined && v !== null && v !== '') heredado[k] = v;
@@ -362,6 +363,7 @@ export async function crearCreativo(admin: SupabaseClient, userId: string, entra
     id, organization_id: ORG_ID, service: i.service, objective: i.objective || null, audience: i.audience || null, concept: i.concept || null, format: formato,
     style: i.style || null, language: i.language || null, prompt_id: prompt.id, prompt_text: promptTexto, prompt_version: prompt.version,
     hook: i.hook || null, headline: i.headline || null, primary_text: i.primary_text || null, cta: i.cta || null, visual_concept: i.visual_concept || null,
+    whatsapp_message: (i.whatsapp_message || '').trim().slice(0, 120) || null,
     image_path: path, image_source: modo === 'subir' ? 'uploaded' : 'generated', image_mime: t.mime, image_bytes: bytes.length, model: modelo,
     version, variant: i.variant || null, changed_variable: padre ? i.changed_variable : null, parent_creative_id: padre?.id ?? null, root_creative_id: rootId,
     concept_id: i.concept_id || null, experiment_id: i.experiment_id || null, created_by: userId,

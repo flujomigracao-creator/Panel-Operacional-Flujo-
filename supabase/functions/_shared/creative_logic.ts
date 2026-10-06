@@ -344,6 +344,33 @@ export function rutaImagen(servicio: string, creativeId: string, version: number
   return `${slug}/${creativeId}/v${version}/image.${ext}`;
 }
 
+/** Mensaje que el cliente envía por defecto al tocar el anuncio, según el servicio (en español, primera persona). */
+export const MENSAJE_WHATSAPP_POR_SERVICIO: Record<string, string> = {
+  'CPF': 'Quiero hacer mi CPF',
+  'Agendamento PF': 'Quiero comenzar mi agendamiento',
+  'RNM': 'Quiero hacer mi RNM',
+  'Residência Permanente': 'Quiero hacer mi residencia',
+  'Refúgio': 'Quiero hacer mi solicitud de refugio',
+};
+
+/** El mensaje explícito del creativo manda; si no hay, el del servicio; nunca el genérico «quiero más información». */
+export function mensajeWhatsApp(c: { whatsapp_message?: string | null; service?: string | null }): string | null {
+  const propio = String(c.whatsapp_message || '').trim();
+  if (propio) return propio.slice(0, 120);
+  return MENSAJE_WHATSAPP_POR_SERVICIO[String(c.service || '')] ?? null;
+}
+
+/**
+ * page_welcome_message de un anuncio Click-to-WhatsApp: el chat se abre con `mensaje` ya escrito en el cuadro de texto
+ * (el cliente solo toca Enviar). Es un JSON dentro de un string, como lo pide la Marketing API.
+ */
+export function paginaBienvenidaWhatsApp(mensaje: string, saludo = '¡Hola! Toca Enviar para empezar.'): string {
+  return JSON.stringify({
+    type: 'VISUAL_EDITOR', version: 2, landing_screen_type: 'welcome_message', media_type: 'text',
+    text_format: { customer_action_type: 'autofill_message', message: { autofill_message: { content: mensaje }, text: saludo } },
+  });
+}
+
 /** Poses disponibles para el modo "Aparezco yo". */
 export const POSES_PERSONA: Record<string, string> = {
   pared: 'leaning casually with his shoulder against a wall, arms relaxed, one hand raised in a friendly welcome wave',

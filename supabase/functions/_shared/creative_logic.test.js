@@ -165,3 +165,14 @@ test('anexarPersona: conserva el prompt, pide ilustración sonriente y respeta l
   assert.ok(out.includes(POSES_PERSONA.mostrador));
   assert.ok(anexarPersona('x', 'no-existe').includes(POSES_PERSONA.pared)); // pose desconocida → la de respaldo
 });
+
+test('mensajeWhatsApp: el del creativo manda, luego el del servicio, nunca uno genérico', async () => {
+  const { mensajeWhatsApp, paginaBienvenidaWhatsApp } = await import('./creative_logic.ts');
+  assert.equal(mensajeWhatsApp({ whatsapp_message: ' Quiero renovar mi refugio ', service: 'Refúgio' }), 'Quiero renovar mi refugio');
+  assert.equal(mensajeWhatsApp({ service: 'Agendamento PF' }), 'Quiero comenzar mi agendamiento');
+  assert.equal(mensajeWhatsApp({ service: 'Residência Permanente' }), 'Quiero hacer mi residencia');
+  assert.equal(mensajeWhatsApp({ service: 'Servicio raro' }), null);
+  const j = JSON.parse(paginaBienvenidaWhatsApp('Quiero renovar mi refugio'));
+  assert.equal(j.text_format.customer_action_type, 'autofill_message');
+  assert.equal(j.text_format.message.autofill_message.content, 'Quiero renovar mi refugio');
+});

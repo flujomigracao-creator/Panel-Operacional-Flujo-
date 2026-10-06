@@ -10,11 +10,11 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { ORG_ID, getMetaConfig, META_GRAPH_VERSION } from './ads.ts';
 import { proponerExperimentoV4, type ExperimentDesignParams } from './campaign_science.ts';
-import { validarCreativo, evaluarGanador, UMBRALES_POR_DEFECTO, type MetricasVariante } from '../_shared/creative_logic.ts';
+import { validarCreativo, evaluarGanador, UMBRALES_POR_DEFECTO, mensajeWhatsApp, paginaBienvenidaWhatsApp, type MetricasVariante } from '../_shared/creative_logic.ts';
 import { resolverPrompt } from '../_shared/creative_store.ts';
 import { publicosPorVariante } from '../_shared/publicos_meta.ts';
 
-const CAMPOS_CREATIVO = 'id, service, objective, concept, format, prompt_id, prompt_text, prompt_version, hook, headline, primary_text, cta, visual_concept, image_path, image_source, status, parent_creative_id, campaign_id, adset_id, ad_id, meta_creative_id, generation_id, created_at';
+const CAMPOS_CREATIVO = 'id, service, objective, concept, format, prompt_id, prompt_text, prompt_version, hook, headline, primary_text, cta, visual_concept, image_path, image_source, status, parent_creative_id, campaign_id, adset_id, ad_id, meta_creative_id, generation_id, created_at, whatsapp_message';
 
 const bytesToB64 = (bytes: Uint8Array) => {
   let s = '';
@@ -40,6 +40,7 @@ export async function actualizarCreativo(admin: SupabaseClient, id: string, patc
   if (!c) throw new Error('Creativo no encontrado.');
   const upd: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const k of ['hook', 'headline', 'primary_text', 'cta', 'concept', 'visual_concept']) if (k in patch) upd[k] = patch[k] || null;
+  if ('whatsapp_message' in patch) upd.whatsapp_message = String(patch.whatsapp_message || '').trim().slice(0, 120) || null;
   if ('status' in patch) {
     if (!['draft', 'approved', 'archived'].includes(patch.status)) throw new Error("El estado 'published' lo asigna el sistema al publicar o vincular un anuncio real.");
     upd.status = patch.status;
@@ -121,6 +122,8 @@ export async function publicarCreativoEnMeta(
       link_data: {
         image_hash: hash, link: 'https://api.whatsapp.com/send', message: c.primary_text, name: c.headline,
         call_to_action: { type: 'WHATSAPP_MESSAGE', value: { app_destination: 'WHATSAPP' } },
+        // El chat se abre con el mensaje de ESTE anuncio ya escrito («Quiero renovar mi refugio»), no con «quiero más información».
+        ...(mensajeWhatsApp(c) ? { page_welcome_message: paginaBienvenidaWhatsApp(mensajeWhatsApp(c) as string) } : {}),
       },
     },
   });
@@ -191,7 +194,7 @@ export async function crearExperimentoCreativos(
       const { data: copia, error: errCopia } = await ctx.admin.from('creatives').insert({
         organization_id: ORG_ID, service: base.service, objective: base.objective, concept: base.concept, format: base.format,
         prompt_id: base.prompt_id, prompt_text: base.prompt_text, prompt_version: base.prompt_version,
-        hook: base.hook, headline: base.headline, primary_text: base.primary_text, cta: base.cta, visual_concept: base.visual_concept,
+        hook: base.hook, headline: base.headline, primary_text: base.primary_text, cta: base.cta, visual_concept: base.visual_concept, whatsapp_message: base.whatsapp_message ?? null,
         image_path: base.image_path, image_source: base.image_source ?? null, status: 'approved',
         parent_creative_id: base.id, root_creative_id: base.id, changed_variable: 'público', generation_id: base.generation_id ?? null,
         created_by: ctx.userId,

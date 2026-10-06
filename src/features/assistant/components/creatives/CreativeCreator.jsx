@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import * as cr from '../../services/creativesService';
 
 const VACIO = {
-  concept: 'mensaje_directo', hook: '', headline: '', primary_text: '', cta: 'Enviar mensaje', visual_concept: '',
+  concept: 'mensaje_directo', hook: '', headline: '', primary_text: '', cta: 'Enviar mensaje', whatsapp_message: '', visual_concept: '',
   prompt: '', prompt_id: '', style: 'minimalista_corporativo', concept_id: '',
 };
 
@@ -83,6 +83,9 @@ function ConceptoEditable({ c, i, ctx, prompts, onChange, onListo }) {
           <input className={campo} value={c.cta} onChange={e => set('cta', e.target.value)} />
         </label>
       </div>
+      <label className={`block ${etiqueta}`}>Mensaje de WhatsApp (lo que el cliente envía al tocar el anuncio; vacío = el del servicio, nunca «más información»)
+        <input className={campo} maxLength={120} placeholder="Quiero renovar mi refugio" value={c.whatsapp_message || ''} onChange={e => set('whatsapp_message', e.target.value)} />
+      </label>
       <label className={`block ${etiqueta}`}>Texto principal
         <textarea rows={2} className={campo} value={c.primary_text} onChange={e => set('primary_text', e.target.value)} />
       </label>
