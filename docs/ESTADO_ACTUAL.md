@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Estado actual
 
 ## Meta Ads Intelligence
@@ -17,7 +16,7 @@ La Edge Function meta-capi procesa solo conversiones pendientes o fallidas, bloq
 Estado de pruebas: las pruebas locales de la integracion y la suite existente pasaron el 2026-10-03. No se ejecuto prueba end-to-end contra Meta ni se desplego la migracion o la funcion desde este entorno.
 
 Pendiente de despliegue: aplicar la migracion en el proyecto, desplegar meta-capi, configurar META_ADS_TOKEN, META_PIXEL_ID y META_CAPI_RUNNER_SECRET, y programar su invocacion autenticada. Las campanas permanecen sin cambios.
-=======
+
 # Estado actual del sistema (2026-10-02)
 
 Verificado el 2026-10-02 contra GitHub, Supabase (`rumpfqevyspdmhaggxtq`) y el panel en producción.
@@ -57,4 +56,3 @@ Reglas ya implementadas: tope de 40 imágenes generadas por día, creación siem
 - Activar Leaked Password Protection en Supabase Auth (ajuste del panel de Auth).
 - Revisar y clasificar tablas duplicadas (`clients`/`clientes`, `comercial_leads`/`crm_leads`, `conversations`/`crm_conversations`) como ACTUAL, COMPATIBILIDAD, LEGACY o FUTURA antes de eliminar nada.
 - Renovar el token de WhatsApp antes del 2026-11-25.
->>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1

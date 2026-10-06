@@ -12,7 +12,7 @@ import {
   generarConceptosCreativos,
   listarPrompts,
   guardarPrompt,
-  rankingCreativos,
+  rankingCreativos as rankingCreativosCiencia,
   compararCreativos,
 } from './campaign_science.ts';
 import {
@@ -1536,7 +1536,7 @@ const ADS_TOOL_DEFS_BASE = [
           variable_tested: str('Variable única que se modifica frente al control'),
           control_description: str('Descripción del control (lo que permanece igual)'),
           treatment_description: str('Descripción del tratamiento (la variación introducida)'),
-          objective: { type: 'string', enum: ['OUTCOME_MESSAGES', 'OUTCOME_LEADS', 'OUTCOME_SALES'], description: 'Objetivo publicitario en Meta' },
+          objective: { type: 'string', enum: ['OUTCOME_MESSAGES', 'OUTCOME_LEADS', 'OUTCOME_SALES'], description: 'Objetivo publicitario en Meta. SOLO estos 3 valores (OUTCOME_CONVERSIONS NO existe: para compras usa OUTCOME_SALES; para chats de WhatsApp usa OUTCOME_MESSAGES)' },
           primary_metric: str('Métrica primaria de negocio para evaluar (cost_per_customer, roas, payment_rate)'),
           secondary_metrics: { type: 'array', items: { type: 'string' }, description: 'Métricas secundarias diagnósticas (ctr, cpc, cpl, conversaciones)' },
           daily_budget: num('Presupuesto diario en BRL'),
@@ -1601,7 +1601,6 @@ const ADS_TOOL_DEFS_BASE = [
   {
     type: 'function',
     function: {
-<<<<<<< HEAD
       name: 'ranking_creativos_ads',
       description: 'Genera el ranking de creativos publicitarios por métrica real de negocio (costo_por_cliente, clientes, conversaciones, ctr) conectando impresiones Meta con leads de CRM y clientes pagadores.',
       parameters: {
@@ -1613,7 +1612,70 @@ const ADS_TOOL_DEFS_BASE = [
             enum: ['costo_por_cliente', 'clientes', 'conversaciones', 'ctr'],
             description: 'Métrica por la cual ordenar el ranking',
           },
-=======
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'consultar_biblioteca_prompts',
+      description: 'Consulta la biblioteca de prompts creativos de Flujo de Migração para saber qué instrucciones e ideas visuales generan mejores creativos y conversiones.',
+      parameters: {
+        type: 'object',
+        properties: {
+          servicio: str('Filtrar por servicio (CPF, RNM, etc.)'),
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generar_concepto_creativo',
+      description: 'Genera conceptos de creativos publicitarios de alta conversión con prompt para imagen profesional, copy persuasivo, titular y llamada a la acción para un servicio específico.',
+      parameters: {
+        type: 'object',
+        properties: {
+          servicio: str('Servicio objetivo: CPF, Agendamento PF, RNM, Residência Permanente, Refúgio'),
+          concepto: {
+            type: 'string',
+            enum: ['servicio_directo', 'persona_documentacion', 'problema_solucion', 'institucional', 'ganador_historico'],
+            description: 'Línea conceptual visual para el anuncio publicitario',
+          },
+          formato: {
+            type: 'string',
+            enum: ['1:1', '4:5', '9:16'],
+            description: 'Formato o relación de aspecto (1:1 Feed, 4:5 Portrait, 9:16 Stories/Reels)',
+          },
+        },
+        required: ['servicio'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'comparar_creativos_ads',
+      description: 'Compara hasta 4 creativos publicitarios cara a cara (A vs B vs C vs D) evaluando gasto, impresiones, clics, conversaciones, clientes pagadores y costo por cliente para determinar el ganador.',
+      parameters: {
+        type: 'object',
+        properties: {
+          creative_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Lista de IDs de creativos a comparar (entre 2 y 4 IDs)',
+          },
+        },
+        required: ['creative_ids'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'ranking_creativos',
       description: 'Ranking interno de creativos (imagen + copy + prompt) con el embudo real: impresiones, CTR, conversaciones, costo/conversación, leads, clientes que pagaron, costo/cliente e ingresos. Filtra por servicio, formato o concepto. Los null significan "sin datos", no cero.',
       parameters: {
@@ -1624,7 +1686,6 @@ const ADS_TOOL_DEFS_BASE = [
           concepto: str('persona | documento | problema_solucion | institucional | mensaje_directo | variacion_ganadora'),
           orden: str('ctr | conversaciones | costo_por_conversacion | clientes_pagaron | costo_por_cliente | ingresos'),
           limite: num('Máximo de creativos (por defecto 15)'),
->>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
         },
         required: [],
       },
@@ -1633,16 +1694,6 @@ const ADS_TOOL_DEFS_BASE = [
   {
     type: 'function',
     function: {
-<<<<<<< HEAD
-      name: 'consultar_biblioteca_prompts',
-      description: 'Consulta la biblioteca de prompts creativos de Flujo de Migração para saber qué instrucciones e ideas visuales generan mejores creativos y conversiones.',
-      parameters: {
-        type: 'object',
-        properties: {
-          servicio: str('Filtrar por servicio (CPF, RNM, etc.)'),
-        },
-        required: [],
-=======
       name: 'biblioteca_prompts',
       description: 'Biblioteca de prompts de creativos con sus resultados reales agregados (creativos generados, conversaciones, clientes, costo por cliente). Sirve para saber qué tipo de instrucción produce mejores creativos.',
       parameters: { type: 'object', properties: { servicio: str('Filtrar por servicio (opcional)') }, required: [] },
@@ -1673,61 +1724,24 @@ const ADS_TOOL_DEFS_BASE = [
           publico_codigos: { type: 'array', items: { type: 'string' }, description: 'Públicos de Meta (códigos de listar_publicos, solo de adquisición). Un solo código = todas las variantes usan ese público; varios = uno por variante en el mismo orden que creative_ids (así se prueba el público como variable). Si se omite, se usa la segmentación de siempre.' },
         },
         required: ['hypothesis', 'variable_tested', 'creative_ids', 'daily_budget'],
->>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
       },
     },
   },
   {
     type: 'function',
     function: {
-<<<<<<< HEAD
-      name: 'generar_concepto_creativo',
-      description: 'Genera conceptos de creativos publicitarios de alta conversión con prompt para imagen profesional, copy persuasivo, titular y llamada a la acción para un servicio específico.',
-      parameters: {
-        type: 'object',
-        properties: {
-          servicio: str('Servicio objetivo: CPF, Agendamento PF, RNM, Residência Permanente, Refúgio'),
-          concepto: {
-            type: 'string',
-            enum: ['servicio_directo', 'persona_documentacion', 'problema_solucion', 'institucional', 'ganador_historico'],
-            description: 'Línea conceptual visual para el anuncio publicitario',
-          },
-          formato: {
-            type: 'string',
-            enum: ['1:1', '4:5', '9:16'],
-            description: 'Formato o relación de aspecto (1:1 Feed, 4:5 Portrait, 9:16 Stories/Reels)',
-          },
-        },
-        required: ['servicio'],
-=======
       name: 'proponer_publicar_creativo',
       description: 'Crea una PROPUESTA para publicar un creativo APROBADO en un conjunto de anuncios existente de Meta. El anuncio nace en pausa y requiere confirmación humana.',
       parameters: {
         type: 'object',
         properties: { creative_id: str('Id del creativo'), adset_id: str('Id real del conjunto de anuncios en Meta') },
         required: ['creative_id', 'adset_id'],
->>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
       },
     },
   },
   {
     type: 'function',
     function: {
-<<<<<<< HEAD
-      name: 'comparar_creativos_ads',
-      description: 'Compara hasta 4 creativos publicitarios cara a cara (A vs B vs C vs D) evaluando gasto, impresiones, clics, conversaciones, clientes pagadores y costo por cliente para determinar el ganador.',
-      parameters: {
-        type: 'object',
-        properties: {
-          creative_ids: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Lista de IDs de creativos a comparar (entre 2 y 4 IDs)',
-          },
-        },
-        required: ['creative_ids'],
-      },
-=======
       name: 'buscar_tendencias',
       description: 'Busca en la web tendencias RECIENTES útiles para anuncios (formatos y hooks que funcionan, cambios de normas, dolores de la comunidad migrante, novedades de Meta Ads) y las guarda con sus fuentes. Son HIPÓTESIS de mercado, no evidencia del negocio: úsalas para proponer experimentos, nunca como prueba.',
       parameters: { type: 'object', properties: { servicio: str('CPF | Agendamento PF | RNM | Residência Permanente | Refúgio (opcional)'), tema: str('Foco concreto, ej. urgencia en citas de la Polícia Federal (opcional)') }, required: [] },
@@ -1795,7 +1809,6 @@ const ADS_TOOL_DEFS_BASE = [
       name: 'cerrar_experimento_creativos',
       description: 'Mide un experimento con datos reales y, solo si hay volumen, periodo y diferencia suficientes, declara ganador y guarda el aprendizaje. Con pocos datos responde "insuficiente" o "tendencia" y deja el experimento abierto.',
       parameters: { type: 'object', properties: { experiment_id: str('Id del experimento'), concluir_inconcluso: bool('true SOLO si el dueño pidió cerrar sin ganador: queda INCONCLUSO y no se guarda aprendizaje') }, required: ['experiment_id'] },
->>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
     },
   },
 ];
@@ -2104,9 +2117,8 @@ export async function runAdsTool(
       return JSON.stringify({ total: experimentos.length, experimentos });
     }
 
-<<<<<<< HEAD
     case 'ranking_creativos_ads': {
-      const ranking = await rankingCreativos(ctx.admin, args?.metrica || 'costo_por_cliente', args?.servicio);
+      const ranking = await rankingCreativosCiencia(ctx.admin, args?.metrica || 'costo_por_cliente', args?.servicio);
       return JSON.stringify({ total: ranking.length, ranking });
     }
 
@@ -2125,7 +2137,6 @@ export async function runAdsTool(
       return JSON.stringify(comparacion);
     }
 
-=======
     case 'ranking_creativos':
       return JSON.stringify(await rankingCreativos(ctx.admin, args));
 
@@ -2226,7 +2237,6 @@ export async function runAdsTool(
     case 'cerrar_experimento_creativos':
       return JSON.stringify(await cerrarExperimentoCreativos(ctx.admin, args.experiment_id, { concluirInconcluso: args.concluir_inconcluso === true }));
 
->>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
     default:
       throw new Error(`Herramienta de Ads no reconocida: ${name}`);
   }

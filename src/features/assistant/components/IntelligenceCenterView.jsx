@@ -18,13 +18,10 @@ import {
   HelpCircle,
   ArrowRight,
   Filter,
-<<<<<<< HEAD
   Palette,
   BookOpen,
-=======
   Image as ImageIcon,
   Rocket,
->>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAssistant } from '../context/AssistantContext';
@@ -38,15 +35,12 @@ import { cerrarExperimento, publicarExperimento } from '../services/creativesSer
 import MetaStatusBanner from './MetaStatusBanner';
 import LearningSummary from './LearningSummary';
 import PerformanceChart from './PerformanceChart';
-<<<<<<< HEAD
 import CreativesHubView from './CreativesHubView';
 import PromptLibraryView from './PromptLibraryView';
-=======
 import ResumenMeta from './ResumenMeta';
 import MetricasCompletas from './MetricasCompletas';
 import EmbudoMeta from './EmbudoMeta';
 import PublicosMeta from './PublicosMeta';
->>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
 import { LoadingSpinner } from '@/shared/components/ui/LoadingSpinner';
 
 export default function IntelligenceCenterView() {
@@ -58,11 +52,7 @@ export default function IntelligenceCenterView() {
   const [creatives, setCreatives] = useState([]);
   const [creativePrompts, setCreativePrompts] = useState([]);
   const [error, setError] = useState(null);
-<<<<<<< HEAD
-  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'meta_ads' | 'experimentos' | 'aprendizajes' | 'campanas' | 'creativos' | 'prompts'
-=======
-  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'metricas' | 'meta_ads' | 'creativos' | 'experimentos' | 'aprendizajes' | 'campanas'
->>>>>>> 4d1de2f429a27ecc02629719581bc54433b334c1
+  const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'metricas' | 'meta_ads' | 'creativos' | 'experimentos' | 'aprendizajes' | 'campanas' | 'prompts'
   const [campaignStatusFilter, setCampaignStatusFilter] = useState('all'); // 'all' | 'ACTIVE' | 'PAUSED' | 'testing' | 'completed'
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
   const [dateRange, setDateRange] = useState('7d'); // 'hoy' | '7d' | '14d' | '30d' | 'custom'
