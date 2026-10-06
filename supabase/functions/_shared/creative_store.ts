@@ -5,6 +5,7 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import {
   CONCEPTOS, ESTILOS, OBJETIVOS, construirPromptPublicitario, tamanosCandidatos, validarCreativo, validarCambio,
   tipoImagen, rutaImagen, elegirModeloImagen, sanearError, ajustarPromptRegeneracion, asegurarTextos, textosLiterales, PRINCIPIOS_CREATIVOS,
+  anexarPersona, POSES_PERSONA,
 } from './creative_logic.ts';
 
 export const ORG_ID = '00000000-0000-0000-0000-000000000001';
@@ -158,13 +159,69 @@ export async function generarPrompt(admin: SupabaseClient, userId: string, d: Da
   }
 }
 
+// ── Fotos de referencia de la persona ("Aparezco yo"): bucket privado, ruta refs/persona/ ──
+const REFS_DIR = 'refs/persona';
+const MAX_REFS = 5;
+
+export async function listarReferencias(admin: SupabaseClient) {
+  const { data } = await admin.storage.from(BUCKET).list(REFS_DIR, { limit: 20, sortBy: { column: 'created_at', order: 'asc' } });
+  const archivos = (data || []).filter((f: any) => f.name && !f.name.startsWith('.'));
+  const refs = [];
+  for (const f of archivos) {
+    const path = `${REFS_DIR}/${f.name}`;
+    refs.push({ path, name: f.name, url: await urlFirmada(admin, path) });
+  }
+  return refs;
+}
+
+export async function subirReferencia(admin: SupabaseClient, i: { image_base64?: string; mime?: string }) {
+  if (!i.image_base64) throw new Error('Falta la imagen.');
+  const t = tipoImagen(i.mime);
+  if (!t) throw new Error('Formato de imagen no permitido (usa PNG, JPG o WebP).');
+  const bytes = b64ToBytes(i.image_base64.replace(/^data:[^,]+,/, ''));
+  if (bytes.length > MAX_BYTES_IMAGEN) throw new Error('La imagen supera 8 MB.');
+  if ((await listarReferencias(admin)).length >= MAX_REFS) throw new Error(`Máximo ${MAX_REFS} fotos de referencia: borra alguna antes de subir otra.`);
+  const path = `${REFS_DIR}/${crypto.randomUUID()}.${t.ext}`;
+  const up = await admin.storage.from(BUCKET).upload(path, bytes, { contentType: t.mime, upsert: false });
+  if (up.error) throw new Error(`No se pudo guardar la foto: ${sanearError(up.error.message)}`);
+  return { ok: true, referencias: await listarReferencias(admin) };
+}
+
+export async function borrarReferencia(admin: SupabaseClient, i: { path?: string }) {
+  if (!i.path || !i.path.startsWith(`${REFS_DIR}/`) || i.path.includes('..')) throw new Error('Ruta de referencia no válida.');
+  await admin.storage.from(BUCKET).remove([i.path]);
+  return { ok: true, referencias: await listarReferencias(admin) };
+}
+
+async function bytesDeReferencias(admin: SupabaseClient) {
+  const refs = await listarReferencias(admin);
+  if (!refs.length) throw new Error('Para usar "Aparezco yo" sube antes al menos 1 foto de referencia.');
+  const out: { bytes: Uint8Array; mime: string; name: string }[] = [];
+  for (const r of refs.slice(0, MAX_REFS)) {
+    const { data } = await admin.storage.from(BUCKET).download(r.path);
+    if (data) out.push({ bytes: new Uint8Array(await data.arrayBuffer()), mime: data.type || 'image/png', name: r.name });
+  }
+  return out;
+}
+
 // ── Imagen (OpenAI Images API) ──
-async function generarImagen(prompt: string, formato: string) {
+async function generarImagen(prompt: string, formato: string, referencias?: { bytes: Uint8Array; mime: string; name: string }[]) {
   const model = await modeloImagen();
   let ultimoError: unknown = null;
   for (const size of tamanosCandidatos(formato)) {
     try {
-      const d = await openai('/images/generations', { method: 'POST', body: JSON.stringify({ model, prompt, size, n: 1 }) });
+      let d: any;
+      if (referencias?.length) {
+        // Edición con fotos de referencia: multipart (sin Content-Type JSON; fetch fija el boundary).
+        const fd = new FormData();
+        fd.append('model', model); fd.append('prompt', prompt); fd.append('size', size); fd.append('quality', 'high'); fd.append('n', '1');
+        for (const r of referencias) fd.append('image[]', new Blob([r.bytes], { type: r.mime }), r.name);
+        const resp = await fetch(`${OPENAI}/images/edits`, { method: 'POST', headers: { Authorization: `Bearer ${clave()}` }, body: fd });
+        d = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(`OpenAI rechazó la solicitud (${resp.status}): ${sanearError(d?.error?.message || '')}`);
+      } else {
+        d = await openai('/images/generations', { method: 'POST', body: JSON.stringify({ model, prompt, size, n: 1 }) });
+      }
       const b64 = d?.data?.[0]?.b64_json;
       if (!b64) throw new Error('OpenAI no devolvió la imagen.');
       // El tamaño realmente usado queda en el uso registrado (para saber si el formato fue exacto o de respaldo).
@@ -214,6 +271,7 @@ export interface EntradaCreativo {
   prompt?: string; prompt_id?: string; prompt_name?: string; concept_id?: string;
   from_creative_id?: string; changed_variable?: string; variant?: string; experiment_id?: string;
   image_base64?: string; mime?: string;
+  con_persona?: boolean; persona_pose?: string; // "Aparezco yo": usa las fotos de referencia (refs/persona/)
   problema?: string; angulo?: string; beneficio?: string; variable_experimento?: string;
 }
 
@@ -270,8 +328,11 @@ export async function crearCreativo(admin: SupabaseClient, userId: string, entra
     const { count } = await admin.from('creative_generations').select('id', { count: 'exact', head: true }).eq('organization_id', ORG_ID).eq('kind', 'image').eq('status', 'ok').gte('created_at', hoy.toISOString());
     if ((count ?? 0) >= MAX_IMAGENES_POR_DIA) throw new Error(`Se alcanzó el tope de ${MAX_IMAGENES_POR_DIA} imágenes generadas hoy (control de costo).`);
     try {
-      const g = await generarImagen(promptTexto, formato);
-      bytes = g.bytes; mime = g.mime; modelo = g.model; usage = g.usage;
+      if (i.persona_pose && !POSES_PERSONA[i.persona_pose]) throw new Error(`Pose no válida. Usa una de: ${Object.keys(POSES_PERSONA).join(', ')}.`);
+      // prompt_text se guarda SIN la parte de la persona: así regenerar no la duplica.
+      const refs = i.con_persona ? await bytesDeReferencias(admin) : undefined;
+      const g = await generarImagen(i.con_persona ? anexarPersona(promptTexto, i.persona_pose) : promptTexto, formato, refs);
+      bytes = g.bytes; mime = g.mime; modelo = g.model; usage = { ...(g.usage as object), con_persona: !!i.con_persona, persona_pose: i.con_persona ? (i.persona_pose || 'pared') : null };
     } catch (e) {
       await registrarGeneracion(admin, { user_id: userId, kind: 'image', model: await modeloImagen().catch(() => 'desconocido'), status: 'error', error: String(e) });
       throw new Error(sanearError(String(e instanceof Error ? e.message : e)));

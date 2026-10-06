@@ -91,6 +91,11 @@ export const generarPrompt = (body) => invokeCreativo({ accion: 'prompt', ...bod
 export const generarCreativo = (body) => invokeCreativo({ accion: 'generar', ...body });
 export const regenerarCreativo = (body) => invokeCreativo({ accion: 'regenerar', ...body });
 export const subirCreativo = (body) => invokeCreativo({ accion: 'subir', ...body });
+// Fotos de referencia para "Aparezco yo" (bucket privado, refs/persona/)
+export const listarReferencias = () => invokeCreativo({ accion: 'listar_referencias' });
+export const subirReferencia = (body) => invokeCreativo({ accion: 'subir_referencia', ...body });
+export const borrarReferencia = (path) => invokeCreativo({ accion: 'borrar_referencia', path });
+export const POSES_PERSONA = { pared: 'Recostado en la pared, saludando', mostrador: 'Apoyado en un mostrador', brazos: 'Recostado con brazos cruzados', saludo: 'De pie, saludando' };
 export const actualizarCreativo = (id, patch) => invoke({ accion: 'creative_actualizar', id, ...patch });
 export const guardarPrompt = (body) => invoke({ accion: 'creative_prompt_guardar', ...body });
 export const proponerPublicacion = (creative_id, adset_id) => invoke({ accion: 'creative_proponer_publicacion', creative_id, adset_id });

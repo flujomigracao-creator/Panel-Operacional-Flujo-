@@ -344,6 +344,20 @@ export function rutaImagen(servicio: string, creativeId: string, version: number
   return `${slug}/${creativeId}/v${version}/image.${ext}`;
 }
 
+/** Poses disponibles para el modo "Aparezco yo". */
+export const POSES_PERSONA: Record<string, string> = {
+  pared: 'leaning casually with his shoulder against a wall, arms relaxed, one hand raised in a friendly welcome wave',
+  mostrador: 'leaning with one forearm on a reception counter, open and inviting posture',
+  brazos: 'leaning back against a wall with arms crossed in a relaxed, confident way',
+  saludo: 'standing and waving hello with a big welcoming gesture',
+};
+
+/** Anexa al prompt la instrucción de que aparezca la persona de las fotos de referencia (ilustración, sonriendo, dando la bienvenida). */
+export function anexarPersona(prompt: string, pose = 'pared'): string {
+  const p = POSES_PERSONA[pose] || POSES_PERSONA.pared;
+  return `${prompt}\n\nMAIN CHARACTER: stylized high-quality digital illustration (clean cartoon look, soft shading, vibrant colors) of the SAME man shown in the reference photos. Keep his recognizable face, skin tone, short hair, mustache and beard, and a navy blue polo shirt. He has a big warm genuine smile and is welcoming the viewer, ${p}. He is the clear focal point and leaves free space for the ad text. Do not render any text other than the ad texts already specified.`;
+}
+
 /** Elige el modelo de imagen más reciente de una lista de ids (gpt-image-N); configurable y con respaldo. */
 export function elegirModeloImagen(ids: string[], respaldo = 'gpt-image-1'): string {
   const cand = ids.map(id => ({ id, m: /^gpt-image-(\d+(?:\.\d+)?)$/.exec(id) })).filter(x => x.m).map(x => ({ id: x.id, v: parseFloat(x.m![1]) }));
