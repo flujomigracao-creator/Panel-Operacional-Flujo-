@@ -14,6 +14,7 @@ const SIMPLE_VIEWS = {
     configuracion: 'configuracion',
     equipo: 'equipo',
     publicaciones: 'publicaciones',
+    comentarios: 'comentarios',
 };
 const HASH_OF_VIEW = Object.fromEntries(Object.entries(SIMPLE_VIEWS).map(([h, v]) => [v, h]));
 

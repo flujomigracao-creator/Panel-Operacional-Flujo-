@@ -11,6 +11,7 @@ import {
   Landmark,
   Target,
   Megaphone,
+  MessageCircle,
   Bot,
   Users,
   Settings,
@@ -50,6 +51,7 @@ const SECTIONS = [
     items: [
       { view: 'leads', label: 'Leads', icon: Target },
       { view: 'publicaciones', label: 'Publicaciones', icon: Megaphone },
+      { view: 'comentarios', label: 'Comentarios', icon: MessageCircle },
     ],
   },
   {
