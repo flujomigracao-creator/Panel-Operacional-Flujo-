@@ -22,7 +22,7 @@ import HomeView from '@features/crm/components/HomeView';
 // Vistas que todavía leen el esquema anterior (clientes, entradas, perfiles…).
 // Se reactivan una por una a medida que se migran al modelo de FLUJO
 // (clients, client_services, documents, messages, tasks).
-export const MIGRATED_VIEWS = new Set(['home', 'lab', 'today', 'clients', 'client', 'finance', 'comercial', 'leads', 'chats', 'tramites', 'documentos', 'configuracion', 'equipo', 'tramite', 'intelligence']);
+export const MIGRATED_VIEWS = new Set(['home', 'lab', 'today', 'clients', 'client', 'finance', 'comercial', 'leads', 'chats', 'tramites', 'documentos', 'configuracion', 'equipo', 'tramite', 'intelligence', 'publicaciones']);
 
 // Navigation
 import Sidebar from '../navigation/components/Sidebar';
@@ -60,6 +60,7 @@ const DocumentosView = lazy(() => import('@features/crm/components/DocumentosVie
 const ConfigView = lazy(() => import('@features/crm/components/ConfigView'));
 const TeamView = lazy(() => import('@features/crm/components/TeamView'));
 const ComercialView = lazy(() => import('@features/comercial/components/ComercialView'));
+const PublicacionesView = lazy(() => import('@features/publicaciones/components/PublicacionesView'));
 const NewClientWizard = lazy(() => import('../components/newClientWizard/NewClientWizard'));
 const TeamChat = lazy(() => import('../components/TeamChat'));
 const TeamManagement = lazy(() => import('../components/TeamManagement'));
@@ -240,6 +241,7 @@ export default function AppLayout() {
                 <TodayView onNavigateToClient={isReady('client') ? navigateToClientTracked : undefined} onOpenLead={navigateToComercial} />
               )}
               {currentView === 'finance' && isReady('finance') && <FinanceView />}
+              {currentView === 'publicaciones' && isReady('publicaciones') && <PublicacionesView />}
               {currentView === 'dashboard' && isReady('dashboard') && <DashboardView navigateToClientsList={navigateToClientsList} />}
               {currentView === 'client' && isReady('client') && <ContactView key={selectedClientId} clientId={selectedClientId} onBack={navigateToClientsList} onNavigateToClient={navigateToClientTracked} onOpenChat={openChat} onOpenTramite={navigateToTramite} />}
               {currentView === 'clients' && isReady('clients') && <ClientsView searchQuery={globalSearch} onNavigateToClient={navigateToClientTracked} />}
