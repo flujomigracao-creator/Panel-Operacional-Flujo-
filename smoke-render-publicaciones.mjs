@@ -43,7 +43,7 @@ try {
   };
 
   comprobar('con datos (filtro pendientes)', montar((qc) => qc.setQueryData(['publicaciones'], filas)),
-    ['Publicaciones', 'Lo que necesitas para pedir tu CPF', 'Copiar texto', 'Aprobar', 'Hora vencida', 'Borrador con la hora vencida', 'La publicación automática en Facebook todavía no está conectada', 'Pendientes · 3'],
+    ['Publicaciones', 'Lo que necesitas para pedir tu CPF', 'Copiar texto', 'Aprobar', 'Hora vencida', 'Borrador con la hora vencida', 'se publican solas en la página de Facebook', 'Pendientes · 3'],
     ['Texto ya publicado', 'No se pudieron cargar']);
   comprobar('lista vacía', montar((qc) => qc.setQueryData(['publicaciones'], [])), ['Todavía no hay publicaciones', 'Nueva publicación']);
   comprobar('con error: aviso y reintento, sin decir que no hay nada', montar((qc) => setError(qc)), ['No se pudieron cargar las publicaciones', 'Reintentar'], ['Todavía no hay publicaciones']);

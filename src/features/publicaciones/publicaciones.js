@@ -4,7 +4,7 @@
 export const ZONA = 'America/Sao_Paulo';
 export const OFFSET = '-03:00';
 
-export const ESTADOS = { borrador: 'Borrador', aprobada: 'Aprobada', publicada: 'Publicada', descartada: 'Descartada' };
+export const ESTADOS = { borrador: 'Borrador', aprobada: 'Aprobada', publicando: 'Publicando…', publicada: 'Publicada', error: 'Error al publicar', descartada: 'Descartada' };
 export const FRANJAS = { manana: 'Mañana', tarde: 'Tarde', noche: 'Noche' };
 
 const partes = (iso, opciones) => new Intl.DateTimeFormat('en-CA', { timeZone: ZONA, hourCycle: 'h23', ...opciones }).formatToParts(new Date(iso))
@@ -45,13 +45,13 @@ export function franjaDeHora(hhmm) {
   return h < 11 ? 'manana' : h < 17 ? 'tarde' : 'noche';
 }
 
-export const esPendiente = (p) => p.estado === 'borrador' || p.estado === 'aprobada';
+export const esPendiente = (p) => ['borrador', 'aprobada', 'publicando', 'error'].includes(p.estado);
 
 /** Una publicación sin publicar cuya hora ya pasó: hay que publicarla, moverla o descartarla. */
-export const esVencida = (p, ahora = new Date()) => esPendiente(p) && new Date(p.programada_at) < ahora;
+export const esVencida = (p, ahora = new Date()) => (p.estado === 'borrador' || p.estado === 'aprobada') && new Date(p.programada_at) < ahora;
 
 export function contarPorEstado(lista = [], ahora = new Date()) {
-  const c = { total: lista.length, borrador: 0, aprobada: 0, publicada: 0, descartada: 0, vencidas: 0 };
+  const c = { total: lista.length, borrador: 0, aprobada: 0, publicando: 0, publicada: 0, error: 0, descartada: 0, vencidas: 0 };
   for (const p of lista) {
     if (p.estado in c) c[p.estado]++;
     if (esVencida(p, ahora)) c.vencidas++;
@@ -84,9 +84,11 @@ export function agruparPorDia(lista = []) {
  */
 export function parchePara(accion, ahora = new Date(), enlace = null) {
   switch (accion) {
-    case 'aprobar': return { estado: 'aprobada', publicada_at: null, enlace_publicacion: null };
+    case 'aprobar': return { estado: 'aprobada', publicada_at: null, enlace_publicacion: null, error: null };
     case 'quitarAprobacion': return { estado: 'borrador', publicada_at: null, enlace_publicacion: null };
-    case 'publicar': return { estado: 'publicada', publicada_at: ahora.toISOString(), enlace_publicacion: (enlace || '').trim() || null };
+    case 'publicar': return { estado: 'publicada', publicada_at: ahora.toISOString(), enlace_publicacion: (enlace || '').trim() || null, error: null };
+    // Reintento tras un error: vuelve a «aprobada» con hora de aquí a 2 min (el publicador no toma lo que lleva más de 24 h de retraso).
+    case 'reintentar': return { estado: 'aprobada', publicada_at: null, enlace_publicacion: null, error: null, programada_at: new Date(ahora.getTime() + 2 * 60 * 1000).toISOString() };
     case 'descartar': return { estado: 'descartada', publicada_at: null, enlace_publicacion: null };
     case 'restaurar': return { estado: 'borrador', publicada_at: null, enlace_publicacion: null };
     default: throw new Error(`Acción desconocida: ${accion}`);
@@ -99,6 +101,7 @@ export function accionesDe(estado) {
     case 'borrador': return ['aprobar', 'publicar', 'descartar'];
     case 'aprobada': return ['publicar', 'quitarAprobacion', 'descartar'];
     case 'publicada': return ['quitarAprobacion'];
+    case 'error': return ['reintentar', 'publicar', 'descartar'];
     case 'descartada': return ['restaurar'];
     default: return [];
   }
@@ -106,8 +109,9 @@ export function accionesDe(estado) {
 
 export const ETIQUETA_ACCION = {
   aprobar: 'Aprobar',
+  reintentar: 'Reintentar ahora',
   quitarAprobacion: 'Volver a borrador',
-  publicar: 'Marcar como publicada',
+  publicar: 'Marcar como publicada (a mano)',
   descartar: 'Descartar',
   restaurar: 'Restaurar',
 };

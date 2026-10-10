@@ -13,6 +13,7 @@ const FILTROS = [
   ['borrador', 'Borradores'],
   ['aprobada', 'Aprobadas'],
   ['publicada', 'Publicadas'],
+  ['error', 'Con error'],
   ['descartada', 'Descartadas'],
   ['todas', 'Todas'],
 ];
@@ -20,7 +21,9 @@ const FILTROS = [
 const TONO_ESTADO = {
   borrador: 'bg-bg-base text-text-secondary',
   aprobada: 'bg-brand-primary/15 text-brand-primary',
+  publicando: 'bg-warning/15 text-warning',
   publicada: 'bg-success/15 text-success',
+  error: 'bg-danger/15 text-danger',
   descartada: 'bg-bg-base text-text-muted line-through',
 };
 
@@ -31,7 +34,7 @@ function Tarjeta({ p, onCambio }) {
   const [enlace, setEnlace] = useState('');
   const [ocupada, setOcupada] = useState(false);
   const vencida = esVencida(p);
-  const editable = p.estado === 'borrador' || p.estado === 'aprobada';
+  const editable = p.estado === 'borrador' || p.estado === 'aprobada' || p.estado === 'error';
 
   const guardar = async (patch, ok) => {
     setOcupada(true);
@@ -66,7 +69,7 @@ function Tarjeta({ p, onCambio }) {
 
   const accion = (nombre) => {
     if (nombre === 'publicar') { setPidiendoEnlace(true); return; }
-    guardar(parchePara(nombre), nombre === 'aprobar' ? 'Aprobada' : null);
+    guardar(parchePara(nombre), nombre === 'aprobar' ? 'Aprobada: se publicará sola a su hora' : nombre === 'reintentar' ? 'Se reintentará en unos minutos' : null);
   };
 
   const confirmarPublicada = () => {
@@ -99,6 +102,7 @@ function Tarjeta({ p, onCambio }) {
       <div className="grid gap-1 text-xs text-text-muted">
         {p.imagen_idea && <p><b className="font-medium text-text-secondary">Imagen:</b> {p.imagen_idea}</p>}
         {p.fuente && <p><b className="font-medium text-text-secondary">Fuente:</b> {p.fuente}</p>}
+        {p.estado === 'error' && p.error && <p className="text-danger"><b className="font-medium">Error:</b> {p.error}</p>}
         {p.estado === 'publicada' && (
           <p>
             <b className="font-medium text-text-secondary">Publicada:</b> {p.publicada_at ? `${diaSP(p.publicada_at)} ${horaSP(p.publicada_at)}` : '—'}
@@ -168,7 +172,7 @@ export default function PublicacionesView() {
           <div>
             <h1 className="text-2xl font-semibold text-text-primary">Publicaciones</h1>
             <p className="mt-1 max-w-[70ch] text-sm text-text-secondary">
-              Contenido para la página de Facebook «Flujo de Migração». Revisa y aprueba cada texto; después cópialo, publícalo en Meta Business Suite y márcalo como publicado.
+              Contenido para la página de Facebook «Flujo de Migração». Revisa y aprueba cada texto: al aprobarlo se publica solo a su hora. También puedes copiarlo y publicarlo a mano.
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -177,8 +181,8 @@ export default function PublicacionesView() {
           </div>
         </div>
 
-        <div className="rounded-md border border-warning/40 bg-warning/5 px-4 py-2.5 text-sm text-warning">
-          La publicación automática en Facebook todavía no está conectada: al token de Meta le falta el permiso para publicar. Hasta entonces, las publicaciones se hacen a mano.
+        <div className="rounded-md border border-border bg-bg-surface px-4 py-2.5 text-sm text-text-secondary">
+          Las publicaciones <b className="font-medium text-text-primary">aprobadas</b> se publican solas en la página de Facebook a su hora (se revisa cada 5 minutos; si la hora pasó hace más de 24 h no se publica sola). Si algo falla, queda en «Con error» y te llega una tarea.
         </div>
 
         {q.isError && (

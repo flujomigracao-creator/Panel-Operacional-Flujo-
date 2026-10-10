@@ -46,7 +46,7 @@ test('vencida: solo si está pendiente y su hora ya pasó', () => {
 test('contarPorEstado y filtrar', () => {
   const ahora = new Date('2026-10-08T15:00:00Z');
   const l = [P(1, '2026-10-08T10:30:00Z', 'borrador'), P(2, '2026-10-09T10:30:00Z', 'aprobada'), P(3, '2026-10-07T10:30:00Z', 'publicada'), P(4, '2026-10-09T15:30:00Z', 'descartada')];
-  assert.deepEqual(contarPorEstado(l, ahora), { total: 4, borrador: 1, aprobada: 1, publicada: 1, descartada: 1, vencidas: 1 });
+  assert.deepEqual(contarPorEstado(l, ahora), { total: 4, borrador: 1, aprobada: 1, publicando: 0, publicada: 1, error: 0, descartada: 1, vencidas: 1 });
   assert.deepEqual(filtrar(l, 'pendientes').map((p) => p.id), [1, 2]);
   assert.deepEqual(filtrar(l, 'publicada').map((p) => p.id), [3]);
   assert.equal(filtrar(l, 'todas').length, 4);
@@ -69,7 +69,7 @@ test('la noche de São Paulo que cae en el día siguiente en UTC se agrupa en su
 
 test('parchePara: publicar guarda fecha y enlace; salir de publicada los limpia', () => {
   const ahora = new Date('2026-10-08T15:00:00Z');
-  assert.deepEqual(parchePara('publicar', ahora, ' https://facebook.com/p/1 '), { estado: 'publicada', publicada_at: '2026-10-08T15:00:00.000Z', enlace_publicacion: 'https://facebook.com/p/1' });
+  assert.deepEqual(parchePara('publicar', ahora, ' https://facebook.com/p/1 '), { estado: 'publicada', publicada_at: '2026-10-08T15:00:00.000Z', enlace_publicacion: 'https://facebook.com/p/1', error: null });
   assert.equal(parchePara('publicar', ahora).enlace_publicacion, null);
   assert.deepEqual(parchePara('quitarAprobacion'), { estado: 'borrador', publicada_at: null, enlace_publicacion: null });
   assert.equal(parchePara('aprobar').estado, 'aprobada');
@@ -90,4 +90,18 @@ test('enlaceValido: vacío o http(s)', () => {
   assert.equal(enlaceValido('https://facebook.com/x'), true);
   assert.equal(enlaceValido('javascript:alert(1)'), false);
   assert.equal(enlaceValido('no es un enlace'), false);
+});
+
+test('estados del publicador automático: publicando y error', () => {
+  const ahora = new Date('2026-10-08T15:00:00Z');
+  const l = [P(1, '2026-10-08T10:30:00Z', 'publicando'), P(2, '2026-10-08T10:30:00Z', 'error'), P(3, '2026-10-08T10:30:00Z', 'aprobada')];
+  assert.deepEqual(filtrar(l, 'pendientes').map((p) => p.id), [1, 2, 3]);
+  assert.equal(contarPorEstado(l, ahora).vencidas, 1); // solo la aprobada: publicando/error no son «hora vencida»
+  assert.deepEqual(accionesDe('error'), ['reintentar', 'publicar', 'descartar']);
+  assert.deepEqual(accionesDe('publicando'), []);
+  const r = parchePara('reintentar', ahora);
+  assert.equal(r.estado, 'aprobada');
+  assert.equal(r.error, null);
+  assert.equal(r.programada_at, '2026-10-08T15:02:00.000Z');
+  assert.equal(parchePara('aprobar').error, null);
 });
