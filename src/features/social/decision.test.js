@@ -66,6 +66,7 @@ test('mensajePrivado: saludo con el primer nombre, enlace y número de WhatsApp,
   assert.match(m, /\+55 48 98455-3306/);
   assert.match(mensajePrivado('', 'instagram'), /^Hola 👋/);
   assert.match(mensajePrivado('x', 'instagram'), /desde%20Instagram/);
+  assert.match(mensajePrivado('juan.perez_88', 'instagram'), /^Hola 👋/); // en Instagram el nombre es un usuario: no se usa de saludo
 });
 
 test('extraerComentarios (Facebook): comentario nuevo, respuesta y comentario propio', () => {

@@ -62,7 +62,8 @@ export function respuestaPublica(commentId) {
 
 /** Mensaje privado con el enlace y el número de WhatsApp. */
 export function mensajePrivado(nombre, plataforma) {
-  const primero = String(nombre || '').trim().split(/\s+/)[0];
+  // En Instagram el «nombre» es el usuario (juan.perez_88): queda raro como saludo, así que allí no se usa.
+  const primero = plataforma === 'instagram' ? '' : String(nombre || '').trim().split(/\s+/)[0];
   const saludo = primero ? `Hola ${primero} 👋` : 'Hola 👋';
   const origen = plataforma === 'instagram' ? 'Instagram' : 'Facebook';
   const enlace = `${WHATSAPP_LINK}?text=${encodeURIComponent(`Hola, te escribo desde ${origen}`)}`;
