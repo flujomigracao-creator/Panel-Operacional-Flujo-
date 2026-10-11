@@ -57,6 +57,9 @@ test('respuestaPublica: estable por comentario y siempre pregunta si llegó el m
   const todas = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map(respuestaPublica));
   assert.ok(todas.size > 1);
   for (const t of todas) assert.match(t, /llegó|recibiste/);
+  // Instagram no deja dar «me gusta» a comentarios: la respuesta pública empieza con ❤️; Facebook no lo lleva.
+  assert.match(respuestaPublica('123_456', 'instagram'), /^❤️ /);
+  assert.doesNotMatch(respuestaPublica('123_456', 'facebook'), /❤️/);
 });
 
 test('mensajePrivado: saludo con el primer nombre, enlace y número de WhatsApp, y origen', () => {

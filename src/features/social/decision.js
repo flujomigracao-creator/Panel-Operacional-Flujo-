@@ -53,11 +53,14 @@ const RESPUESTAS_PUBLICAS = [
   'Gracias por comentar 🙏 Revisa tus mensajes: te escribimos por privado. ¿Te llegó?',
 ];
 
-/** Variante estable por comentario: evita publicar siempre el mismo texto (Meta lo trata como spam). */
-export function respuestaPublica(commentId) {
+/**
+ * Variante estable por comentario: evita publicar siempre el mismo texto (Meta lo trata como spam).
+ * En Instagram la API no permite dar «me gusta» a un comentario (error 100/33), así que la respuesta empieza con ❤️.
+ */
+export function respuestaPublica(commentId, plataforma) {
   let h = 0;
   for (const ch of String(commentId)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return RESPUESTAS_PUBLICAS[h % RESPUESTAS_PUBLICAS.length];
+  return (plataforma === 'instagram' ? '❤️ ' : '') + RESPUESTAS_PUBLICAS[h % RESPUESTAS_PUBLICAS.length];
 }
 
 /** Mensaje privado con el enlace y el número de WhatsApp. */
