@@ -7,7 +7,7 @@ import InstagramEditor from './InstagramEditor';
 import {
   ESTADOS, FRANJAS, aInputSP, deInputSP, horaSP, franjaDeHora, esVencida, contarPorEstado, filtrar,
   agruparPorDia, parchePara, accionesDe, ETIQUETA_ACCION, enlaceValido, diaSP,
-  REDES, ESTADOS_IG, destinosDe, alternarDestino, parcheReintentarIG, problemasCarrusel,
+  REDES, ESTADOS_IG, destinosDe, alternarDestino, parcheReintentarIG, problemasCarrusel, laminasDe, conInvitacionFinal,
 } from '../publicaciones';
 
 const FILTROS = [
@@ -83,6 +83,11 @@ function Tarjeta({ p, onCambio }) {
     if (nombre === 'aprobar' && destinos.includes('instagram')) {
       const problemas = problemasCarrusel(p);
       if (problemas.length) { toast.error(problemas.join('. ')); return; }
+    }
+    // Al aprobar un carrusel de Instagram, su última lámina queda siempre como invitación a seguir la cuenta.
+    if (nombre === 'aprobar' && destinos.includes('instagram') && p.ig_formato === 'carrusel') {
+      guardar({ ...parchePara('aprobar'), ig_slides: conInvitacionFinal(laminasDe(p)) }, 'Aprobada: se publicará sola a su hora');
+      return;
     }
     // Si el único destino es Instagram, «reintentar» reinicia el intento de Instagram.
     if (nombre === 'reintentar' && soloInstagram) { guardar(parcheReintentarIG(p), 'Se reintentará en unos minutos'); return; }

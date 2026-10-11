@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { firmarRutas } from '../services/publicacionesService';
 import {
-  FORMATOS, MAX_LAMINAS, laminasDe, laminaVacia, editarLamina, agregarLamina, quitarLamina, olvidarImagenLamina,
+  FORMATOS, MAX_LAMINAS, laminasDe, laminaVacia, esInvitacion, conInvitacionFinal, editarLamina, agregarLamina, quitarLamina, olvidarImagenLamina,
   imagenesFaltantes, rutasDeImagenes, textoParaInstagram,
 } from '../publicaciones';
 
@@ -49,7 +49,7 @@ export default function InstagramEditor({ p, editable, ocupada, guardar, textoFb
     if (f === p.ig_formato) return;
     const parche = { ig_formato: f };
     if (f === 'carrusel' && laminas.length === 0) {
-      const base = [laminaVacia(), laminaVacia()];
+      const base = conInvitacionFinal([laminaVacia()]);
       setLaminas(base);
       parche.ig_slides = base;
     }
@@ -125,16 +125,16 @@ export default function InstagramEditor({ p, editable, ocupada, guardar, textoFb
               <li key={i} className="flex flex-wrap items-start gap-3 rounded border border-border bg-bg-surface p-2">
                 <Miniatura url={url(laminasDe(p)[i]?.path)} vacia={i === 0 ? 'Portada sin generar' : 'Sin generar'} />
                 <div className="grid min-w-[220px] flex-1 gap-2">
-                  <p className="font-medium text-text-secondary">{i === 0 ? 'Lámina 1 · Portada: el país hacia el grupo' : `Lámina ${i + 1}`}</p>
-                  <input aria-label={`Titular de la lámina ${i + 1}`} value={l.titular || ''} maxLength={40} disabled={bloqueado} placeholder="Titular (máx. 40)"
+                  <p className="font-medium text-text-secondary">{i === 0 ? 'Lámina 1 · Portada: el país hacia el grupo' : esInvitacion(l) ? `Lámina ${i + 1} · Final: invita a seguir (texto fijo)` : `Lámina ${i + 1}`}</p>
+                  <input aria-label={`Titular de la lámina ${i + 1}`} value={l.titular || ''} maxLength={40} disabled={bloqueado || esInvitacion(l)} placeholder="Titular (máx. 40)"
                     onChange={(e) => editar(i, 'titular', e.target.value)} onBlur={() => confirmarLamina(i, 'titular')} className={CAMPO} />
-                  <input aria-label={`Texto de la lámina ${i + 1}`} value={l.texto || ''} maxLength={110} disabled={bloqueado} placeholder="Texto corto (máx. 110)"
+                  <input aria-label={`Texto de la lámina ${i + 1}`} value={l.texto || ''} maxLength={110} disabled={bloqueado || esInvitacion(l)} placeholder="Texto corto (máx. 110)"
                     onChange={(e) => editar(i, 'texto', e.target.value)} onBlur={() => confirmarLamina(i, 'texto')} className={CAMPO} />
-                  <input aria-label={`Idea visual de la lámina ${i + 1}`} value={l.idea || ''} disabled={bloqueado} placeholder="Idea visual"
+                  <input aria-label={`Idea visual de la lámina ${i + 1}`} value={l.idea || ''} disabled={bloqueado || esInvitacion(l)} placeholder="Idea visual"
                     onChange={(e) => editar(i, 'idea', e.target.value)} onBlur={() => confirmarLamina(i, 'idea')} className={CAMPO} />
                   <div className="flex gap-2">
                     <button disabled={bloqueado} onClick={() => regenerarLamina(i)} className="rounded-md border border-border px-2 py-1 text-text-secondary hover:bg-bg-base disabled:opacity-50">Regenerar imagen</button>
-                    {laminas.length > 2 && (
+                    {laminas.length > 2 && !esInvitacion(l) && (
                       <button disabled={bloqueado} onClick={() => guardarLaminas(quitarLamina(laminasDe(p), i), 'Lámina quitada')} className="rounded-md border border-border px-2 py-1 text-text-secondary hover:bg-bg-base disabled:opacity-50">Quitar</button>
                     )}
                   </div>

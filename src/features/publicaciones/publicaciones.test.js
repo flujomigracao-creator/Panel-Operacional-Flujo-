@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { diaSP, horaSP, etiquetaDia, aInputSP, deInputSP, franjaDeHora, esVencida, contarPorEstado, filtrar, agruparPorDia, parchePara, accionesDe, enlaceValido, destinosDe, alternarDestino, parcheReintentarIG, textoParaInstagram, editarLamina, quitarLamina, agregarLamina, laminaVacia, olvidarImagenLamina, imagenesFaltantes, rutasDeImagenes, problemasCarrusel } from './publicaciones.js';
+import { diaSP, horaSP, etiquetaDia, aInputSP, deInputSP, franjaDeHora, esVencida, contarPorEstado, filtrar, agruparPorDia, parchePara, accionesDe, enlaceValido, destinosDe, alternarDestino, parcheReintentarIG, textoParaInstagram, editarLamina, quitarLamina, agregarLamina, laminaVacia, olvidarImagenLamina, imagenesFaltantes, rutasDeImagenes, problemasCarrusel, INVITACION_SEGUIR, esInvitacion, conInvitacionFinal } from './publicaciones.js';
 
 const P = (id, iso, estado = 'borrador') => ({ id, programada_at: iso, estado });
 
@@ -135,9 +135,9 @@ test('carrusel: editar una lámina borra su imagen vieja; añadir/quitar respeta
   assert.equal(ed[0].path, 'p/1.png');
   assert.equal(editarLamina(ls, 0, 'titular', 'A'), ls); // sin cambios: misma referencia
   assert.equal(editarLamina(ls, 0, 'path', 'otra'), ls); // solo se editan titular/texto/idea
-  assert.equal(quitarLamina(ls, 0).length, 1);
+  assert.equal(quitarLamina(ls, 0).length, 2); // queda 1 + la invitación final
   assert.equal(agregarLamina(Array.from({ length: 10 }, laminaVacia)).length, 10);
-  assert.equal(agregarLamina(ls).length, 3);
+  assert.equal(agregarLamina(ls).length, 4); // 2 + nueva + invitación final
   assert.equal(olvidarImagenLamina(ls, 0)[0].path, undefined);
 });
 
@@ -154,4 +154,26 @@ test('un carrusel no se aprueba sin 2 láminas, país y grupo', () => {
   assert.deepEqual(problemasCarrusel({ ig_formato: 'imagen' }), []);
   assert.equal(problemasCarrusel({ ig_formato: 'carrusel', ig_slides: [{}], ig_pais: '', ig_grupo: '' }).length, 2);
   assert.deepEqual(problemasCarrusel({ ig_formato: 'carrusel', ig_slides: [{}, {}], ig_pais: 'Cuba', ig_grupo: 'cubanos' }), []);
+});
+
+test('la última lámina de todo carrusel es la invitación a seguir: única, al final, fija', () => {
+  const a = conInvitacionFinal([{ titular: 'A' }, { titular: 'B' }]);
+  assert.equal(a.length, 3);
+  assert.equal(a[2].titular, INVITACION_SEGUIR.titular);
+  // idempotente y conserva la imagen ya generada de la invitación
+  const b = conInvitacionFinal([{ titular: 'A' }, { ...INVITACION_SEGUIR, path: 'x.jpg' }, { titular: 'B' }]);
+  assert.deepEqual(b.map((l) => l.titular), ['A', 'B', INVITACION_SEGUIR.titular]);
+  assert.equal(b[2].path, 'x.jpg');
+  assert.equal(b.filter(esInvitacion).length, 1);
+  // máximo 10 láminas, la invitación siempre cabe
+  const grande = conInvitacionFinal(Array.from({ length: 12 }, (_, i) => ({ titular: 'L' + i })));
+  assert.equal(grande.length, 10);
+  assert.equal(grande[9].titular, INVITACION_SEGUIR.titular);
+  // no se puede quitar ni editar la invitación; una lámina nueva entra antes de ella
+  assert.equal(quitarLamina(a, 2), a);
+  assert.equal(editarLamina(a, 2, 'titular', 'otra'), a);
+  const c = agregarLamina(a);
+  assert.equal(c.length, 4);
+  assert.equal(c[3].titular, INVITACION_SEGUIR.titular);
+  assert.equal(c[2].titular, '');
 });

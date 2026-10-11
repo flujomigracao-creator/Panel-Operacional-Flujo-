@@ -95,6 +95,19 @@ function construirLamina(p: { tema?: string | null }, s: Lamina, n: number, tota
   ].filter(Boolean).join(' ');
 }
 
+/** Última lámina de TODO carrusel: invitación a seguir la cuenta para no perderse noticias y datos (texto fijo, no se improvisa). */
+function construirInvitacion(n: number, total: number) {
+  return [
+    `Final slide ${n} of ${total} of an Instagram carousel (square) for Spanish-speaking migrants in Brazil: an invitation to follow the account.`,
+    'Bold modern editorial poster design: deep navy-blue background with green and yellow accents, strong typographic hierarchy, very high contrast, generous spacing, same visual language as the other slides.',
+    'Supporting visual: a big notification bell and a generic rounded "follow" button with a plus icon (no Instagram logo).',
+    'Big headline, exactly as written and perfectly spelled: "SÍGUENOS".',
+    'Below it, smaller text exactly as written and perfectly spelled: "Para no perderte noticias ni datos de migración en Brasil".',
+    'At the bottom, in yellow, exactly as written: "@flujomigracaobr".',
+    'No other text anywhere. No logos, no watermarks, no official seals or government emblems.',
+  ].join(' ');
+}
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ ok: false, motivo: 'Usa POST.' }, 405);
   // verify_jwt=true ya validó la firma en el gateway; aquí solo se exige que sea la clave de servicio (rol service_role).
@@ -136,7 +149,8 @@ Deno.serve(async (req) => {
       }
 
       const model = await modeloImagen();
-      const prompt = carrusel ? (n === 1 ? construirPortada(p as any, slides[0]) : construirLamina(p as any, slides[n - 1], n, slides.length))
+      const prompt = carrusel ? (n > 1 && n === slides.length ? construirInvitacion(n, slides.length)
+          : n === 1 ? construirPortada(p as any, slides[0]) : construirLamina(p as any, slides[n - 1], n, slides.length))
         : ig ? construirPromptIG(p as any) : construirPrompt(p as any);
       // Instagram solo acepta JPEG con seguridad: sus imágenes se piden ya en JPEG; las de Facebook siguen en PNG.
       const cuerpo: Record<string, unknown> = { model, prompt, size: '1024x1024', n: 1 };

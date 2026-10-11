@@ -151,13 +151,38 @@ export const laminaVacia = () => ({ titular: '', texto: '', idea: '' });
 
 /** Cambia un campo de una lámina. Si cambia lo que se escribe en la imagen, la imagen vieja ya no vale: se borra su ruta para regenerarla. */
 export function editarLamina(laminas, i, campo, valor) {
-  if (!laminas[i] || !['titular', 'texto', 'idea'].includes(campo)) return laminas;
+  if (!laminas[i] || esInvitacion(laminas[i]) || !['titular', 'texto', 'idea'].includes(campo)) return laminas;
   if ((laminas[i][campo] || '') === valor) return laminas;
   return laminas.map((l, k) => (k === i ? { ...l, [campo]: valor, path: undefined, at: undefined } : l));
 }
 
-export const agregarLamina = (laminas) => (laminas.length >= MAX_LAMINAS ? laminas : [...laminas, laminaVacia()]);
-export const quitarLamina = (laminas, i) => laminas.filter((_, k) => k !== i);
+/** La ÚLTIMA lámina de todo carrusel invita a seguir la cuenta para no perderse noticias y datos (texto fijo). */
+export const INVITACION_SEGUIR = {
+  titular: 'SÍGUENOS',
+  texto: 'Para no perderte noticias ni datos de migración en Brasil · @flujomigracaobr',
+  idea: 'campana de notificación y botón de seguir con un signo más, estilo póster',
+};
+export const esInvitacion = (l) => l?.titular === INVITACION_SEGUIR.titular;
+
+/** Deja una sola invitación y siempre al final (conserva su imagen si ya la tenía); respeta el máximo de láminas. */
+export function conInvitacionFinal(laminas) {
+  const previa = laminas.find(esInvitacion);
+  const resto = laminas.filter((l) => !esInvitacion(l)).slice(0, MAX_LAMINAS - 1);
+  return [...resto, previa ? { ...INVITACION_SEGUIR, path: previa.path, at: previa.at } : { ...INVITACION_SEGUIR }];
+}
+
+/** Añade una lámina nueva ANTES de la invitación final. */
+export function agregarLamina(laminas) {
+  const resto = laminas.filter((l) => !esInvitacion(l));
+  if (resto.length >= MAX_LAMINAS - 1) return laminas;
+  return conInvitacionFinal([...resto, laminaVacia(), ...laminas.filter(esInvitacion)]);
+}
+
+/** Quita una lámina; la invitación final no se puede quitar. */
+export function quitarLamina(laminas, i) {
+  if (!laminas[i] || esInvitacion(laminas[i])) return laminas;
+  return conInvitacionFinal(laminas.filter((_, k) => k !== i));
+}
 
 /** Pide regenerar una lámina: borra su ruta (la función de imágenes genera las que no tienen). */
 export const olvidarImagenLamina = (laminas, i) => laminas.map((l, k) => (k === i ? { ...l, path: undefined, at: undefined } : l));
