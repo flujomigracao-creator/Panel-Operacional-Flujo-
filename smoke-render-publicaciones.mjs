@@ -28,6 +28,8 @@ try {
     { id: 'b', programada_at: futuro(30), franja: 'tarde', tipo: 'Pregunta', tema: 'CPF', texto: '¿Ya tienes tu CPF?', imagen_idea: null, fuente: null, estado: 'aprobada', publicada_at: null, enlace_publicacion: null, updated_at: 'x2' },
     { id: 'c', programada_at: futuro(-48), franja: 'noche', tipo: 'Dato', tema: 'RNM', texto: 'Texto ya publicado', imagen_idea: null, fuente: null, estado: 'publicada', publicada_at: futuro(-47), enlace_publicacion: 'https://facebook.com/x', updated_at: 'x3' },
     { id: 'd', programada_at: futuro(-5), franja: 'manana', tipo: 'Guía', tema: 'RNM', texto: 'Borrador con la hora vencida', imagen_idea: null, fuente: null, estado: 'borrador', publicada_at: null, enlace_publicacion: null, updated_at: 'x4' },
+    { id: 'e', programada_at: futuro(36), franja: 'tarde', tipo: 'Carrusel', tema: 'Cuba', texto: 'Cubanos en Brasil: los números', destinos: ['instagram'], ig_formato: 'carrusel', ig_pais: 'Cuba', ig_grupo: 'cubanos', ig_estado: null, ig_generar: false,
+      ig_slides: [{ titular: 'CUBANOS EN BRASIL', texto: 'Los números de 2026', idea: 'Malecón' }, { titular: '20.372', texto: 'pidieron refugio', idea: 'número gigante' }], imagen_idea: null, fuente: null, estado: 'borrador', publicada_at: null, enlace_publicacion: null, updated_at: 'x5' },
   ];
   const montar = (fn) => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false } } });
@@ -43,7 +45,7 @@ try {
   };
 
   comprobar('con datos (filtro pendientes)', montar((qc) => qc.setQueryData(['publicaciones'], filas)),
-    ['Publicaciones', 'Lo que necesitas para pedir tu CPF', 'Copiar texto', 'Aprobar', 'Hora vencida', 'Borrador con la hora vencida', 'se publican solas en la página de Facebook', 'Pendientes · 3'],
+    ['Publicaciones', 'Lo que necesitas para pedir tu CPF', 'Copiar texto', 'Aprobar', 'Hora vencida', 'Borrador con la hora vencida', 'se publican solas en Facebook y/o Instagram', 'Publicar en:', 'Pendientes · 4', 'Lámina 1 · Portada: el país hacia el grupo', 'Generar imágenes (2 sin imagen)', 'País de la portada'],
     ['Texto ya publicado', 'No se pudieron cargar']);
   comprobar('lista vacía', montar((qc) => qc.setQueryData(['publicaciones'], [])), ['Todavía no hay publicaciones', 'Nueva publicación']);
   comprobar('con error: aviso y reintento, sin decir que no hay nada', montar((qc) => setError(qc)), ['No se pudieron cargar las publicaciones', 'Reintentar'], ['Todavía no hay publicaciones']);

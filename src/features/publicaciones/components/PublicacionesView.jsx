@@ -3,9 +3,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { AlertTriangle, Plus, RefreshCw } from 'lucide-react';
 import { listPublicaciones, updatePublicacion, createPublicacion } from '../services/publicacionesService';
+import InstagramEditor from './InstagramEditor';
 import {
   ESTADOS, FRANJAS, aInputSP, deInputSP, horaSP, franjaDeHora, esVencida, contarPorEstado, filtrar,
   agruparPorDia, parchePara, accionesDe, ETIQUETA_ACCION, enlaceValido, diaSP,
+  REDES, ESTADOS_IG, destinosDe, alternarDestino, parcheReintentarIG, problemasCarrusel,
 } from '../publicaciones';
 
 const FILTROS = [
@@ -67,8 +69,23 @@ function Tarjeta({ p, onCambio }) {
     catch { toast.error('No se pudo copiar: selecciona el texto y usa Ctrl+C'); }
   };
 
+  const destinos = destinosDe(p);
+  const soloInstagram = !destinos.includes('facebook');
+
+  const cambiarDestino = (red) => {
+    const nuevo = alternarDestino(destinos, red);
+    if (!nuevo) { toast.error('Tiene que quedar al menos una red'); return; }
+    guardar({ destinos: nuevo }, 'Destino actualizado');
+  };
+
   const accion = (nombre) => {
     if (nombre === 'publicar') { setPidiendoEnlace(true); return; }
+    if (nombre === 'aprobar' && destinos.includes('instagram')) {
+      const problemas = problemasCarrusel(p);
+      if (problemas.length) { toast.error(problemas.join('. ')); return; }
+    }
+    // Si el único destino es Instagram, «reintentar» reinicia el intento de Instagram.
+    if (nombre === 'reintentar' && soloInstagram) { guardar(parcheReintentarIG(p), 'Se reintentará en unos minutos'); return; }
     guardar(parchePara(nombre), nombre === 'aprobar' ? 'Aprobada: se publicará sola a su hora' : nombre === 'reintentar' ? 'Se reintentará en unos minutos' : null);
   };
 
@@ -99,8 +116,33 @@ function Tarjeta({ p, onCambio }) {
         className="w-full resize-y rounded border border-border bg-bg-base px-3 py-2 text-sm leading-relaxed text-text-primary disabled:opacity-70"
       />
 
+      <div className="flex flex-wrap items-center gap-3 text-xs text-text-secondary">
+        <span className="font-medium">Publicar en:</span>
+        {Object.entries(REDES).map(([red, nombre]) => (
+          <label key={red} className="flex items-center gap-1.5" htmlFor={`red-${red}-${p.id}`}>
+            <input id={`red-${red}-${p.id}`} type="checkbox" checked={destinos.includes(red)} disabled={!editable || ocupada}
+              onChange={() => cambiarDestino(red)} />
+            {nombre}
+          </label>
+        ))}
+        {destinos.includes('instagram') && p.ig_estado && (
+          <span className={`ml-auto rounded-full px-2 py-0.5 font-medium ${TONO_ESTADO[p.ig_estado === 'error' ? 'error' : p.ig_estado === 'publicada' ? 'publicada' : 'publicando']}`}>
+            Instagram: {ESTADOS_IG[p.ig_estado] || p.ig_estado}
+          </span>
+        )}
+      </div>
+
+      {destinos.includes('instagram') && <InstagramEditor p={p} editable={editable} ocupada={ocupada} guardar={guardar} textoFb={texto} />}
+
       <div className="grid gap-1 text-xs text-text-muted">
         {p.imagen_idea && <p><b className="font-medium text-text-secondary">Imagen:</b> {p.imagen_idea}</p>}
+        {p.ig_estado === 'error' && p.ig_error && !soloInstagram && <p className="text-danger"><b className="font-medium">Error en Instagram:</b> {p.ig_error}</p>}
+        {p.ig_estado === 'publicada' && (
+          <p>
+            <b className="font-medium text-text-secondary">En Instagram:</b> {p.ig_publicada_at ? `${diaSP(p.ig_publicada_at)} ${horaSP(p.ig_publicada_at)}` : '—'}
+            {p.ig_enlace && <> · <a href={p.ig_enlace} target="_blank" rel="noreferrer" className="text-brand-primary underline">ver en Instagram</a></>}
+          </p>
+        )}
         {p.fuente && <p><b className="font-medium text-text-secondary">Fuente:</b> {p.fuente}</p>}
         {p.estado === 'error' && p.error && <p className="text-danger"><b className="font-medium">Error:</b> {p.error}</p>}
         {p.estado === 'publicada' && (
@@ -119,6 +161,12 @@ function Tarjeta({ p, onCambio }) {
             {ETIQUETA_ACCION[a]}
           </button>
         ))}
+        {p.ig_estado === 'error' && !soloInstagram && (
+          <button disabled={ocupada} onClick={() => guardar(parcheReintentarIG(p), 'Instagram se reintentará en unos minutos')}
+            className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-base disabled:opacity-50">
+            Reintentar Instagram
+          </button>
+        )}
         {editable && (
           <label className="ml-auto flex items-center gap-2 text-xs text-text-muted" htmlFor={`cuando-${p.id}`}>
             Hora (São Paulo)
@@ -157,7 +205,7 @@ export default function PublicacionesView() {
     try {
       const manana = new Date(Date.now() + 24 * 3600 * 1000);
       const dia = diaSP(manana.toISOString());
-      await createPublicacion({ programada_at: deInputSP(`${dia}T07:30`), franja: 'manana', tipo: 'Guía', texto: 'Escribe aquí el texto de la publicación.', estado: 'borrador' });
+      await createPublicacion({ programada_at: deInputSP(`${dia}T07:30`), franja: 'manana', tipo: 'Guía', texto: 'Escribe aquí el texto de la publicación.', estado: 'borrador', destinos: ['facebook', 'instagram'] });
       toast.success('Borrador creado para mañana a las 7:30');
       refrescar();
     } catch (err) {
@@ -172,7 +220,7 @@ export default function PublicacionesView() {
           <div>
             <h1 className="text-2xl font-semibold text-text-primary">Publicaciones</h1>
             <p className="mt-1 max-w-[70ch] text-sm text-text-secondary">
-              Contenido para la página de Facebook «Flujo de Migração». Revisa y aprueba cada texto: al aprobarlo se publica solo a su hora. También puedes copiarlo y publicarlo a mano.
+              Contenido para la página de Facebook «Flujo de Migração» y su cuenta de Instagram. Revisa y aprueba cada texto: al aprobarlo se publica solo a su hora en las redes marcadas. También puedes copiarlo y publicarlo a mano.
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -182,7 +230,7 @@ export default function PublicacionesView() {
         </div>
 
         <div className="rounded-md border border-border bg-bg-surface px-4 py-2.5 text-sm text-text-secondary">
-          Las publicaciones <b className="font-medium text-text-primary">aprobadas</b> se publican solas en la página de Facebook a su hora (se revisa cada 5 minutos; si la hora pasó hace más de 24 h no se publica sola). Si algo falla, queda en «Con error» y te llega una tarea.
+          Las publicaciones <b className="font-medium text-text-primary">aprobadas</b> se publican solas en Facebook y/o Instagram (según «Publicar en») a su hora (se revisa cada 5 minutos; si la hora pasó hace más de 24 h no se publica sola). Si algo falla, queda en «Con error» y te llega una tarea.
         </div>
 
         {q.isError && (

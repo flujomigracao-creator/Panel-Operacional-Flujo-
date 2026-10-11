@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { diaSP, horaSP, etiquetaDia, aInputSP, deInputSP, franjaDeHora, esVencida, contarPorEstado, filtrar, agruparPorDia, parchePara, accionesDe, enlaceValido } from './publicaciones.js';
+import { diaSP, horaSP, etiquetaDia, aInputSP, deInputSP, franjaDeHora, esVencida, contarPorEstado, filtrar, agruparPorDia, parchePara, accionesDe, enlaceValido, destinosDe, alternarDestino, parcheReintentarIG, textoParaInstagram, editarLamina, quitarLamina, agregarLamina, laminaVacia, olvidarImagenLamina, imagenesFaltantes, rutasDeImagenes, problemasCarrusel } from './publicaciones.js';
 
 const P = (id, iso, estado = 'borrador') => ({ id, programada_at: iso, estado });
 
@@ -104,4 +104,54 @@ test('estados del publicador automático: publicando y error', () => {
   assert.equal(r.error, null);
   assert.equal(r.programada_at, '2026-10-08T15:02:00.000Z');
   assert.equal(parchePara('aprobar').error, null);
+});
+
+test('destinos: por defecto Facebook; nunca queda vacío; orden estable', () => {
+  assert.deepEqual(destinosDe({}), ['facebook']);
+  assert.deepEqual(destinosDe({ destinos: ['instagram'] }), ['instagram']);
+  assert.deepEqual(alternarDestino(['facebook'], 'instagram'), ['facebook', 'instagram']);
+  assert.deepEqual(alternarDestino(['instagram'], 'facebook'), ['facebook', 'instagram']);
+  assert.deepEqual(alternarDestino(['facebook', 'instagram'], 'facebook'), ['instagram']);
+  assert.equal(alternarDestino(['facebook'], 'facebook'), null);
+  assert.equal(alternarDestino(['facebook'], 'tiktok'), null);
+});
+
+test('reintento de Instagram: solo Instagram vuelve a aprobada; con Facebook no toca el estado', () => {
+  const ahora = new Date('2026-10-08T15:00:00Z');
+  assert.deepEqual(parcheReintentarIG({ destinos: ['instagram'] }, ahora), { ig_estado: null, ig_error: null, programada_at: '2026-10-08T15:02:00.000Z', estado: 'aprobada', error: null });
+  assert.deepEqual(parcheReintentarIG({ destinos: ['facebook', 'instagram'] }, ahora), { ig_estado: null, ig_error: null, programada_at: '2026-10-08T15:02:00.000Z' });
+});
+
+test('textoParaInstagram: cambia los enlaces por «link en la bio» y respeta el máximo', () => {
+  assert.equal(textoParaInstagram('Escríbenos: https://wa.me/5548984553306?text=Hola%20vi'), 'Escríbenos: (link en la bio)');
+  assert.equal(textoParaInstagram('x'.repeat(3000)).length, 2200);
+});
+
+test('carrusel: editar una lámina borra su imagen vieja; añadir/quitar respetan el máximo', () => {
+  const ls = [{ titular: 'A', texto: 'a', idea: 'x', path: 'p/1.png' }, { titular: 'B', texto: 'b', idea: 'y', path: 'p/2.png' }];
+  const ed = editarLamina(ls, 1, 'titular', 'C');
+  assert.equal(ed[1].titular, 'C');
+  assert.equal(ed[1].path, undefined);
+  assert.equal(ed[0].path, 'p/1.png');
+  assert.equal(editarLamina(ls, 0, 'titular', 'A'), ls); // sin cambios: misma referencia
+  assert.equal(editarLamina(ls, 0, 'path', 'otra'), ls); // solo se editan titular/texto/idea
+  assert.equal(quitarLamina(ls, 0).length, 1);
+  assert.equal(agregarLamina(Array.from({ length: 10 }, laminaVacia)).length, 10);
+  assert.equal(agregarLamina(ls).length, 3);
+  assert.equal(olvidarImagenLamina(ls, 0)[0].path, undefined);
+});
+
+test('imágenes faltantes y rutas de Instagram (imagen única y carrusel)', () => {
+  assert.equal(imagenesFaltantes({ ig_formato: 'imagen' }), 1);
+  assert.equal(imagenesFaltantes({ ig_formato: 'imagen', ig_imagen_path: 'x.png' }), 0);
+  const c = { ig_formato: 'carrusel', ig_slides: [{ path: 'a' }, {}, { path: 'c' }] };
+  assert.equal(imagenesFaltantes(c), 1);
+  assert.deepEqual(rutasDeImagenes(c), ['a', 'c']);
+  assert.deepEqual(rutasDeImagenes({ ig_formato: 'imagen', ig_imagen_path: 'x.png' }), ['x.png']);
+});
+
+test('un carrusel no se aprueba sin 2 láminas, país y grupo', () => {
+  assert.deepEqual(problemasCarrusel({ ig_formato: 'imagen' }), []);
+  assert.equal(problemasCarrusel({ ig_formato: 'carrusel', ig_slides: [{}], ig_pais: '', ig_grupo: '' }).length, 2);
+  assert.deepEqual(problemasCarrusel({ ig_formato: 'carrusel', ig_slides: [{}, {}], ig_pais: 'Cuba', ig_grupo: 'cubanos' }), []);
 });

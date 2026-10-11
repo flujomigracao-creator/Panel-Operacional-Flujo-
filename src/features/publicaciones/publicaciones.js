@@ -116,6 +116,79 @@ export const ETIQUETA_ACCION = {
   restaurar: 'Restaurar',
 };
 
+export const REDES = { facebook: 'Facebook', instagram: 'Instagram' };
+export const ESTADOS_IG = { publicando: 'Publicando…', publicada: 'Publicada', error: 'Error' };
+
+/** Redes de destino de una publicación (las anteriores a Instagram no traen la columna: solo Facebook). */
+export const destinosDe = (p) => (Array.isArray(p?.destinos) && p.destinos.length ? p.destinos : ['facebook']);
+
+/** Alterna una red en la lista de destinos; nunca deja la lista vacía. Devuelve null si no cambia nada. */
+export function alternarDestino(destinos, red) {
+  if (!(red in REDES)) return null;
+  const actual = destinos?.length ? destinos : ['facebook'];
+  const nuevo = actual.includes(red) ? actual.filter((d) => d !== red) : [...actual, red];
+  if (nuevo.length === 0) return null;
+  return Object.keys(REDES).filter((r) => nuevo.includes(r));
+}
+
+/**
+ * Reintento en Instagram tras un error: limpia el intento y fija la hora a 2 min (el publicador no toma lo que lleva más de 24 h de retraso).
+ * Si Instagram es el único destino, la publicación vuelve a «aprobada» (el publicador de Instagram la toma de ahí).
+ */
+export function parcheReintentarIG(p, ahora = new Date()) {
+  const base = { ig_estado: null, ig_error: null, programada_at: new Date(ahora.getTime() + 2 * 60 * 1000).toISOString() };
+  return destinosDe(p).includes('facebook') ? base : { ...base, estado: 'aprobada', error: null };
+}
+
+export const FORMATOS = { imagen: 'Imagen única', carrusel: 'Carrusel' };
+export const MAX_LAMINAS = 10;
+export const MIN_LAMINAS = 2;
+
+/** Láminas del carrusel ([{ titular, texto, idea, path? }]); siempre un array. */
+export const laminasDe = (p) => (Array.isArray(p?.ig_slides) ? p.ig_slides : []);
+
+export const laminaVacia = () => ({ titular: '', texto: '', idea: '' });
+
+/** Cambia un campo de una lámina. Si cambia lo que se escribe en la imagen, la imagen vieja ya no vale: se borra su ruta para regenerarla. */
+export function editarLamina(laminas, i, campo, valor) {
+  if (!laminas[i] || !['titular', 'texto', 'idea'].includes(campo)) return laminas;
+  if ((laminas[i][campo] || '') === valor) return laminas;
+  return laminas.map((l, k) => (k === i ? { ...l, [campo]: valor, path: undefined, at: undefined } : l));
+}
+
+export const agregarLamina = (laminas) => (laminas.length >= MAX_LAMINAS ? laminas : [...laminas, laminaVacia()]);
+export const quitarLamina = (laminas, i) => laminas.filter((_, k) => k !== i);
+
+/** Pide regenerar una lámina: borra su ruta (la función de imágenes genera las que no tienen). */
+export const olvidarImagenLamina = (laminas, i) => laminas.map((l, k) => (k === i ? { ...l, path: undefined, at: undefined } : l));
+
+/** Cuántas imágenes faltan por generar para esta publicación en Instagram. */
+export function imagenesFaltantes(p) {
+  if (p?.ig_formato === 'carrusel') return laminasDe(p).filter((l) => !l.path).length;
+  return p?.ig_imagen_path ? 0 : 1;
+}
+
+/** Rutas de las imágenes de Instagram ya generadas (para pedir sus URLs firmadas). */
+export function rutasDeImagenes(p) {
+  if (p?.ig_formato === 'carrusel') return laminasDe(p).map((l) => l.path).filter(Boolean);
+  return p?.ig_imagen_path ? [p.ig_imagen_path] : [];
+}
+
+/** Lo que falta para poder aprobar un carrusel (lista vacía = listo). */
+export function problemasCarrusel(p) {
+  if (p?.ig_formato !== 'carrusel') return [];
+  const ls = laminasDe(p);
+  const out = [];
+  if (ls.length < MIN_LAMINAS) out.push(`Un carrusel necesita al menos ${MIN_LAMINAS} láminas`);
+  if (!(p.ig_pais || '').trim() || !(p.ig_grupo || '').trim()) out.push('Indica el país y el grupo para la portada');
+  return out;
+}
+
+/** Texto que verá Instagram: allí los enlaces no se pulsan, así que se cambian por «link en la bio». */
+export function textoParaInstagram(texto) {
+  return String(texto || '').replace(/https?:\/\/\S+/g, '(link en la bio)').slice(0, 2200);
+}
+
 /** El enlace opcional de la publicación solo se acepta si es http(s). */
 export function enlaceValido(texto) {
   const t = (texto || '').trim();

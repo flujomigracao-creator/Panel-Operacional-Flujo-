@@ -12,6 +12,14 @@ export async function updatePublicacion(id, patch) {
   return must(await supabase.from('publicaciones').update(patch).eq('id', id).select().single());
 }
 
+/** URLs firmadas (1 h) de las imágenes de Instagram para verlas en el panel: { ruta: url }. */
+export async function firmarRutas(rutas) {
+  if (!rutas.length) return {};
+  const { data, error } = await supabase.storage.from('creatives').createSignedUrls(rutas, 3600);
+  if (error) throw error;
+  return Object.fromEntries((data || []).filter((d) => d.signedUrl).map((d) => [d.path, d.signedUrl]));
+}
+
 export async function createPublicacion(campos) {
   const organization_id = await getMyOrganizationId();
   return must(await supabase.from('publicaciones').insert({ organization_id, ...campos }).select().single());
