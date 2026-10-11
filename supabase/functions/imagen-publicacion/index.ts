@@ -163,10 +163,9 @@ Deno.serve(async (req) => {
       if (up) throw new Error(`No se pudo guardar la imagen: ${up.message}`);
       const ahora = new Date().toISOString();
       if (carrusel) {
-        // Se relee la lista por si el panel editó otra lámina mientras se generaba esta.
-        const { data: act } = await admin.from('publicaciones').select('ig_slides').eq('id', p.id).single();
-        const nuevas = ((act?.ig_slides as Lamina[]) || slides).map((s, i) => (i === n - 1 ? { ...s, path, at: ahora } : s));
-        await admin.from('publicaciones').update({ ig_slides: nuevas, ig_imagen_at: ahora }).eq('id', p.id);
+        // Escritura atómica de SOLO esta lámina (varias se generan casi a la vez; leer-y-reescribir la lista se pisaría).
+        const { error: rp } = await admin.rpc('publicacion_ig_slide_path', { p_id: p.id, p_n: n, p_path: path });
+        if (rp) throw new Error(`No se pudo registrar la lámina: ${rp.message}`);
       } else {
         await admin.from('publicaciones').update(ig ? { ig_imagen_path: path, ig_imagen_at: ahora } : { imagen_path: path, imagen_at: ahora }).eq('id', p.id);
       }
